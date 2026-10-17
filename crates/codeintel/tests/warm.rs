@@ -74,6 +74,7 @@ fn refreshed(root: &Path) -> u64 {
     let out = Command::new(binary())
         .args(["query", "?- file(F, _).", "--format", "json"])
         .current_dir(root)
+        .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
         .output()
         .expect("the binary runs");
     assert!(
@@ -93,6 +94,7 @@ fn indexing_an_empty_tree_still_leaves_an_index() {
     let out = Command::new(binary())
         .args(["index", "."])
         .current_dir(dir.path())
+        .env("CODEINTEL_INDEX_DIR", dir.path().join(".codeintel"))
         .output()
         .expect("the binary runs");
     assert!(
@@ -168,6 +170,7 @@ fn cli_query(root: &Path, goal: &str) {
     let out = Command::new(binary())
         .args(["query", goal])
         .current_dir(root)
+        .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
         .output()
         .expect("the binary runs");
     assert!(
@@ -202,6 +205,7 @@ fn indexed() -> tempfile::TempDir {
     let out = Command::new(binary())
         .args(["index", ".", "--scip", "index.scip"])
         .current_dir(dir.path())
+        .env("CODEINTEL_INDEX_DIR", dir.path().join(".codeintel"))
         .output()
         .expect("the binary runs");
     assert!(

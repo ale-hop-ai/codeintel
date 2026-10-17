@@ -23,6 +23,27 @@ struct Cli {
     command: Command,
 }
 
+/// Where the index lives. Flag first, then `CODEINTEL_INDEX_DIR`, then the
+/// default (`specs/04-storage.md` § Location).
+#[derive(Debug, clap::Args)]
+struct Location {
+    /// The index directory. Default: a per-repository directory under the user
+    /// cache, or an existing `<root>/.codeintel/`. Env: `CODEINTEL_INDEX_DIR`.
+    #[arg(long, value_name = "PATH")]
+    index_dir: Option<PathBuf>,
+}
+
+impl Location {
+    /// The explicit directory, if the flag or the environment gave one.
+    fn explicit(self) -> Option<PathBuf> {
+        self.index_dir.or_else(|| {
+            std::env::var_os(facts::store::ENV)
+                .filter(|v| !v.is_empty())
+                .map(PathBuf::from)
+        })
+    }
+}
+
 /// The verbs. The budget is five (`specs/00-overview.md` § Surface budget) and
 /// all five are here: growing to six requires deleting one.
 #[derive(Debug, Subcommand)]
@@ -42,6 +63,8 @@ enum Command {
         /// one is there.
         #[arg(long = "scip")]
         scip: Vec<PathBuf>,
+        #[command(flatten)]
+        location: Location,
     },
     /// Evaluate a Datalog program against the index.
     Query {
@@ -71,6 +94,8 @@ enum Command {
         /// violation it looks for, so finding none is the passing case.
         #[arg(long)]
         expect_empty: bool,
+        #[command(flatten)]
+        location: Location,
     },
     /// Print the relation catalog, the value vocabularies and the rules.
     Schema {
@@ -80,12 +105,16 @@ enum Command {
         /// Output format.
         #[arg(long, value_enum, default_value_t = Format::Text)]
         format: Format,
+        #[command(flatten)]
+        location: Location,
     },
     /// Serve the one MCP tool on stdin and stdout.
     Mcp {
         /// The repository root.
         #[arg(long, default_value = ".")]
         path: PathBuf,
+        #[command(flatten)]
+        location: Location,
     },
     /// Report what the index holds and how far it has drifted from the tree.
     Status {
@@ -95,6 +124,8 @@ enum Command {
         /// Output format.
         #[arg(long, value_enum, default_value_t = Format::Text)]
         format: Format,
+        #[command(flatten)]
+        location: Location,
     },
 }
 
@@ -160,7 +191,8 @@ fn run() -> Result<ExitCode> {
             rebuild,
             langs,
             scip,
-        } => index_cmd(&path, rebuild, langs, scip),
+            location,
+        } => index_cmd(&path, location.explicit().as_deref(), rebuild, langs, scip),
         Command::Query {
             program,
             path,
@@ -170,6 +202,7 @@ fn run() -> Result<ExitCode> {
             raw,
             rules,
             expect_empty,
+            location,
         } => query_cmd(
             &program,
             &path,
@@ -179,6 +212,7 @@ fn run() -> Result<ExitCode> {
                 no_refresh,
                 raw,
                 rules,
+                index_dir: location.explicit(),
                 wire: match format {
                     Format::Text => Wire::Text,
                     Format::Json => Wire::Json,
@@ -186,9 +220,17 @@ fn run() -> Result<ExitCode> {
             },
             expect_empty,
         ),
-        Command::Schema { path, format } => schema_cmd(&path, format),
-        Command::Status { path, format } => status_cmd(&path, format),
-        Command::Mcp { path } => mcp_cmd(&path),
+        Command::Schema {
+            path,
+            format,
+            location,
+        } => schema_cmd(&path, location.explicit().as_deref(), format),
+        Command::Status {
+            path,
+            format,
+            location,
+        } => status_cmd(&path, location.explicit().as_deref(), format),
+        Command::Mcp { path, location } => mcp_cmd(&path, location.explicit().as_deref()),
     }
 }
 
@@ -198,11 +240,16 @@ fn run() -> Result<ExitCode> {
 ///
 /// It exits 0 with no index: the catalog is the answer and it is complete, and
 /// `no-index` says the counts are absent (`specs/05-surface.md` § `schema`).
-fn schema_cmd(path: &std::path::Path, format: Format) -> Result<ExitCode> {
+fn schema_cmd(
+    path: &std::path::Path,
+    index_dir: Option<&std::path::Path>,
+    format: Format,
+) -> Result<ExitCode> {
     let root = path
         .canonicalize()
         .with_context(|| format!("{} does not exist", path.display()))?;
-    let store = match Store::open(&root, &extract::fingerprint()) {
+    let dir = facts::store::locate(&root, index_dir).context("locating the index")?;
+    let store = match Store::open(&root, &dir, &extract::fingerprint()) {
         Ok(store) => store,
         Err(e) => return refusal(e, format),
     };
@@ -229,12 +276,17 @@ fn schema_cmd(path: &std::path::Path, format: Format) -> Result<ExitCode> {
 
 /// Index freshness and per-language counts. `--format json` is the bug-report
 /// artifact for a tool with no telemetry.
-fn status_cmd(path: &std::path::Path, format: Format) -> Result<ExitCode> {
+fn status_cmd(
+    path: &std::path::Path,
+    index_dir: Option<&std::path::Path>,
+    format: Format,
+) -> Result<ExitCode> {
     let root = path
         .canonicalize()
         .with_context(|| format!("{} does not exist", path.display()))?;
+    let dir = facts::store::locate(&root, index_dir).context("locating the index")?;
     // `query`'s checks, in `query`'s order (`specs/05-surface.md` § `status`).
-    let store = match Store::open(&root, &extract::fingerprint()) {
+    let store = match Store::open(&root, &dir, &extract::fingerprint()) {
         Ok(store) => store,
         Err(e) => return refusal(e, format),
     };
@@ -250,6 +302,7 @@ fn status_cmd(path: &std::path::Path, format: Format) -> Result<ExitCode> {
     let report = Report {
         census: &census,
         manifest: store.manifest(),
+        index_dir: &dir,
     };
     match format {
         Format::Text => out(&report.to_string())?,
@@ -286,17 +339,18 @@ fn refusal(error: std::io::Error, format: Format) -> Result<ExitCode> {
 }
 
 /// The one MCP tool, over JSON-RPC on stdin and stdout.
-fn mcp_cmd(path: &std::path::Path) -> Result<ExitCode> {
+fn mcp_cmd(path: &std::path::Path, index_dir: Option<&std::path::Path>) -> Result<ExitCode> {
     let root = path
         .canonicalize()
         .with_context(|| format!("{} does not exist", path.display()))?;
     let stdin = std::io::stdin();
-    codeintel::mcp::serve(&root, stdin.lock(), std::io::stdout().lock())?;
+    codeintel::mcp::serve(&root, index_dir, stdin.lock(), std::io::stdout().lock())?;
     Ok(ExitCode::SUCCESS)
 }
 
 fn index_cmd(
     path: &std::path::Path,
+    index_dir: Option<&std::path::Path>,
     rebuild: bool,
     langs: Vec<String>,
     scip: Vec<PathBuf>,
@@ -304,17 +358,16 @@ fn index_cmd(
     let root = path
         .canonicalize()
         .with_context(|| format!("{} does not exist", path.display()))?;
-    if index::ignore_the_store(&root)? {
-        eprintln!("codeintel: added `.codeintel/` to .gitignore — the store is derived");
-    }
+    let dir = facts::store::locate(&root, index_dir).context("locating the index")?;
 
-    let mut lock = Lock::open(&root.join(facts::store::DIR)).context("opening the writer lock")?;
+    let mut lock = Lock::open(&dir).context("opening the writer lock")?;
     let held = match lock.try_hold().context("taking the writer lock")? {
         Ok(held) => held,
         Err(contended) => {
             // `locked` is for a second writer, and this is one.
             eprintln!(
-                "codeintel: status=locked — another index run holds .codeintel/lock{}",
+                "codeintel: status=locked — another index run holds {}{}",
+                dir.join(facts::lock::LOCK).display(),
                 contended
                     .pid
                     .map_or_else(String::new, |pid| format!(" (pid {pid})"))
@@ -327,9 +380,10 @@ fn index_cmd(
     // lock first would otherwise write into the directory being deleted.
     let mut generation = 0;
     if rebuild {
-        generation = index::discard(&root)?;
+        generation = index::discard(&dir)?;
     }
-    let mut store = Store::open(&root, &extract::fingerprint()).context("opening the index")?;
+    let mut store =
+        Store::open(&root, &dir, &extract::fingerprint()).context("opening the index")?;
     if rebuild {
         store.manifest_mut().dict_generation = generation;
     }

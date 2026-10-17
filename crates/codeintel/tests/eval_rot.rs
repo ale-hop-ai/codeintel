@@ -185,6 +185,7 @@ fn indexed() -> tempfile::TempDir {
     let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
         .args(["index", ".", "--scip", "index.scip"])
         .current_dir(dir.path())
+        .env("CODEINTEL_INDEX_DIR", dir.path().join(".codeintel"))
         .output()
         .expect("the binary runs");
     assert!(

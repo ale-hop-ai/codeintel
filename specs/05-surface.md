@@ -26,7 +26,7 @@ guessing what an empty result means.
 |---|---|---|
 | `ok` | query ran, results are complete | — |
 | `truncated` | query ran, a cap fired | which cap (`max_result_rows` / `max_result_bytes`), and its value |
-| `no-index` | no `.codeintel/` here | `run: codeintel index .` |
+| `no-index` | no index for this root | `run: codeintel index .` |
 | `stale` | sources changed and auto-refresh was skipped, exceeded `max_refresh_ms`, or `schema_version` mismatched | `run: codeintel index .` — names the N files |
 | `no-scip` | the goal's **relation-dependency closure** reaches a relation only SCIP populates, and none was ingested | which relations, and the indexer command for the languages present |
 | `scip-stale` | an indexed file holds bytes `index.scip` did not see ([04-storage.md](04-storage.md) § Manifest, `scip_hash`) | which files, and the indexer command |
@@ -77,15 +77,21 @@ refresh that did not finish makes the SCIP verdict moot.
 ## CLI
 
 ```
-codeintel index  [PATH] [--scip FILE]... [--rebuild] [--lang L]...
+codeintel index  [PATH] [--scip FILE]... [--rebuild] [--lang L]... [--index-dir DIR]
 codeintel query  <PROGRAM|-> [--path DIR] [--format text|json] [--limit N]
                  [--rules FILE]... [--raw] [--no-refresh] [--expect-empty]
-codeintel schema [--path DIR] [--format text|json]
-codeintel status [PATH] [--format text|json]
-codeintel mcp    [--path DIR]
+                 [--index-dir DIR]
+codeintel schema [--path DIR] [--format text|json] [--index-dir DIR]
+codeintel status [PATH] [--format text|json] [--index-dir DIR]
+codeintel mcp    [--path DIR] [--index-dir DIR]
 ```
 
 **Five verbs.** `PATH` defaults to `.`.
+
+`--index-dir` (env `CODEINTEL_INDEX_DIR`) says where the index lives; the
+default is outside the tree. Precedence and edge cases:
+[04-storage.md](04-storage.md) § Location. It is a flag, not a verb, so the
+surface budget is unchanged.
 
 `rules` is gone. It translated `rules NAME A B` into `?- NAME(A, B, Vars...)`
 with args "bound positionally as atoms, no type coercion" — and integers and
@@ -463,7 +469,7 @@ prose to learn that a kind is at zero — that is the same defect as handing
 `query` a `display` column and no raw one.
 
 **`schema` carries a `status` like every response, and exits 0 without an
-index.** With no `.codeintel/` the status is `no-index` and the hint is the
+index.** With no index the status is `no-index` and the hint is the
 usual `run: codeintel index <root>`: `status=` and `hint:` on stderr for text,
 `status` and `hint` fields for `--format json`, `structuredContent` over MCP.
 It used to say `ok` in every form and leave the difference to a sentence inside
@@ -496,6 +502,10 @@ inputs did not see; `ok` otherwise. `no-index`, `stale` and `scip-stale` **exit
 command that reported it. `corrupt` exits 2, as it does for `query`. A schema
 mismatch or a store that will not load prints the status and its hint and no
 counts, because there are none it could read.
+
+Both formats name the resolved index directory (`index:` in text, `index_dir`
+in JSON) — where [04-storage.md](04-storage.md) § Location put it, which a
+reader repairing a `corrupt` index cannot otherwise work out.
 
 The unsupported-extension count costs a full walk, which is why it lives here
 and not on every query. It is printed biggest-first, because the number that

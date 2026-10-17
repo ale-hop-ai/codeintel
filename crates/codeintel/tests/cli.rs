@@ -58,6 +58,7 @@ fn run(root: &Path, args: &[&str]) -> Output {
     Command::new(binary())
         .args(args)
         .current_dir(root)
+        .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
         .output()
         .expect("the binary runs")
 }
@@ -83,7 +84,7 @@ fn query(root: &Path, program: &str) -> (Vec<String>, String) {
 /// Every fact in the store, resolved — for comparing two indexes that will not
 /// agree on atom ids.
 fn facts_of(root: &Path) -> BTreeSet<String> {
-    let store = Store::open(root, "").expect("opens");
+    let store = Store::open(root, root.join(".codeintel"), "").expect("opens");
     let relations = store.load().expect("loads");
     let mut out = BTreeSet::new();
     for rel in RELATIONS {
@@ -405,37 +406,6 @@ fn an_incremental_index_equals_a_cold_one_as_fact_sets() {
 }
 
 #[test]
-fn the_store_is_added_to_an_existing_gitignore_and_announced() {
-    let dir = tree();
-    let gitignore = dir.path().join(".gitignore");
-    std::fs::write(&gitignore, "/target\n").expect("writable");
-
-    let out = index(dir.path());
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(
-        stderr.contains("added `.codeintel/` to .gitignore"),
-        "{stderr}"
-    );
-    let text = std::fs::read_to_string(&gitignore).expect("readable");
-    assert_eq!(text, "/target\n.codeintel/\n");
-
-    // Idempotent, and silent the second time.
-    let out = index(dir.path());
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(!stderr.contains("added `.codeintel/`"), "{stderr}");
-    assert_eq!(std::fs::read_to_string(&gitignore).expect("readable"), text);
-}
-
-#[test]
-fn no_gitignore_is_not_a_reason_to_create_one() {
-    let dir = tree();
-    let out = index(dir.path());
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(!stderr.contains(".gitignore"), "{stderr}");
-    assert!(!dir.path().join(".gitignore").exists());
-}
-
-#[test]
 fn no_index_is_a_status_not_an_empty_answer() {
     let dir = tempfile::tempdir().expect("tempdir");
     std::fs::write(dir.path().join("a.rs"), "fn a() {}\n").expect("writable");
@@ -541,6 +511,7 @@ fn an_error_exits_2_not_the_1_that_means_a_violation() {
     let mut child = Command::new(binary())
         .args(["query", "-", "--expect-empty"])
         .current_dir(dir.path())
+        .env("CODEINTEL_INDEX_DIR", dir.path().join(".codeintel"))
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())

@@ -422,10 +422,10 @@ fn map(path: &Path) -> Result<Mmap> {
         unsafe_code,
         reason = "mmap is the storage design; see 04-storage.md § Loading"
     )]
-    // SAFETY: `.codeintel/` is ours and is rebuilt rather than edited; the
+    // SAFETY: the index directory is ours and is rebuilt rather than edited; the
     // invariant is that no other process truncates these files while an index
     // is open. `specs/04-storage.md` states the index is a cache, not a
-    // database, and `rm -rf .codeintel` is the supported repair.
+    // database, and `codeintel index --rebuild` is the supported repair.
     let mapped = unsafe { Mmap::map(&file) }?;
     Ok(mapped)
 }
