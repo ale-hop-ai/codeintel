@@ -1,4 +1,4 @@
-//! The store on disk: `.codeintel/` — dictionary, segments, manifest.
+//! The store on disk — dictionary, segments, manifest — and where it lives.
 //!
 //! One writer, many readers. Writing a file's facts is: encode the segment,
 //! `fsync` it, rename it into place under a name derived from its bytes.
@@ -14,13 +14,74 @@ use std::path::{Path, PathBuf};
 use datalog::atom::Atom;
 use datalog::relation::Relation;
 
+use crate::REPAIR;
 use crate::intern::Interner;
 use crate::manifest::{Manifest, NewEntry, SegName};
 use crate::schema::{self, Rel};
 use crate::segment::Segment;
 
-/// The store directory inside a repository root.
+/// The store directory an older version wrote inside a repository root. Still
+/// honoured when present; never created (`specs/04-storage.md` § Location).
 pub const DIR: &str = ".codeintel";
+
+/// The environment variable that names the index directory.
+pub const ENV: &str = "CODEINTEL_INDEX_DIR";
+
+/// Where the index for `root` lives (`specs/04-storage.md` § Location): the
+/// `explicit` directory if given, else an existing `<root>/.codeintel/`, else a
+/// per-repository directory under the user cache.
+///
+/// `root` may be spelled any way that resolves to the repository. Nothing is
+/// created.
+///
+/// # Errors
+/// No override, and neither `XDG_CACHE_HOME` (absolute) nor `HOME` is set; or
+/// the override cannot be made absolute.
+pub fn locate(root: &Path, explicit: Option<&Path>) -> Result<PathBuf> {
+    locate_with(
+        root,
+        explicit,
+        std::env::var_os("XDG_CACHE_HOME"),
+        std::env::var_os("HOME"),
+    )
+}
+
+fn locate_with(
+    root: &Path,
+    explicit: Option<&Path>,
+    xdg_cache: Option<std::ffi::OsString>,
+    home: Option<std::ffi::OsString>,
+) -> Result<PathBuf> {
+    if let Some(dir) = explicit.filter(|p| !p.as_os_str().is_empty()) {
+        return std::path::absolute(dir);
+    }
+    let legacy = root.join(DIR);
+    if legacy.is_dir() {
+        return Ok(legacy);
+    }
+    let cache = xdg_cache
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| {
+            home.filter(|h| !h.is_empty())
+                .map(|h| PathBuf::from(h).join(".cache"))
+        })
+        .ok_or_else(|| {
+            std::io::Error::other(
+                "cannot place the index: neither XDG_CACHE_HOME nor HOME is set. Pass \
+                 `--index-dir <PATH>` or set CODEINTEL_INDEX_DIR",
+            )
+        })?;
+    // Canonical, so `.`, a relative path and a symlinked spelling of one
+    // repository all find the same index. The caller need not have done it.
+    let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let key: String = blake3::hash(canonical.as_os_str().as_encoded_bytes())
+        .to_hex()
+        .chars()
+        .take(16)
+        .collect();
+    Ok(cache.join("codeintel").join(key))
+}
 
 /// Where segments live inside [`DIR`].
 pub const SEG: &str = "seg";
@@ -41,16 +102,21 @@ pub struct Store {
 }
 
 impl Store {
-    /// Open the store under `root`, or set up an empty one in memory.
+    /// Open the store for `root` held in `dir`, or set up an empty one in
+    /// memory. `dir` comes from [`locate`].
     ///
     /// Nothing is written here — a `query` against a repository with no index
     /// must be able to say `no-index` without creating one.
     ///
     /// # Errors
     /// I/O failure, or a malformed dictionary or manifest.
-    pub fn open(root: impl Into<PathBuf>, fingerprint: &str) -> Result<Self> {
+    pub fn open(
+        root: impl Into<PathBuf>,
+        dir: impl Into<PathBuf>,
+        fingerprint: &str,
+    ) -> Result<Self> {
         let root = root.into();
-        let dir = root.join(DIR);
+        let dir = dir.into();
         let manifest = Manifest::open(&dir)?;
         let existing = manifest.is_some();
         // Only what the manifest recorded is trusted: anything past those
@@ -80,7 +146,7 @@ impl Store {
         &self.root
     }
 
-    /// The `.codeintel/` directory.
+    /// The index directory.
     #[must_use]
     pub fn dir(&self) -> &Path {
         &self.dir
@@ -179,7 +245,7 @@ impl Store {
     /// A refresh that only added would leave a deleted file's facts answering
     /// queries (`specs/05-surface.md` § `query`). Unlinking here, before the
     /// commit, would leave a crashed run's manifest naming a file that is
-    /// gone, and the index unreadable until `rm -rf`.
+    /// gone, and the index unreadable until it is rebuilt.
     pub fn forget(&mut self, path: &str) -> bool {
         let Some(entry) = self.manifest.files.remove(path) else {
             return false;
@@ -254,7 +320,7 @@ impl Store {
                     e.kind(),
                     format!(
                         "the manifest names {}, which could not be read: {e}. Repair with \
-                         `rm -rf .codeintel && codeintel index .`",
+                         `{REPAIR}`",
                         path.display()
                     ),
                 )
@@ -300,7 +366,8 @@ mod tests {
     fn a_store_round_trips_through_disk() {
         let dir = tempfile::tempdir().expect("tempdir");
         let atoms = {
-            let mut store = Store::open(dir.path(), "blake3:test").expect("opens");
+            let mut store =
+                Store::open(dir.path(), dir.path().join(DIR), "blake3:test").expect("opens");
             assert!(!store.has_index());
             let f = store.intern("src/store.rs").expect("atom");
             let lang = store.intern("rust").expect("atom");
@@ -314,7 +381,7 @@ mod tests {
             (f, lang)
         };
 
-        let store = Store::open(dir.path(), "blake3:test").expect("reopens");
+        let store = Store::open(dir.path(), dir.path().join(DIR), "blake3:test").expect("reopens");
         assert!(store.has_index());
         let relations = store.load().expect("loads");
         let file = relations.get("file").expect("file rows");
@@ -326,7 +393,8 @@ mod tests {
     #[test]
     fn forgetting_a_file_removes_its_facts() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let mut store = Store::open(dir.path(), "blake3:test").expect("opens");
+        let mut store =
+            Store::open(dir.path(), dir.path().join(DIR), "blake3:test").expect("opens");
         let f = store.intern("a.rs").expect("atom");
         let lang = store.intern("rust").expect("atom");
         let mut seg = Segment::new();
@@ -372,7 +440,8 @@ mod tests {
         // replaces it, so the old bytes must exist until then
         // (`specs/04-storage.md` § Concurrency).
         let dir = tempfile::tempdir().expect("tempdir");
-        let mut store = Store::open(dir.path(), "blake3:test").expect("opens");
+        let mut store =
+            Store::open(dir.path(), dir.path().join(DIR), "blake3:test").expect("opens");
         let old = write(&mut store, "a.rs", &[[1, 2, 0, 10]]);
         store.commit().expect("commits");
 
@@ -394,7 +463,8 @@ mod tests {
     #[test]
     fn the_same_bytes_again_are_the_same_segment_and_nothing_is_unlinked() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let mut store = Store::open(dir.path(), "blake3:test").expect("opens");
+        let mut store =
+            Store::open(dir.path(), dir.path().join(DIR), "blake3:test").expect("opens");
         let first = write(&mut store, "a.rs", &[[1, 2, 0, 10]]);
         store.commit().expect("commits");
         let again = write(&mut store, "a.rs", &[[1, 2, 0, 10]]);
@@ -407,7 +477,8 @@ mod tests {
     #[test]
     fn a_forgotten_file_keeps_its_segment_until_commit() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let mut store = Store::open(dir.path(), "blake3:test").expect("opens");
+        let mut store =
+            Store::open(dir.path(), dir.path().join(DIR), "blake3:test").expect("opens");
         let seg = write(&mut store, "a.rs", &[[1, 2, 0, 10]]);
         store.commit().expect("commits");
 
@@ -421,7 +492,8 @@ mod tests {
     fn a_crashed_run_leaves_a_readable_index_and_orphans_the_next_writer_sweeps() {
         let dir = tempfile::tempdir().expect("tempdir");
         let committed = {
-            let mut store = Store::open(dir.path(), "blake3:test").expect("opens");
+            let mut store =
+                Store::open(dir.path(), dir.path().join(DIR), "blake3:test").expect("opens");
             let seg = write(&mut store, "a.rs", &[[1, 2, 0, 10]]);
             store.commit().expect("commits");
             // A run that wrote and forgot, then died before its commit.
@@ -432,7 +504,7 @@ mod tests {
         };
         std::fs::write(dir.path().join(DIR).join("manifest.json.tmp"), b"{ torn").expect("writes");
 
-        let store = Store::open(dir.path(), "blake3:test").expect("reopens");
+        let store = Store::open(dir.path(), dir.path().join(DIR), "blake3:test").expect("reopens");
         let rows = store.load().expect("the old manifest still loads");
         assert_eq!(rows["def_span"].row(0).map(|r| r[2]), Some(2));
         assert_eq!(
@@ -448,7 +520,8 @@ mod tests {
     fn a_torn_dictionary_append_is_cut_at_the_recorded_extents() {
         let dir = tempfile::tempdir().expect("tempdir");
         let alpha = {
-            let mut store = Store::open(dir.path(), "blake3:test").expect("opens");
+            let mut store =
+                Store::open(dir.path(), dir.path().join(DIR), "blake3:test").expect("opens");
             let alpha = store.intern("alpha").expect("atom");
             write(&mut store, "a.rs", &[[1, 2, 0, 10]]);
             store.commit().expect("commits");
@@ -466,13 +539,14 @@ mod tests {
         table.extend_from_slice(&end.to_le_bytes());
         std::fs::write(&idx, &table).expect("writes");
 
-        let mut store = Store::open(dir.path(), "blake3:test").expect("reopens past the tear");
+        let mut store = Store::open(dir.path(), dir.path().join(DIR), "blake3:test")
+            .expect("reopens past the tear");
         assert_eq!(store.resolve(alpha), Some("alpha"));
         let beta = store.intern("beta").expect("atom");
         assert_eq!(store.resolve(beta), Some("beta"));
         store.commit().expect("commits over the tear");
 
-        let store = Store::open(dir.path(), "blake3:test").expect("reopens");
+        let store = Store::open(dir.path(), dir.path().join(DIR), "blake3:test").expect("reopens");
         assert_eq!(
             store.resolve(beta),
             Some("beta"),
@@ -485,7 +559,8 @@ mod tests {
     fn a_commit_that_interns_nothing_records_the_trusted_extents_not_a_torn_tail() {
         let dir = tempfile::tempdir().expect("tempdir");
         let trusted = {
-            let mut store = Store::open(dir.path(), "blake3:test").expect("opens");
+            let mut store =
+                Store::open(dir.path(), dir.path().join(DIR), "blake3:test").expect("opens");
             write(&mut store, "a.rs", &[[1, 2, 0, 10]]);
             store.commit().expect("commits");
             (store.manifest().dict_bin_len, store.manifest().dict_idx_len)
@@ -498,7 +573,8 @@ mod tests {
         std::fs::write(&bin, &data).expect("writes");
 
         {
-            let mut store = Store::open(dir.path(), "blake3:test").expect("reopens past the tear");
+            let mut store = Store::open(dir.path(), dir.path().join(DIR), "blake3:test")
+                .expect("reopens past the tear");
             // The same strings with different rows: the manifest changes and
             // the dictionary does not.
             write(&mut store, "a.rs", &[[1, 3, 0, 20]]);
@@ -510,7 +586,8 @@ mod tests {
                 "the torn bytes are not recorded as trusted"
             );
         }
-        let store = Store::open(dir.path(), "blake3:test").expect("the next open validates");
+        let store = Store::open(dir.path(), dir.path().join(DIR), "blake3:test")
+            .expect("the next open validates");
         let rows = store.load().expect("loads");
         assert_eq!(rows["def_span"].row(0).map(|r| r[2]), Some(3));
     }
@@ -518,7 +595,8 @@ mod tests {
     #[test]
     fn a_missing_segment_is_an_error_not_a_short_answer() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let mut store = Store::open(dir.path(), "blake3:test").expect("opens");
+        let mut store =
+            Store::open(dir.path(), dir.path().join(DIR), "blake3:test").expect("opens");
         let f = store.intern("a.rs").expect("atom");
         let lang = store.intern("rust").expect("atom");
         let mut seg = Segment::new();
@@ -541,7 +619,8 @@ mod tests {
         let victim = dir.path().join("precious.txt");
         std::fs::write(&victim, b"keep me").expect("writes");
         {
-            let mut store = Store::open(dir.path(), "blake3:test").expect("opens");
+            let mut store =
+                Store::open(dir.path(), dir.path().join(DIR), "blake3:test").expect("opens");
             write(&mut store, "a.rs", &[[1, 2, 0, 10]]);
             store.commit().expect("commits");
         }
@@ -553,7 +632,8 @@ mod tests {
         json["files"]["gone.rs"] = gone;
         std::fs::write(&path, json.to_string()).expect("writes");
 
-        let error = Store::open(dir.path(), "blake3:test").expect_err("a hostile manifest");
+        let error = Store::open(dir.path(), dir.path().join(DIR), "blake3:test")
+            .expect_err("a hostile manifest");
         assert!(error.to_string().contains("segment name"), "{error}");
         assert_eq!(
             std::fs::read(&victim).expect("the victim is still there"),
@@ -564,11 +644,59 @@ mod tests {
     #[test]
     fn tmp_files_from_a_crashed_run_are_swept() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let store = Store::open(dir.path(), "blake3:test").expect("opens");
+        let store = Store::open(dir.path(), dir.path().join(DIR), "blake3:test").expect("opens");
         let seg = dir.path().join(DIR).join(SEG);
         std::fs::create_dir_all(&seg).expect("mkdir");
         std::fs::write(seg.join("abc.bin.tmp"), b"junk").expect("writes");
         assert_eq!(store.sweep().expect("sweeps"), 1);
         assert_eq!(store.sweep().expect("sweeps"), 0);
+    }
+
+    #[test]
+    fn locate_prefers_explicit_then_legacy_then_the_cache() {
+        let tree = tempfile::tempdir().expect("tempdir");
+        let xdg = Some(std::ffi::OsString::from("/xdg"));
+        let home = Some(std::ffi::OsString::from("/home/u"));
+        let at = |explicit: Option<&Path>, xdg: Option<std::ffi::OsString>, home| {
+            locate_with(tree.path(), explicit, xdg, home)
+        };
+
+        let cached = at(None, xdg.clone(), home.clone()).expect("locates");
+        assert!(cached.starts_with("/xdg/codeintel"), "{cached:?}");
+        assert_eq!(cached.file_name().expect("key").len(), 16);
+        assert_eq!(at(None, xdg.clone(), home.clone()).expect("again"), cached);
+
+        // A relative or empty XDG_CACHE_HOME is ignored, as the spec says.
+        let relative = at(None, Some("rel".into()), home.clone()).expect("locates");
+        assert!(
+            relative.starts_with("/home/u/.cache/codeintel"),
+            "{relative:?}"
+        );
+        let empty = at(None, Some("".into()), home.clone()).expect("locates");
+        assert_eq!(empty, relative);
+
+        at(None, None, None).expect_err("nowhere to put it");
+        let err = at(None, None, Some("".into())).expect_err("no cache");
+        assert!(err.to_string().contains("--index-dir"), "{err}");
+
+        std::fs::create_dir(tree.path().join(DIR)).expect("mkdir");
+        assert_eq!(
+            at(None, xdg.clone(), home.clone()).expect("legacy"),
+            tree.path().join(DIR)
+        );
+        assert_eq!(
+            at(Some(Path::new("/x/y")), xdg, home).expect("explicit"),
+            Path::new("/x/y")
+        );
+    }
+
+    #[test]
+    fn locate_gives_two_spellings_of_one_root_the_same_key() {
+        let tree = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir(tree.path().join("sub")).expect("mkdir");
+        let xdg = Some(std::ffi::OsString::from("/xdg"));
+        let direct = locate_with(tree.path(), None, xdg.clone(), None).expect("locates");
+        let dotted = locate_with(&tree.path().join("sub/.."), None, xdg, None).expect("locates");
+        assert_eq!(direct, dotted);
     }
 }

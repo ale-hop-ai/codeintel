@@ -92,6 +92,7 @@ fn run(root: &Path, args: &[&str]) -> Output {
     Command::new(binary())
         .args(args)
         .current_dir(root)
+        .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
         .output()
         .expect("the binary runs")
 }

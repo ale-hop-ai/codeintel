@@ -5,16 +5,59 @@ binding: no
 ---
 # 04 — Storage
 
-The fact store is **100% derived**. `rm -rf .codeintel` is always a valid
-repair, nothing user-authored is ever written there, and there is no migration
-path — a schema bump means reindex.
+The fact store is **100% derived**. Deleting the index directory is always a
+valid repair, nothing user-authored is ever written there, and there is no
+migration path — a schema bump means reindex.
 
 That property is what buys the simplicity below. We are not a database.
+
+## Location
+
+The index lives **outside the tree it describes.** A tool that answers
+questions about a tree does not write into it: no new directory in the
+checkout, no `.gitignore` edit, one index per repository rather than one per
+worktree, and an index can be built where the tree is read-only.
+
+The index directory (`<index>` below) is the first of:
+
+1. `--index-dir <PATH>` on `index`, `query`, `schema`, `status` and `mcp`.
+2. `CODEINTEL_INDEX_DIR`, when set and non-empty.
+3. `<root>/.codeintel/`, **if that directory already exists** — an index a
+   previous version wrote is kept in use, not silently re-indexed elsewhere.
+4. `<cache>/codeintel/<key>/`, where `<cache>` is `$XDG_CACHE_HOME` when it is
+   set to an absolute path, else `$HOME/.cache`, and `<key>` is the first 16
+   hex digits of the blake3 of the canonical root path's bytes.
+
+With none of `XDG_CACHE_HOME`, `HOME` or an override available, resolution
+fails with an error that names `--index-dir`; it never falls back into the tree.
+
+- `--index-dir` wins over the env var because it is the more specific, more
+  deliberate statement. Both beat the legacy directory: an explicit override is
+  an instruction, a leftover directory is not. A relative path is taken
+  relative to the working directory, and is made absolute without requiring it
+  to exist.
+- Rules 1–2 name **one repository's** index. Pointing two different roots at
+  one directory makes each overwrite the other's facts; the default key exists
+  so that never happens by accident. `CODEINTEL_INDEX_DIR` is for a single
+  repository (CI, a read-only checkout), not a global setting.
+- Resolution **never creates anything.** `query` and `status` on a root with no
+  index report `no-index` and leave no directory behind. The directory is
+  created by the writer lock (`index`, or a `query` auto-refresh of an existing
+  index).
+- Nothing is ever written into the tree, and `.gitignore` is never read for
+  this purpose nor modified. The walk still skips a directory named
+  `.codeintel`, so a legacy index is not indexed as source.
+- `status` reports the resolved directory (`index:` in text, `index_dir` in
+  JSON), because the repair for a `corrupt` index is "delete it" and the
+  reader must be able to find it.
+- Pruning cache entries whose tree has gone is **not** part of this change. The
+  manifest already records the root (`roots`), so a later `status`-side check is
+  possible without a format change.
 
 ## Layout
 
 ```
-.codeintel/
+<index>/
   manifest.json          index metadata + per-file segment table
   dict.bin               string interner, append-only
   dict.idx               offset table into dict.bin
@@ -27,9 +70,6 @@ instead, because the blob buys nothing and costs three things: a second load
 path, a manifest field to name it, and the loss of per-file forgetting — a
 tier-B-only file that is deleted can no longer be dropped on its own. Every
 argument for per-file segments applies to them unchanged.
-
-Add `.codeintel/` to `.gitignore` on `codeintel index` if a `.gitignore` exists
-and does not already ignore it. Announce it; do not do it silently.
 
 ## Interner
 
@@ -120,7 +160,7 @@ repo (~200 MB, [01-facts.md](01-facts.md) § Scale) the merge is the only real
 cost and it is linear in row count.
 
 Optimization, only if measurement demands it: cache the merged per-relation
-arrays in `.codeintel/merged/` keyed by the manifest hash, so an unchanged index
+arrays in `<index>/merged/` keyed by the manifest hash, so an unchanged index
 loads with zero merging. **Do not build this until a benchmark shows load time
 above 200 ms.** It is listed here so a future agent knows it was considered and
 deliberately deferred.
@@ -226,7 +266,7 @@ nothing will ever reconcile them. For the same reason the fingerprint is
 recorded only by a run that walked every language and finished: a `--lang`
 run, or one `max_refresh_ms` stopped, leaves the old value in place, so the
 next full run still re-extracts what it skipped. It also makes every bug report irreproducible,
-because the reporter's first move is `rm -rf .codeintel`, which destroys the
+because the reporter's first move is deleting the index directory, which destroys the
 evidence. Fifteen lines.
 
 **`roots` is an array from day one** even though v1 writes one element.
@@ -350,14 +390,14 @@ about the past for those files, and the agent must be able to see that.
   one — once. If it moved again the answer is `stale`. If it never moved, the
   manifest names a segment nothing replaced, and that is `corrupt`.
 - Two concurrent writers are undefined behaviour. Take an advisory lock on
-  `.codeintel/lock` (`flock`, `LOCK_EX | LOCK_NB`) and fail rather than racing.
+  `<index>/lock` (`flock`, `LOCK_EX | LOCK_NB`) and fail rather than racing.
   **`query`'s auto-refresh is a writer and takes the same lock** — an MCP server
   serving two concurrent queries is two writers, and `dict.bin` is append-only
   with no tmp+rename, so interleaved appends put `dict.idx` offsets out of step
   with `dict.bin` bytes and every atom past that point resolves to the wrong
   string, with no checksum to notice.
 - `--rebuild` takes the writer lock first and discards under it, and
-  `.codeintel/lock` survives the discard: a second writer opening a fresh lock
+  `<index>/lock` survives the discard: a second writer opening a fresh lock
   file would not contend with the first. A refresh re-reads the manifest after
   taking the lock — one read to decide whether to refresh, one under the lock
   to build on — so a refresh that lost a race never commits a manifest built
@@ -369,7 +409,7 @@ about the past for those files, and the agent must be able to see that.
   from the index as it stands, `stale`, with the reason.
 - Every segment carries a body checksum, validated on open, and `n_rows` is
   bounds-checked against the file length. A truncated or zero-filled segment
-  returns `status: "corrupt"` with hint `rm -rf .codeintel && codeintel index .`
+  returns `status: "corrupt"` with hint `codeintel index . --rebuild`
   — never a panic and never silent rows of atom 0.
 
 Windows has no unlink-open-file semantics and is out of scope for v1. Say so in
@@ -384,7 +424,7 @@ the README rather than half-supporting it.
   per-segment checksums + dictionary extents in the manifest, above. A crashed
   index leaves the previous manifest pointing at valid, checksummed segments,
   plus orphans — `.tmp` files and unnamed segments — that the next run removes.
-- **`.codeintel/` must be excluded from file sync.** mmap over a Dropbox/iCloud
+- **The index directory must be excluded from file sync.** mmap over a Dropbox/iCloud
   partial write or an SMB/NFS truncation raises `SIGBUS`, which no status code
   can report. One line in the README.
 - **No compression.** `u32` columns of interned ids are already dense. Adding

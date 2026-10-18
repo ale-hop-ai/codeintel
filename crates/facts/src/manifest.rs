@@ -510,7 +510,7 @@ mod tests {
         for hostile in ["/home/x/.ssh/id_ed25519", "../../src/main.rs"] {
             std::fs::write(&path, text.replace(seg_name().as_str(), hostile)).expect("writes");
             let error = Manifest::open(dir.path()).expect_err("a hostile name is refused");
-            assert!(error.to_string().contains("rm -rf .codeintel"), "{error}");
+            assert!(error.to_string().contains("--rebuild"), "{error}");
         }
     }
 }
