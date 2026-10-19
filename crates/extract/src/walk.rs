@@ -8,7 +8,7 @@
 //! `!file(F, _)` means "not indexed", which is different from "indexed and
 //! empty" (`specs/02-extraction.md` § Budget).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::lang::{self, Lang};
@@ -57,14 +57,34 @@ impl Skips {
     }
 }
 
+/// Everything one walk of the tree found.
+#[derive(Debug, Clone, Default)]
+pub struct Walked {
+    /// The files worth extracting, sorted by path.
+    pub files: Vec<Candidate>,
+    /// Every file the walk reached, extractable or not — the repo-relative
+    /// path of each entry the matchers let through, including the ones
+    /// [`Skips`] then dropped for size or for having no grammar.
+    ///
+    /// This is the tree's membership list, and it is what tier B is checked
+    /// against: a SCIP document naming a path that is not in here names a path
+    /// `.gitignore` excluded, and indexing it would re-admit through tier B
+    /// exactly what tier A was told to skip (`specs/02-extraction.md`
+    /// § Budget).
+    pub visible: BTreeSet<String>,
+    /// What the walk dropped, by reason.
+    pub skips: Skips,
+}
+
 /// Walk `root` and return the indexable files, sorted by path.
 ///
 /// Sorted because `docs/plan.md` M2 requires that shuffling the file order
 /// changes nothing, and the cheapest way to hold that is to not have an order
 /// that depends on the filesystem in the first place.
 #[must_use]
-pub fn walk(root: &Path) -> (Vec<Candidate>, Skips) {
+pub fn walk(root: &Path) -> Walked {
     let mut out = Vec::new();
+    let mut visible = BTreeSet::new();
     let mut skips = Skips::default();
     let mut walker = ignore::WalkBuilder::new(root);
     walker
@@ -94,6 +114,7 @@ pub fn walk(root: &Path) -> (Vec<Candidate>, Skips) {
         let Some(path) = relative(root, entry.path()) else {
             continue;
         };
+        visible.insert(path.clone());
         let Some(lang) = lang::for_path(&path) else {
             let ext = path
                 .rsplit_once('.')
@@ -118,7 +139,11 @@ pub fn walk(root: &Path) -> (Vec<Candidate>, Skips) {
         });
     }
     out.sort_by(|a, b| a.path.cmp(&b.path));
-    (out, skips)
+    Walked {
+        files: out,
+        visible,
+        skips,
+    }
 }
 
 /// A path under `root`, `/`-separated.
@@ -166,7 +191,8 @@ mod tests {
     #[test]
     fn the_walk_finds_source_and_counts_what_it_dropped() {
         let dir = fixture();
-        let (found, skips) = walk(dir.path());
+        let walked = walk(dir.path());
+        let (found, skips) = (&walked.files, &walked.skips);
         let paths: Vec<&str> = found.iter().map(|c| c.path.as_str()).collect();
         assert_eq!(paths, vec!["src/lib.rs", "src/main.rs"]);
         assert_eq!(skips.unsupported.get(".md"), Some(&1));
@@ -179,10 +205,14 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let big = vec![b'\n'; usize::try_from(MAX_BYTES).unwrap_or(0) + 1];
         std::fs::write(dir.path().join("big.rs"), big).expect("write");
-        let (found, skips) = walk(dir.path());
-        assert!(found.is_empty());
-        assert_eq!(skips.too_large, 1);
-        assert_eq!(skips.total(), 1);
+        let walked = walk(dir.path());
+        assert!(walked.files.is_empty());
+        assert_eq!(walked.skips.too_large, 1);
+        assert_eq!(walked.skips.total(), 1);
+        assert!(
+            walked.visible.contains("big.rs"),
+            "too large is still part of the tree"
+        );
     }
 
     #[test]
@@ -191,9 +221,73 @@ mod tests {
         std::fs::create_dir_all(dir.path().join(".codeintel/seg")).expect("mkdir");
         std::fs::write(dir.path().join(".codeintel/oops.rs"), "fn a() {}").expect("write");
         std::fs::write(dir.path().join("real.rs"), "fn b() {}").expect("write");
-        let (found, _) = walk(dir.path());
-        assert_eq!(found.len(), 1);
-        assert_eq!(found.first().map(|c| c.path.as_str()), Some("real.rs"));
+        let walked = walk(dir.path());
+        assert_eq!(walked.files.len(), 1);
+        assert_eq!(
+            walked.files.first().map(|c| c.path.as_str()),
+            Some("real.rs")
+        );
+        assert_eq!(
+            walked.visible,
+            ["real.rs".to_string()].into_iter().collect()
+        );
+    }
+
+    /// #54, the tier-A half: the `ignore` crate is handed the tree root and
+    /// discovers `.gitignore` at every level, so a wildcard directory segment,
+    /// a nested file and a negation all behave as `git check-ignore` does.
+    ///
+    /// The leak in #54 was never here — it was tier B ingesting SCIP documents
+    /// for paths this walk had already refused. This pins the half that was
+    /// right so a future change cannot quietly make the reporter correct.
+    #[test]
+    fn gitignore_globs_are_matched_as_git_matches_them() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        for d in [
+            "packages/ui/src",
+            "packages/ui/build",
+            "packages/ui/build/nested",
+            "packages/api/build",
+            "deep/a/b/build",
+            "vendor",
+        ] {
+            std::fs::create_dir_all(root.join(d)).expect("mkdir");
+        }
+        std::fs::write(root.join(".gitignore"), "packages/*/build\nvendor/*.rs\n").expect("write");
+        // Nested, and a negation that re-admits one file the parent excluded.
+        // `vendor/*.rs`, not `vendor/`: git cannot re-include a file whose
+        // parent *directory* is excluded, because it never descends to read
+        // the nested rules.
+        std::fs::write(root.join("vendor/.gitignore"), "!keep.rs\n").expect("write");
+        for f in [
+            "packages/ui/src/lib.rs",
+            "packages/ui/build/out.rs",
+            "packages/ui/build/nested/deeper.rs",
+            "packages/api/build/out.rs",
+            // `*` spans one segment, so `packages/*/build` does not reach this.
+            "deep/a/b/build/kept.rs",
+            "vendor/keep.rs",
+            "vendor/drop.rs",
+        ] {
+            std::fs::write(root.join(f), "fn a() {}\n").expect("write");
+        }
+
+        let walked = walk(root);
+        let paths: Vec<&str> = walked.files.iter().map(|c| c.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec![
+                "deep/a/b/build/kept.rs",
+                "packages/ui/src/lib.rs",
+                "vendor/keep.rs",
+            ]
+        );
+        assert_eq!(
+            walked.visible,
+            paths.iter().map(|p| (*p).to_string()).collect(),
+            "an excluded path is not in the tree for tier B either"
+        );
     }
 
     #[test]

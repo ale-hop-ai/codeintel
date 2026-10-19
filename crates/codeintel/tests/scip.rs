@@ -496,15 +496,21 @@ fn index_reports_what_it_ingested_and_how_well_it_joined() {
 
 #[test]
 fn removing_the_scip_index_drops_the_files_only_it_covered() {
-    // A file the walk never reaches — gitignored here, an unsupported language
-    // in the field — has a segment made of SCIP facts and nothing else. When
-    // `index.scip` goes, so must it: the alternative is `no-scip` beside rows
-    // still marked `exact`.
+    // A file tier A will not parse — over the size cap here, an unsupported
+    // language in the field — has a segment made of SCIP facts and nothing
+    // else. When `index.scip` goes, so must it: the alternative is `no-scip`
+    // beside rows still marked `exact`.
+    //
+    // Over the cap, not gitignored: an ignored path is outside the tree for
+    // *both* tiers (`specs/02-extraction.md` § Budget), so it has no segment
+    // to drop. Padding is appended, so every SCIP position still lands on the
+    // byte it named.
     let dir = tree();
-    let ignore = dir.path().join(".gitignore");
-    let mut rules = std::fs::read_to_string(&ignore).unwrap_or_default();
-    rules.push_str("\nsrc/app.rs\n");
-    std::fs::write(&ignore, rules).expect("writes");
+    let app = dir.path().join("src/app.rs");
+    let mut src = std::fs::read_to_string(&app).expect("reads");
+    src.push_str(&"\n".repeat(usize::try_from(extract::walk::MAX_BYTES).unwrap_or(0) + 1));
+    std::fs::write(&app, src).expect("writes");
+    set_mtime(&app, SOURCE_MTIME);
     index(dir.path());
     assert!(
         !rows(
@@ -800,5 +806,49 @@ fn anchoring_does_not_shrink_exported() {
     assert!(
         orphans.is_empty(),
         "a trait-impl method's parent is its type, not the file: {orphans:?}"
+    );
+}
+
+/// #54: `.gitignore` bounds the whole index, not just tier A.
+///
+/// `scip-typescript` indexes a monorepo's generated `packages/*/build/**.d.ts`
+/// even though `.gitignore` excludes them, and tier B used to ingest every
+/// document that merely existed on disk — so each generated declaration came
+/// back as a second `def` for an export already indexed from its source. The
+/// walk is the only statement about which paths belong to the tree; tier B is
+/// held to it, and says which documents it refused.
+#[test]
+fn a_gitignored_path_is_not_re_admitted_through_tier_b() {
+    let dir = tree();
+    index(dir.path());
+    assert!(
+        !rows(dir.path(), r#"?- file("src/app.rs", L)."#).is_empty(),
+        "the fixture indexes src/app.rs before it is ignored"
+    );
+
+    // A wildcard directory segment, exactly as `packages/*/build` is one.
+    let ignore = dir.path().join(".gitignore");
+    let mut rules = std::fs::read_to_string(&ignore).unwrap_or_default();
+    rules.push_str("\n*/app.rs\n");
+    std::fs::write(&ignore, rules).expect("writes");
+    // `--rebuild`: the refusal is reported by the run that reads the SCIP
+    // index, and an incremental run over an unchanged `index.scip` does not
+    // read one. Both runs must drop the file; only this one can name why.
+    let out = run(dir.path(), &["index", ".", "--rebuild"]);
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "{stderr}");
+
+    assert!(
+        rows(dir.path(), r#"?- file("src/app.rs", L)."#).is_empty(),
+        "an ignored path produces zero facts, not even a file row"
+    );
+    assert!(rows(dir.path(), r#"?- def(S, "src/app.rs", K, N)."#).is_empty());
+    assert!(
+        rows(dir.path(), r#"?- scip_ref(S, "src/app.rs", L, C, X, R)."#).is_empty(),
+        "tier B emits nothing for a path outside the tree"
+    );
+    assert!(
+        stderr.contains("src/app.rs: ignored"),
+        "the refusal is named, never silent: {stderr}"
     );
 }

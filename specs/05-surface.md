@@ -125,9 +125,14 @@ elapsed. Skipped files are summarized **by reason**
 — "3 too large, 88 unsupported (`.scala`)" — because a silently unindexed
 subtree is the single most confusing failure this tool can have.
 
-**There is no `ignored` count.** The `ignore` crate does not report the entries
-its matchers drop, so the number costs a second full traversal with the matchers
-off — which on a repo with a populated `target/` is the most expensive thing in
+SCIP documents the walk does not reach are listed there too, with the reason
+`ignored`, per [02-extraction.md](02-extraction.md) § Budget. That count is
+affordable where the walk's is not: the documents are an enumerated set, already
+in memory, and testing each against the walked paths costs no extra traversal.
+
+**There is no `ignored` count.** For the *walk*: the `ignore` crate does not
+report the entries its matchers drop, so the number costs a second full
+traversal with the matchers off — which on a repo with a populated `target/` is the most expensive thing in
 the walk, spent on a figure that changes no decision. An earlier draft of this
 line read "412 ignored, 3 too large, ...".
 

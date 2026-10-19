@@ -38,9 +38,10 @@ pub(crate) fn extract_tree(root: &Path) -> Extracted {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut interner = Interner::open(dir.path()).expect("dictionary");
     let mut segments = BTreeMap::new();
-    let (found, skips) = walk(root);
+    let walked = walk(root);
+    let skips = &walked.skips;
     assert!(skips.unreadable.is_empty(), "{:?}", skips.unreadable);
-    for candidate in found {
+    for candidate in walked.files {
         let src = std::fs::read_to_string(&candidate.abs).expect("source is UTF-8");
         let mut extractor = Extractor::new(candidate.lang).expect("extractor");
         let out = extractor
@@ -265,7 +266,7 @@ pub(crate) fn assert_kinds_present(extracted: &Extracted, kinds: &[&str]) {
 pub(crate) fn assert_captures_disjoint(root: &Path) {
     use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 
-    let (found, _) = walk(root);
+    let found = walk(root).files;
     assert!(!found.is_empty(), "the fixture has no source files");
     for lang in extract::LANGS {
         let language = (lang.language)();

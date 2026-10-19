@@ -160,9 +160,9 @@ impl Census {
         if !self.indexed {
             return self;
         }
-        let (found, skips) = extract::walk::walk(root);
-        self.unsupported = skips.unsupported;
-        self.changed = changed_files(root, manifest, &found);
+        let walked = extract::walk::walk(root);
+        self.unsupported = walked.skips.unsupported;
+        self.changed = changed_files(root, manifest, &walked.files);
         self
     }
 
