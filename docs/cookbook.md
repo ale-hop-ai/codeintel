@@ -102,6 +102,13 @@ The impact of a change, excluding tests:
 all-pairs reachability and hit the budget. `reaches/2` and `recursive/1` are the
 deliberately unseeded pair; use them only on a small tree.
 
+**Every traversal has an `_exact` form.** `reach_of_exact`, `reaches_exact`,
+`recursive_exact` alongside `impact_of_exact`. A closure compounds what name
+matching invents — one invented edge anywhere on a path invents the whole path,
+and that is how `?- recursive(S).` comes back with `__init__` and `run` on a
+repo where neither is recursive. Ask the `_exact` form of any question whose
+answer you intend to act on.
+
 ---
 
 ## 3. The dex 34, as rules

@@ -166,7 +166,12 @@ fn the_rule_list_matches_the_rules() {
             rule.1
         );
     }
-    assert_eq!(advertised.len(), 39, "the rule count moved: {advertised:?}");
+    // 39 -> 42: `reach_of_exact`, `reaches_exact`, `recursive_exact` (#53).
+    // The three traversals over `calls` that shipped without the `_exact`
+    // sibling the file's own header promises. The real budget is the character
+    // ceiling above, which this spends 238 of; the count is here so the spend
+    // is named rather than noticed later.
+    assert_eq!(advertised.len(), 42, "the rule count moved: {advertised:?}");
 }
 
 #[test]
