@@ -41,7 +41,8 @@ parent(Child, Parent)                  semantic owner, one hop. Parent is a symb
                                        or a file path. Exactly one row per def.
 exported(S)                            present iff visible outside its module
 resolved(S)                            present iff S has SCIP-grade identity
-import(F, Module, Alias)               Module as written. Alias is "" when absent.
+import(F, Module, Alias)               Module is the specifier's content, as written and
+                                       without source quotes. Alias is "" when absent.
 scip_ref(S, F, Line, Col, From, Role)  compiler-resolved occurrence inside definition From
 name_ref(Name, F, Line, Col, From)     unresolved identifier occurrence. Names no symbol.
 implements(S, T, Prov)                 S implements, overrides or satisfies T

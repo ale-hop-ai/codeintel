@@ -329,6 +329,27 @@ pub(crate) fn assert_facts_are_local(extracted: &Extracted) {
     }
 }
 
+/// Module spelling: an `import` row's `Module` carries no source delimiters.
+///
+/// The one guard about agreement *between* languages. `specs/01-facts.md`
+/// § `import` says the column is the specifier's content, so Go's
+/// `import "fmt"` is `fmt` and not `"fmt"`; a language that kept its quotes
+/// would make `?- import(F, "fmt", _).` answer zero rows on that language
+/// alone, which is the silent-miss class this project exists to prevent (#70).
+pub(crate) fn assert_modules_undelimited(extracted: &Extracted) {
+    for row in extracted.rows("import") {
+        let module = row.get(1).expect("an import row has a Module");
+        let delimited = ['"', '\'', '`']
+            .iter()
+            .any(|d| module.starts_with(*d) || module.ends_with(*d));
+        assert!(
+            !delimited,
+            "import module {module:?} keeps a source delimiter \
+             (specs/01-facts.md § `import`)"
+        );
+    }
+}
+
 /// Determinism: a second extraction of the same tree is byte-identical.
 pub(crate) fn assert_deterministic(root: &Path) {
     assert_eq!(extract_tree(root).render(), extract_tree(root).render());

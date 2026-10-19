@@ -155,10 +155,13 @@ fn a_scip_stale_go_file_names_scip_go_in_status() {
 }
 
 #[test]
-fn an_import_is_the_specifier_as_written() {
-    // Never resolved to a path (`specs/01-facts.md` § `import`), and the alias
-    // column carries Go's `_` verbatim: "imported only for its side effects" is
-    // a thing a conformance rule wants to ask about.
+fn an_import_is_the_specifier_without_its_quotes() {
+    // The import path literal's *content*, never resolved to a path
+    // (`specs/01-facts.md` § `import`) and never carrying Go's quotes — the
+    // spelling every other language uses, so `?- import(F, "fmt", _).` reads
+    // the same here (#70). The alias column carries Go's `_` verbatim:
+    // "imported only for its side effects" is a thing a conformance rule wants
+    // to ask about.
     let dir = tier_a_tree();
     index(dir.path());
     let (rows, stderr) = query(dir.path(), r#"?- import("ui/panel.go", M, A)."#);
@@ -166,10 +169,7 @@ fn an_import_is_the_specifier_as_written() {
     // The bound file is a constant, so only `M` and `A` are columns.
     assert_eq!(
         rows,
-        [
-            "\"example.com/fixture/db\"\t",
-            "\"example.com/fixture/net\"\t_"
-        ]
+        ["example.com/fixture/db\t", "example.com/fixture/net\t_"]
     );
 }
 
