@@ -60,8 +60,11 @@ macro  typealias  unknown
 
 **`Role`** — how an occurrence uses the symbol:
 ```
-def  read  write  import  test  generated  forward  unknown
+read  write  import  test  generated  forward  unknown
 ```
+There is no `def`. A definition occurrence becomes a `def`/`at` row rather than
+a `scip_ref` one, so a `def` role could never match — see § `scip_ref` (#44).
+
 `unknown` is `UnspecifiedSymbolRole`: the indexer emitted an occurrence with an
 empty role bitset. Calling that a `read` would be the extractor guessing
 (invariant 1), and dropping the occurrence would lose a reference the compiler
@@ -376,8 +379,15 @@ the occurrence is at file scope.
 ```
 scip_ref("... Store#get().", "src/api.rs", 88, 12, "... handler#read().", "read").
 ```
-Definition sites appear here too with `Role = "def"`, so "every place this
-symbol occurs" is one relation, not two.
+Definition sites do **not** appear here. A SCIP occurrence carrying the
+`Definition` bit is routed to `def` and `at`; `scip_ref` holds references only,
+and there is no `def` value in the `Role` vocabulary. "Every place this symbol
+occurs" is therefore `def` plus `ref`, two relations and not one.
+
+An earlier draft of this section claimed the opposite, and the claim survived
+because nothing could fail it: `?- scip_ref(S, F, L, C, _, "def").` answered
+`ok` with zero rows, which reads as "this index has none" rather than "this can
+never match" (#44).
 
 ### `name_ref(Name, F, Line, Col, From)`
 An **unresolved** identifier occurrence from tier A: the text `Name` appears at
@@ -778,7 +788,7 @@ callable("function"). callable("method"). callable("constructor"). callable("mac
 
 % --- calls: a reference to a callable, attributed to its enclosing def --
 calls_at(From, S, F, L, Prov) :-
-    ref(S, F, L, _, From, Role, Prov), Role != "def",
+    ref(S, F, L, _, From, _, Prov),
     def(From, _, FromKind, _), FromKind != "module",
     def(S, _, K, _), callable(K).
 calls(From, S) :- calls_at(From, S, _, _, _).

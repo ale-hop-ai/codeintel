@@ -38,8 +38,12 @@ pub const KINDS: &[&str] = &[
 /// The vocabulary lives here beside [`KINDS`] so there is one list to read and
 /// one list to print. `scip.rs` maps SCIP's role bits onto these names and a
 /// test there asserts it produces nothing outside this set.
+///
+/// There is no `def`. A definition occurrence is routed to `def`/`at`, never
+/// to `scip_ref`, so a `def` role could match nothing — and a vocabulary that
+/// advertises a value no row can carry is a `?- scip_ref(S,F,L,C,_,"def").`
+/// that answers `ok` with zero rows and reads as "there are none" (#44).
 pub const ROLES: &[&str] = &[
-    "def",
     "read",
     "write",
     "import",
