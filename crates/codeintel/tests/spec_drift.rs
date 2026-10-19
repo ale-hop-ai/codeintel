@@ -21,7 +21,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use codeintel::schema::STDLIB;
+use codeintel::STDLIB;
 
 const FACTS_SPEC: &str = include_str!("../../../specs/01-facts.md");
 
