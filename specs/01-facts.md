@@ -909,7 +909,10 @@ reads `calls` or `ref` is contaminated by it.** The roster of `_exact` twins is
 exhaustive and is stated here rather than implied, because an earlier draft
 claimed every contaminated rule shipped in both forms while shipping only
 `dead_export` that way, and a later one named `about` among them while stdlib
-had no `about_exact`:
+had no `about_exact`. `the_exact_roster_matches_the_rules`
+(`crates/codeintel/tests/spec_drift.rs`) asserts it against `rules/stdlib.dl`
+in both directions, which is how `ref_outside_exact/2` — present in the rules,
+absent from this list — was found:
 
 | contaminated rule | `_exact` twin |
 |---|---|
@@ -919,6 +922,7 @@ had no `about_exact`:
 | `reaches/2` | `reaches_exact/2` |
 | `recursive/1` | `recursive_exact/1` |
 | `dead_export/1` | `dead_export_exact/1` |
+| `ref_outside/2` | `ref_outside_exact/2` |
 | `entrypoint/1` | `entrypoint_exact/1` |
 | `depends/2` | `depends_exact/2` |
 | `uses_package/2` | `uses_package_exact/2` |
