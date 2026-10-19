@@ -81,8 +81,11 @@ pub(crate) const KIND_MAP: &[(&str, &str)] = &[
 /// One occurrence can carry several; we report the first that matches, in this
 /// order, because `Role` is one atom and an occurrence that is both a write and
 /// a test is more usefully a `write`.
+///
+/// `Definition` is absent on purpose: an occurrence carrying that bit is routed
+/// to `doc.defs` above and never reaches here, so a row for it would be
+/// unreachable (#44).
 const ROLES: &[(SymbolRole, &str)] = &[
-    (SymbolRole::Definition, "def"),
     (SymbolRole::ForwardDefinition, "forward"),
     (SymbolRole::WriteAccess, "write"),
     (SymbolRole::ReadAccess, "read"),
