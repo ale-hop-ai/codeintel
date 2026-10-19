@@ -7,7 +7,7 @@ steps:
   # `vars`, not a prop default: a prop's default is taken as written, never
   # rendered, so `{{ home }}` in one would stay four braces.
   - vars:
-      rq_ref: v0.5.0
+      rq_ref: v0.6.0
       rq_dir: "{{ home }}/.cache/provision/tools/rust-quality"
 
   # The `git` action tells a tag from a branch by asking the repository, so
