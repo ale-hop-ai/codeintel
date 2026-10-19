@@ -414,3 +414,52 @@ fn an_export_clause_exports_a_declaration_that_stays_restricted() {
     );
     assert!(rows.is_empty(), "{rows:?}");
 }
+
+/// `specs/01-facts.md` § `def_doc`, with a SCIP index present.
+///
+/// `scip-typescript` 0.4.0 writes no `signature_documentation` and renders the
+/// hover signature into `documentation[0]` instead, for every symbol. Taking
+/// that as the doc comment made `def_doc` hold for almost everything, so
+/// `undocumented_export` — the whole of which is `exported(S), !def_doc(S, _)`
+/// — went silent the moment the index was ingested (#55). Tier A alone had it
+/// right, which is what makes the two halves of this test comparable.
+#[test]
+fn a_hover_signature_is_not_a_doc_comment() {
+    let dir = tree();
+    index(dir.path());
+
+    // No `def_doc` is a rendered signature. Every one of these was a row.
+    let (rows, stderr) = query(dir.path(), "?- def_doc(S, D).");
+    assert!(stderr.contains("status=ok"), "{stderr}");
+    assert!(!rows.is_empty(), "the fixture is documented");
+    for row in &rows {
+        assert!(!row.contains("```"), "a fenced hover block survived: {row}");
+    }
+
+    // `#evict` and `describe` are undocumented methods tier A never anchored,
+    // so tier B is the only thing that could have given them a `def_doc`.
+    // A `SymId` renders as `Name path:line`, so a name is a prefix of it.
+    let documented = column(&rows, 0);
+    let names = |set: &[&str], want: &str| set.iter().any(|s| s.starts_with(want));
+    assert!(
+        !names(&documented, "#evict store/store.ts"),
+        "{documented:?}"
+    );
+    assert!(
+        !names(&documented, "describe store/store.ts"),
+        "{documented:?}"
+    );
+    // A real JSDoc still arrives, un-prefixed by the fence it followed.
+    let (get, _) = query(
+        dir.path(),
+        r#"?- def(S, "store/store.ts", "method", "get"), def_doc(S, D)."#,
+    );
+    assert!(get.iter().any(|r| r.contains("Read one entry.")), "{get:?}");
+
+    // And the relation that depends on the contract answers again.
+    let (undocumented, stderr) = query(dir.path(), "?- undocumented_export(S).");
+    assert!(stderr.contains("status=ok"), "{stderr}");
+    let undocumented = column(&undocumented, 0);
+    assert!(names(&undocumented, "Panel "), "{undocumented:?}");
+    assert!(names(&undocumented, "Draw "), "{undocumented:?}");
+}

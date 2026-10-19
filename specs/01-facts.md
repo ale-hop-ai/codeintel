@@ -202,6 +202,12 @@ if there is none — **no empty-string rows**, so `!def_doc(S, _)` means
 undocumented. `Doc` is an ordinary interned string (§ Integers): displayable and
 `match`-able, but not comparable with `=`.
 
+The contract holds with a SCIP index present. Some indexers render a symbol's
+type signature into `SymbolInformation.documentation[]` rather than into
+`signature_documentation`, and they do it for every symbol; tier B drops those
+fenced blocks so that absent still means undocumented
+(`specs/02-extraction.md` § Hover blocks are not doc comments, #55).
+
 ### `parent(Child, Parent)`
 The **semantic owner**, one hop. `Parent` is a `SymId` for owned definitions or
 a file path `F` for top-level ones — both are atoms, so the column is uniform.
