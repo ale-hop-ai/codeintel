@@ -551,7 +551,7 @@ impl Extractor {
             is_impl: tag.is_impl,
             trait_name: tag.trait_name.map(str::to_string),
             qualifier: tag.qualifier,
-            sig: signature(src, sig_start, tag.node.end_byte(), self.lang.sig_stops),
+            sig: self.signature(src, sig_start, tag.node),
             // A `@doc` capture is the documentation where the language keeps
             // it inside the definition; the preamble is where it keeps it in
             // front. A language states one or the other in its query and its
@@ -563,6 +563,31 @@ impl Extractor {
                 .map(|d| strip_markers(d, &[]))
                 .filter(|d| !d.is_empty())
                 .or(doc),
+        }
+    }
+
+    /// The declaration header, from the grammar where the grammar says, and
+    /// from a character scan where it does not.
+    ///
+    /// A node with a `body` field states exactly where its header ends: the
+    /// last named child in front of the body. Nothing is scanned, so nothing
+    /// can be mis-read — `def f(mask=8 >> 1, flag=True):` used to be cut at
+    /// `flag` because `>>` dropped the scan's bracket depth to zero, and
+    /// `1 << 3` used to raise it and never bring it back (#74). Those are not
+    /// fixable lexically: `>>` closes two generic arguments in Java and C++
+    /// (`docs/plan.md` defers both, it does not reject them), `<<` opens two
+    /// qualified paths in Rust, and a bare `<` is a generic opener and a
+    /// comparison in the same grammar. Deciding between them by looking at
+    /// characters is a guess, and invariant 1 forbids guessing.
+    ///
+    /// A node with no `body` field — an overload, an interface method, a type
+    /// alias, a binding — states no such boundary, so [`signature`] scans for
+    /// one. It agrees with the grammar on every definition in the fixtures;
+    /// switching the body-bearing ones over moved no golden row.
+    fn signature(&self, src: &str, start: usize, node: Node<'_>) -> String {
+        match header_end(node) {
+            Some(end) => collapse(src.get(start..end).unwrap_or(""), SIG_CAP),
+            None => signature(src, start, node.end_byte(), self.lang.sig_stops),
         }
     }
 
@@ -929,12 +954,14 @@ fn ancestor(parents: &[Option<usize>], i: usize, want: impl Fn(usize) -> bool) -
     None
 }
 
-/// The declaration header: source from the node's start to the first body
-/// delimiter, whitespace-collapsed and capped.
+/// The declaration header by character scan: the node's start to the first
+/// body delimiter, whitespace-collapsed and capped.
 ///
-/// It starts at the declaration head, not at `def_span`'s start — the span
-/// deliberately reaches back over attributes and the doc comment, and a
-/// signature that opened with three lines of prose would be useless.
+/// The fallback half of [`Extractor::signature`], for a node whose grammar
+/// states no `body` field. It starts at the declaration head, not at
+/// `def_span`'s start — the span deliberately reaches back over attributes and
+/// the doc comment, and a signature that opened with three lines of prose
+/// would be useless.
 fn signature(src: &str, start: usize, end: usize, stops: &[char]) -> String {
     let text = src.get(start..end).unwrap_or("");
     // A stop character nested inside a bracket group is part of the header, not
@@ -960,6 +987,19 @@ fn signature(src: &str, start: usize, end: usize, stops: &[char]) -> String {
         }
     }
     collapse(text.get(..cut).unwrap_or(text), SIG_CAP)
+}
+
+/// Where the declaration header ends, if the grammar says.
+///
+/// `body` is tree-sitter's own field name for the block a declaration
+/// introduces, in every grammar here, so this is not per-language Rust. The
+/// header is everything up to the last **named** child before it: the
+/// punctuation that opens the body — Python's `:`, Rust's and Go's `{` — is an
+/// anonymous child sitting between the two, and dropping it is what the stop
+/// characters were for.
+fn header_end(node: Node<'_>) -> Option<usize> {
+    let body = node.child_by_field_name("body")?;
+    Some(body.prev_named_sibling()?.end_byte())
 }
 
 /// Whether the `<` or `>` at `at` is half of an operator rather than a bracket.
@@ -1110,6 +1150,22 @@ mod tests {
         for (src, stops, want) in cases {
             assert_eq!(signature(src, 0, src.len(), stops), want, "{src}");
         }
+    }
+
+    #[test]
+    fn a_shift_is_not_two_brackets_and_must_not_become_one() {
+        // The fallback scan is where a lexical `<<`/`>>` rule would be
+        // written, and this is what it would break. `<<A as B>::C as D>::E`
+        // is two opening brackets and two closing ones — verified against
+        // rustc, not assumed — and Java and C++ spell a nested generic's
+        // close as `>>` (`docs/plan.md` defers both, it does not reject
+        // them). `#74` is fixed by taking the boundary from the grammar
+        // instead; nothing here may start guessing.
+        let src = "pub fn unwrap<T: Inner>(v: <<T as Inner>::Item as Outer>::Out) -> usize {";
+        assert_eq!(
+            signature(src, 0, src.len(), RUST),
+            "pub fn unwrap<T: Inner>(v: <<T as Inner>::Item as Outer>::Out) -> usize"
+        );
     }
 
     #[test]
