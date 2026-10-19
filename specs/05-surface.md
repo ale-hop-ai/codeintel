@@ -691,6 +691,17 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
   rows, which is indistinguishable from a typo, a wrong `Kind`, a path that is
   not indexed, and a missing SCIP index. The engine already evaluates
   literal-by-literal, so the first-zero literal is free.
+- **When a condition and an empty result coincide, the hint carries both**, as
+  `condition. also: emptiness`, and the **status stays the condition**. The two
+  are different facts: the condition says what the index could not see, the
+  emptiness says which literal stopped the join, and neither implies the other.
+  An earlier implementation filled the slot with the condition and skipped the
+  emptiness, which inverted the guarantee this contract exists for — a
+  `scip-stale` or `no-scip` index is exactly when a caller most needs to tell
+  "no" from "I cannot see it", and it was the only state in which the tool
+  refused to say. The status stays the condition because the condition is the
+  one fact nowhere else in the response, the same reason truncation composes
+  rather than overwrites (§ Status taxonomy).
 - **A constant in a typed column is diagnosed against that column, not against
   the relation.** "the index holds 1448 `def` rows" is true and useless: the
   agent's error was the *value*, and the relation total says nothing about it.
