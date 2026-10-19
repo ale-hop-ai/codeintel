@@ -212,6 +212,119 @@ fn a_re_export_is_not_attributed_to_the_file_as_a_caller() {
     assert_eq!(rows, vec![String::new()], "{rows:?}");
 }
 
+/// One local declaration spelled `Error` and an `impl std::error::Error for
+/// Error` over it. `name_impl` keeps only the final identifier written on
+/// each side, so both columns read `"Error"` and the same-file clause of
+/// `impl_sym` resolves them to the same symbol.
+///
+/// The declaration is a TRAIT on purpose: that is what isolates `S != T`.
+/// Were it the enum this repository actually writes at
+/// `crates/extract/src/error.rs`, `trait_sym` would drop the row first and
+/// this test would pass with `S != T` deleted — the enum form of the same
+/// bug is covered by `cross_crate_impl_fixture` instead.
+fn same_name_impl_fixture() -> Engine {
+    let mut e = stdlib_engine();
+    install(&mut e, "file", &[&["src/error.rs", "rust"]]);
+    install(&mut e, "def", &[&["E#", "src/error.rs", "trait", "Error"]]);
+    install(
+        &mut e,
+        "name_impl",
+        &[&["src/error.rs", "Error", "Error", "10"]],
+    );
+    e.load_rules(codeintel::query::STDLIB)
+        .expect("stdlib loads");
+    e
+}
+
+#[test]
+fn implements_does_not_self_edge_on_a_same_named_trait_and_type() {
+    // `impl_sym` resolves both `TypeName` and `TraitName` to the one local
+    // `Error` — nothing else named `Error` exists in this file — so without
+    // `S != T` this reports `Error` implementing itself (#40).
+    let (rows, _) = both_in(same_name_impl_fixture, r"?- implements(S, T, P).");
+    assert_eq!(
+        rows,
+        vec![] as Vec<String>,
+        "a type was reported implementing itself: {rows:?}"
+    );
+}
+
+/// Three files, no `Error` trait anywhere: an `Error` ENUM one crate exports,
+/// a `Symbols` TRAIT another exports, and a `Diagnostic` that writes both
+/// `impl core::error::Error for Diagnostic` and `impl Symbols for Diagnostic`.
+/// `name_impl` keeps the final identifier only, so the first row's trait side
+/// reads `"Error"` and `impl_sym`'s repo-wide clause hands back the enum from
+/// a crate the `impl` never mentions.
+fn cross_crate_impl_fixture() -> Engine {
+    let mut e = stdlib_engine();
+    install(
+        &mut e,
+        "file",
+        &[
+            &["extract/error.rs", "rust"],
+            &["datalog/diag.rs", "rust"],
+            &["datalog/symbols.rs", "rust"],
+        ],
+    );
+    install(
+        &mut e,
+        "def",
+        &[
+            &["Error#", "extract/error.rs", "enum", "Error"],
+            &["Diagnostic#", "datalog/diag.rs", "struct", "Diagnostic"],
+            &["Symbols#", "datalog/symbols.rs", "trait", "Symbols"],
+        ],
+    );
+    install(
+        &mut e,
+        "visibility",
+        &[
+            &["Error#", "public"],
+            &["Diagnostic#", "public"],
+            &["Symbols#", "public"],
+        ],
+    );
+    install(
+        &mut e,
+        "name_impl",
+        &[
+            &["datalog/diag.rs", "Diagnostic", "Error", "69"],
+            &["datalog/diag.rs", "Diagnostic", "Symbols", "80"],
+        ],
+    );
+    e.load_rules(codeintel::query::STDLIB)
+        .expect("stdlib loads");
+    e
+}
+
+#[test]
+fn implements_does_not_resolve_a_trait_name_to_a_non_trait_definition() {
+    // Without `trait_sym`, `core::error::Error` resolves to the one exported
+    // definition spelled `Error` repo-wide — an enum in another crate (#40).
+    let (rows, _) = both_in(
+        cross_crate_impl_fixture,
+        r#"?- implements("Diagnostic#", "Error#", P)."#,
+    );
+    assert_eq!(
+        rows,
+        vec![] as Vec<String>,
+        "a trait name resolved to an enum: {rows:?}"
+    );
+}
+
+#[test]
+fn implements_still_resolves_a_trait_defined_in_another_file() {
+    // The other half of the guard: `trait_sym` must tighten the tier, not
+    // close it. A genuine cross-file trait impl is exactly what the repo-wide
+    // clause of `impl_sym` exists to answer, and it still answers.
+    let (rows, _) = both_in(cross_crate_impl_fixture, r"?- implements(S, T, P).");
+    assert_eq!(
+        rows,
+        vec!["\"Diagnostic#\" \"Symbols#\" \"name\""],
+        "the true cross-file row was lost: {rows:?}"
+    );
+}
+
 #[test]
 fn the_standard_library_answers_over_hand_written_facts() {
     // The location bridge: a file:line from a stack trace becomes a symbol.

@@ -166,7 +166,12 @@ fn the_rule_list_matches_the_rules() {
             rule.1
         );
     }
-    assert_eq!(advertised.len(), 39, "the rule count moved: {advertised:?}");
+    // 40 since `trait_sym` (#40). This is the DRIFT tripwire, not the budget:
+    // the rule-count cap was dropped in favour of the byte ceiling asserted by
+    // `the_schema_fits_its_size_budget_with_the_rule_list_complete`, and that
+    // ceiling has room (this repository renders 5,971 of 10,000 chars, up 183).
+    // Moving this number is for a deliberate rule, and says which one.
+    assert_eq!(advertised.len(), 40, "the rule count moved: {advertised:?}");
 }
 
 #[test]
