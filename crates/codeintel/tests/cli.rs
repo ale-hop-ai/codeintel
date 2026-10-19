@@ -1267,13 +1267,6 @@ fn a_rule_file_that_widens_a_stdlib_predicate_is_never_silent() {
     )
     .expect("write");
 
-    let stats = |args: &[&str]| -> serde_json::Value {
-        let out = run(dir.path(), args);
-        let json: serde_json::Value =
-            serde_json::from_slice(&out.stdout).expect("stdout is one JSON object");
-        json["stats"].clone()
-    };
-
     let base = run(
         dir.path(),
         &[
@@ -1323,25 +1316,96 @@ fn a_rule_file_that_widens_a_stdlib_predicate_is_never_silent() {
     assert!(stderr.contains("widened: `callable/1"), "{stderr}");
 
     // A rule file with a name of its own stays quiet, so this is a signal and
-    // not noise on every conformance run.
+    // not noise on every conformance run. THREE clauses of that name, because
+    // one clause is the case that cannot catch #76: a layering policy is one
+    // clause per forbidden edge, and testing a head against `defined` while
+    // inserting it made the second clause collide with the first and report a
+    // widening of a stdlib rule that does not exist.
     let clean = dir.path().join("clean.dl");
     std::fs::write(
         &clean,
-        "%% my_layering(F, M) -- a rule with a name of its own.\n\
-         my_layering(F, M) :- import(F, M, _).\n",
+        "%% my_layering(F, M) -- a rule with a name of its own, one clause per edge.\n\
+         my_layering(F, M) :- import(F, M, _), prefix(F, \"src/ui/\").\n\
+         my_layering(F, M) :- import(F, M, _), prefix(F, \"src/db/\").\n\
+         my_layering(F, M) :- import(F, M, _), prefix(F, \"src/domain/\").\n",
     )
     .expect("write");
-    let stats = stats(&[
-        "query",
-        "?- my_layering(F, M).",
-        "--no-refresh",
-        "--format",
-        "json",
-        "--rules",
-        &clean.to_string_lossy(),
-    ]);
-    assert!(
-        stats["widened"].as_array().is_some_and(Vec::is_empty),
-        "{stats}"
+    let out = run(
+        dir.path(),
+        &[
+            "query",
+            "?- my_layering(F, M).",
+            "--no-refresh",
+            "--format",
+            "json",
+            "--rules",
+            &clean.to_string_lossy(),
+        ],
     );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    assert!(
+        json["stats"]["widened"]
+            .as_array()
+            .is_some_and(Vec::is_empty),
+        "a predicate this file introduced is not a widening: {json}"
+    );
+    assert!(
+        !String::from_utf8_lossy(&out.stderr).contains("widened"),
+        "and stderr says nothing either: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// The second rule file widens the first, and that is reported too — the
+/// baseline is everything defined before the file, not the stdlib alone.
+///
+/// Guards the other side of #76: collecting a file's heads before inserting
+/// them must not stop a *later* file colliding with an earlier one.
+#[test]
+fn a_rule_file_that_widens_an_earlier_rule_file_is_reported() {
+    let dir = tree();
+    index(dir.path());
+
+    let first = dir.path().join("first.dl");
+    std::fs::write(
+        &first,
+        "%% my_layering(F, M) -- one clause per edge.\n\
+         my_layering(F, M) :- import(F, M, _), prefix(F, \"src/ui/\").\n\
+         my_layering(F, M) :- import(F, M, _), prefix(F, \"src/db/\").\n",
+    )
+    .expect("write");
+    let second = dir.path().join("second.dl");
+    std::fs::write(
+        &second,
+        "%% my_layering(F, M) -- a second file naming it, also twice.\n\
+         my_layering(F, M) :- import(F, M, _), prefix(F, \"src/net/\").\n\
+         my_layering(F, M) :- import(F, M, _), prefix(F, \"src/app/\").\n",
+    )
+    .expect("write");
+
+    let out = run(
+        dir.path(),
+        &[
+            "query",
+            "?- my_layering(F, M).",
+            "--no-refresh",
+            "--format",
+            "json",
+            "--rules",
+            &first.to_string_lossy(),
+            "--rules",
+            &second.to_string_lossy(),
+        ],
+    );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    let widened = json["stats"]["widened"].as_array().expect("widened");
+    assert_eq!(
+        widened.len(),
+        1,
+        "the second file widens, the first introduces: {widened:?}"
+    );
+    let entry = widened[0].as_str().expect("a string");
+    assert!(entry.starts_with("my_layering/2 "), "{entry}");
+    assert!(entry.contains("second.dl"), "{entry}");
+    assert!(!entry.contains("first.dl"), "{entry}");
 }
