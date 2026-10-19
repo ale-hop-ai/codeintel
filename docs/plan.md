@@ -1241,6 +1241,63 @@ ok, every counter equal, and every compared metric within 6% of its baseline.
 - deno's cold index, 58 s, is twice the < 30 s criterion. That criterion is a
   100k-LOC number, and tokio meets it.
 
+### #28: the warm call scales with the walk, not with the store (2026-10-19)
+
+M6 item 3, measured at last. `benches/warm_phases.rs` breaks a warm no-change
+call into its phases on a corpus that has not changed since it was indexed,
+which is the case the contract puts every call in. p50 / p95 in ms:
+
+| phase | fd (~7k) | tokio (~183k) | deno (~831k) |
+|---|---|---|---|
+| `locate` | 0.001 / 0.002 | 0.000 / 0.000 | 0.002 / 0.003 |
+| `open` | 0.343 / 0.695 | 5.448 / 6.773 | 28.826 / 50.616 |
+| `manifest_reread` | 0.027 / 0.051 | 0.291 / 0.587 | 1.890 / 2.815 |
+| `manifest_compare` | 0.001 / 0.004 | 0.011 / 0.012 | 0.159 / 0.234 |
+| `sweep` | 0.074 / 0.110 | 0.754 / 1.414 | 3.859 / 9.471 |
+| **`walk`** | **0.889 / 1.284** | **7.334 / 9.637** | **160.965 / 586.559** |
+| `refresh` | 1.034 / 1.742 | 14.268 / 21.757 | 167.589 / 407.595 |
+| `warm_total` | 2.102 / 3.384 | 36.531 / 57.894 | 218.539 / 456.704 |
+| `mcp_p50` anchor | 2.917 | — | 324.211 |
+
+**It is the walk.** 161 of deno's 168 ms of `refresh` is
+`extract::walk` — the gitignore-aware traversal — and `refresh` is 168 of the
+219 ms a warm call spends. The per-file stale check that the walk exists to
+feed costs 2.8 ms. Evaluation costs 22.1. `Store::open` was the plan's leading
+candidate and it is 28.8 ms, real but second; `locate`, `manifest_compare` and
+`sweep` are noise at every size.
+
+The scaling is the tree, not the index: deno's walk is 22x tokio's for 4.5x the
+LOC, because the walk's cost is directories and ignore-matching, not the files
+that survive it. deno's `node_modules`-shaped tree is the worst case for
+exactly that.
+
+**No fix is proposed, and this is the honest outcome rather than a deferral.**
+Item 3 says fix what the numbers say — and what they say is that the dominant
+cost is the one phase the contract requires. Every call refreshes
+([05-surface.md](../specs/05-surface.md) § `query`), refreshing means knowing
+which files changed, and knowing that means walking the tree. The candidates
+that would move it all break something:
+
+| idea | what it costs |
+|---|---|
+| Cache the walk between calls | A file created since the last call is invisible. That is the confidently-wrong answer the auto-refresh contract exists to prevent. |
+| Watch the tree (fsevents/inotify) | A daemon, a new dependency, and a platform matrix — and `docs/plan.md` § Explicitly deferred already holds watch mode behind a different trigger. |
+| Walk only the directories the manifest knows | Same hole as caching: a new directory is never looked in. |
+| Trust directory mtimes | Not portable, and not true on every filesystem the tool runs on. |
+
+So the finding stands as a measurement and the contract stands unchanged.
+**The 20 ms p50 done-when is stated on tokio, where `warm_total` is 36.5 ms in
+this harness and the MCP p50 was 18.7 ms in #26** — the difference is that this
+bench measures `Warm::run` on a cold-ish process rather than the warm MCP loop,
+so it is a profile, not a gate, and it compares nothing. deno gates nothing
+either. Re-open this if a corpus in the 100k decade ever shows `walk`
+dominating, which is the size the criteria are written against.
+
+Issue #28 stays open, retitled to the contract question rather than the
+profiling one: the profiling is done.
+
+---
+
 ---
 
 ## Explicitly deferred

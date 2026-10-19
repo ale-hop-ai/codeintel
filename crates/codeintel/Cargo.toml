@@ -26,5 +26,9 @@ tempfile.workspace = true
 name = "corpus"
 harness = false
 
+[[bench]]
+name = "warm_phases"
+harness = false
+
 [lints]
 workspace = true
