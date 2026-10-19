@@ -252,20 +252,37 @@ Per file, one parse, then:
    algorithm in tier A, it is ~30 lines, and **tier B reuses it verbatim** (§ Tier B).
    A definition carrying an `@owner` capture that resolves overrides its swept
    parent here, before any symbol is synthesized (§ `@owner`).
-3. `def_sig` = the definition's source text from `start_byte` up to the first
-   body delimiter (`{`, `:` + newline, `=`, or end of line), whitespace-collapsed,
-   capped at 512 bytes. Crude and honest — it is a display string, not a parse.
-   The delimiter counts only at bracket depth zero, so `struct S<T = u32>` is
-   not cut at its `=`. Depth is lexical, with one exception: a `<` or `>` with
-   `-` or `=` immediately beside it is half of `<-`, `->`, `=>`, `<=` or `>=`
-   and moves nothing. Without it Go's `func f(c <-chan int) error {` never
-   returned to depth zero and the header ran to end of line, and TypeScript's
-   `(cb: (x: number) => void, o: {a: 1})` reached depth zero at the `=>` and
-   was cut mid-parameters. A shift (`<<`, `>>`) and a bare comparison
-   (`a < b`) still move it, so a default argument containing one still reports
-   a wrong header — known, not fixed here, and adjacency does not reach them: a
-   shift is two angle brackets that balance each other, and a bare `<` is
-   indistinguishable from a generic without a parse (#74).
+3. `def_sig` = the definition's header, whitespace-collapsed, capped at 512
+   bytes. It is a display string, not a parse, but **where it ends is taken
+   from the parse**: a node with a `body` field ends its header at the last
+   named child in front of that body. `body` is tree-sitter's own field name
+   in every grammar here, so this is not per-language Rust, and the
+   punctuation that opens the body — Python's `:`, Rust's and Go's `{` — is an
+   anonymous child between the two and drops out on its own.
+
+   A node with **no** `body` field — an overload, an interface method, a type
+   alias, a binding — states no such boundary, so the header is scanned
+   instead: source from `start_byte` to the first body delimiter (`{`, `:` +
+   newline, `=`, or end of line) at bracket depth zero, so `struct S<T = u32>`
+   is not cut at its `=`. That depth is lexical, with one exception: a `<` or
+   `>` with `-` or `=` immediately beside it is half of `<-`, `->`, `=>`, `<=`
+   or `>=` and moves nothing. Without it Go's `func f(c <-chan int) error {`
+   never returned to depth zero and the header ran to end of line, and
+   TypeScript's `(cb: (x: number) => void, o: {a: 1})` reached depth zero at
+   the `=>` and was cut mid-parameters (#43).
+
+   The scan is the fallback and not the rule because three spellings defeat it
+   and **no lexical rule can fix them** (#74): `>>` closes two generic
+   arguments in Java and C++ (`docs/plan.md` defers both, it does not reject
+   them), `<<` opens two qualified paths in Rust — `fn f(x: <<A as B>::C as
+   D>::E)` compiles — and a bare `<` is a generic opener and a comparison in
+   the same grammar. Choosing between them from characters is a guess, and
+   invariant 1 forbids guessing. The grammar already knows, so the grammar is
+   asked. Switching every body-bearing definition over moved no golden row in
+   any fixture, which is the evidence that the two agree wherever the scan was
+   right in the first place. The argument is correctness, not cost: the node
+   lookup's cost against the scan's is unmeasured, and `docs/plan.md` M6 is
+   where measuring happens.
 4. `def_doc` = contiguous comment lines immediately preceding `def_span.start`,
    marker prefixes stripped. Emitted only if non-empty. A language whose
    documentation lives inside the definition captures it with `@doc` instead
