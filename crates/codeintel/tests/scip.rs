@@ -494,6 +494,37 @@ fn index_reports_what_it_ingested_and_how_well_it_joined() {
     assert!(stderr.contains("anchored:"), "{stderr}");
 }
 
+/// `index` and `status` print the same anchor rate, because it is one
+/// statistic and they used to disagree about which one it was.
+///
+/// `status` divided `resolved` rows by `def` rows, which counts the
+/// tier-B-only definitions on both sides — each `resolved` by construction —
+/// and read several points above `index`'s figure for the same store. A reader
+/// who indexed and then asked `status` saw the number move with nothing having
+/// changed, and had no way to tell which one the docs meant (#77).
+///
+/// Asserted as string equality on the whole line, not on a parsed percentage:
+/// the counts have to match too, and a rounded percentage can agree while the
+/// counts do not.
+#[test]
+fn index_and_status_agree_on_the_anchor_rate() {
+    let dir = tree();
+    let indexed = index(dir.path());
+    let line = |text: &str| -> String {
+        text.lines()
+            .map(str::trim)
+            .find(|l| l.starts_with("anchored: "))
+            .unwrap_or_else(|| panic!("no anchor line in {text}"))
+            .to_string()
+    };
+    let reported = String::from_utf8_lossy(&run(dir.path(), &["status"]).stdout).to_string();
+    assert_eq!(line(&indexed), line(&reported));
+
+    // And the line says which definitions it counts, because "defs" alone was
+    // the word both denominators claimed.
+    assert!(line(&indexed).contains("tier-A defs"), "{indexed}");
+}
+
 #[test]
 fn removing_the_scip_index_drops_the_files_only_it_covered() {
     // A file tier A will not parse — over the size cap here, an unsupported
