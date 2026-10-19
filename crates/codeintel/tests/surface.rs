@@ -414,10 +414,11 @@ fn a_wrapped_rule_doc_is_joined_not_dropped() {
 
 #[test]
 fn every_relation_has_a_signature_of_the_right_arity() {
-    // `signature()` is hand-written because argument *names* carry the
-    // meaning, so it can drift from `facts::RELATIONS`. Adding a relation
-    // without an entry would print a blank argument list in the project's
-    // most-read output.
+    // `signature()` now reads `facts::RELATIONS`, so the two cannot disagree
+    // about *which* relations exist (#48). What this still checks is the
+    // rendered head: `schema` prints `name(args)` and `split_head` has to
+    // parse that back, so a signature that is malformed rather than merely
+    // absent would print a broken row in the project's most-read output.
     for rel in facts::RELATIONS {
         let (args, _) = schema::signature(rel.name);
         assert!(!args.is_empty(), "{} has no signature", rel.name);

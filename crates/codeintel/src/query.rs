@@ -27,7 +27,7 @@ pub const STDLIB: &str = include_str!("../../../rules/stdlib.dl");
 /// How long auto-refresh may take before the answer is `stale`.
 pub const MAX_REFRESH_MS: u64 = 2_000;
 
-/// Base relations only tier B can populate.
+/// True when only tier B can populate the base relation `name`.
 ///
 /// A goal whose dependency **closure** reaches one of these, against an index
 /// with no SCIP, gets `no-scip` rather than `ok` with zero rows. The closure,
@@ -35,12 +35,23 @@ pub const MAX_REFRESH_MS: u64 = 2_000;
 /// README's own headline query would otherwise return `ok` and nothing on a
 /// fresh install — the exact failure invariant 6 exists to prevent
 /// (`docs/plan.md` M3).
+///
 /// `implements` is deliberately absent. Since schema 2 it is a rule with a
 /// tier-A `name` branch over `name_impl`, so it answers without SCIP, and
 /// `no-scip` would disclaim rows the index really has. `scip_impl`, the base
 /// relation beneath it, stays: a query naming that one directly is asking for
 /// the compiler's answer specifically.
-pub const SCIP_BACKED: &[&str] = &["scip_ref", "resolved", "scip_impl", "extern"];
+///
+/// **Read off `facts::RELATIONS`, not kept beside it.** This was a hand-written
+/// list of four names in this file, which a relation added to the schema could
+/// fall out of without a compiler or a test noticing — and the symptom was
+/// `ok` with zero rows, the one failure invariant 6 exists to prevent (#48).
+/// `Rel::scip_only` has no default, so the question now has to be answered
+/// where the relation is declared.
+#[must_use]
+pub fn scip_backed(name: &str) -> bool {
+    facts::schema::by_name(name).is_some_and(|rel| rel.scip_only)
+}
 
 /// How much larger the engine's raw-atom byte budget is than the printed one.
 ///
@@ -1041,7 +1052,7 @@ impl ScipState {
     /// The status this answer deserves, or `None` when SCIP has nothing to say
     /// about it.
     fn verdict(&self, depends: &[String], langs: &[&'static str]) -> Option<(Status, String)> {
-        if !depends.iter().any(|d| SCIP_BACKED.contains(&d.as_str())) {
+        if !depends.iter().any(|d| scip_backed(d)) {
             return None;
         }
         let commands = if langs.is_empty() {
@@ -1051,7 +1062,7 @@ impl ScipState {
         };
         let wanted = depends
             .iter()
-            .filter(|d| SCIP_BACKED.contains(&d.as_str()))
+            .filter(|d| scip_backed(d))
             .cloned()
             .collect::<Vec<_>>()
             .join(", ");
