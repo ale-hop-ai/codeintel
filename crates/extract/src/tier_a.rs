@@ -999,7 +999,17 @@ fn signature(src: &str, start: usize, end: usize, stops: &[char]) -> String {
 /// characters were for.
 fn header_end(node: Node<'_>) -> Option<usize> {
     let body = node.child_by_field_name("body")?;
-    Some(body.prev_named_sibling()?.end_byte())
+    // Walk back over extras. A comment sitting between the header and the body
+    // is a named child like any other, so `fn f() -> u32 // why` would
+    // otherwise end its header at the comment and carry it into `def_sig`.
+    // `is_extra` is tree-sitter's own flag for a token the grammar allows
+    // anywhere — comments in all four grammars here — so skipping it needs no
+    // per-language list of comment kinds.
+    let mut prev = body.prev_named_sibling()?;
+    while prev.is_extra() {
+        prev = prev.prev_named_sibling()?;
+    }
+    Some(prev.end_byte())
 }
 
 /// Whether the `<` or `>` at `at` is half of an operator rather than a bracket.
@@ -1093,7 +1103,8 @@ fn offset(path: &str, n: usize) -> Result<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::signature;
+    use super::{header_end, signature};
+    use crate::lang;
 
     /// The stop characters Rust declares (`lang.rs`), duplicated here so the
     /// test states what it exercises.
@@ -1165,6 +1176,43 @@ mod tests {
         assert_eq!(
             signature(src, 0, src.len(), RUST),
             "pub fn unwrap<T: Inner>(v: <<T as Inner>::Item as Outer>::Out) -> usize"
+        );
+    }
+
+    #[test]
+    fn a_comment_before_the_body_is_not_part_of_the_header() {
+        // `body.prev_named_sibling()` is the comment here, not the return
+        // type: tree-sitter makes comments named children. Taking it would put
+        // `// why` inside `def_sig`, which is a wrong header from a correct
+        // parse — the grammar is right and the reading of it was wrong.
+        let src = "fn f(a: u32) -> u32 // why\n{\n    a\n}\n";
+        let lang = lang::for_path("x.rs").expect("rust is registered");
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&(lang.language)())
+            .expect("grammar loads");
+        let tree = parser.parse(src, None).expect("parses");
+        let item = tree.root_node().child(0).expect("the fn");
+        let end = header_end(item).expect("a body means a stated boundary");
+        assert_eq!(src.get(..end), Some("fn f(a: u32) -> u32"));
+    }
+
+    #[test]
+    fn a_where_clause_is_part_of_the_header() {
+        // The counter-case that stops the fix above from going too far: a
+        // `where` clause is a real named child and belongs in the signature.
+        let src = "fn f<T>(a: T) -> T\nwhere\n    T: Copy,\n{\n    a\n}\n";
+        let lang = lang::for_path("x.rs").expect("rust is registered");
+        let mut parser = tree_sitter::Parser::new();
+        parser
+            .set_language(&(lang.language)())
+            .expect("grammar loads");
+        let tree = parser.parse(src, None).expect("parses");
+        let item = tree.root_node().child(0).expect("the fn");
+        let end = header_end(item).expect("a body means a stated boundary");
+        assert_eq!(
+            src.get(..end),
+            Some("fn f<T>(a: T) -> T\nwhere\n    T: Copy,")
         );
     }
 
