@@ -166,13 +166,19 @@ fn the_rule_list_matches_the_rules() {
             rule.1
         );
     }
-    // 39 -> 40: `scip_claim` (#56). The guard tier A negates had to become a
-    // rule the moment "tier B resolved this position" stopped meaning "a
-    // `scip_ref` row exists here" — a base-relation literal cannot express
-    // "...and its target is a symbol something describes". There is no
-    // count cap any more (`specs/00-overview.md` § Surface budget); the
-    // budget this spends against is the schema's size, asserted above.
-    assert_eq!(advertised.len(), 40, "the rule count moved: {advertised:?}");
+    // 39 -> 41: `scip_claim` (#56) and `trait_sym` (#40). Each had to become a
+    // rule rather than a literal. `scip_claim` because "tier B resolved this
+    // position" stopped meaning "a `scip_ref` row exists here" and a
+    // base-relation literal cannot express "...and its target is a symbol
+    // something describes"; `trait_sym` because the trait side of an `impl`
+    // must resolve to a trait-like `Kind` and that is three clauses, not one.
+    //
+    // This is the DRIFT tripwire, not the budget: the rule-count cap was
+    // dropped in favour of the byte ceiling asserted by
+    // `the_schema_fits_its_size_budget_with_the_rule_list_complete`, and that
+    // ceiling has room. Moving this number is for a deliberate rule, and says
+    // which one.
+    assert_eq!(advertised.len(), 41, "the rule count moved: {advertised:?}");
 }
 
 #[test]

@@ -787,6 +787,27 @@ fn impl_sym_resolves_both_sides_of_the_for() {
     assert!(rows(r#"?- impl_sym("src/store.rs", N, S)."#).is_empty());
 }
 
+/// The other helper under `implements`: which `Kind`s the trait side admits.
+///
+/// `name_impl` keeps the final identifier only, so `impl core::error::Error
+/// for Diagnostic` and `impl Error for Diagnostic` are the same two words by
+/// the time a rule sees them. `trait_sym` is what stops the first from
+/// resolving to a struct or enum that merely ends in the same segment (#40).
+#[test]
+fn trait_sym_admits_only_trait_like_definitions() {
+    // The trait in the fixture qualifies.
+    assert_eq!(
+        rows(r#"?- trait_sym(S), def(S, "src/kinds.rs", _, "Handler")."#),
+        vec!["Handler src/kinds.rs:29"]
+    );
+    // The struct it is implemented FOR does not, which is the guard working:
+    // `Config` can stand on the left of `implements` and never on the right.
+    assert!(rows(r#"?- trait_sym(S), def(S, _, "struct", _)."#).is_empty());
+    assert!(rows(r#"?- trait_sym(S), def(S, _, "enum", _)."#).is_empty());
+    // And no `implements` row names a non-trait on the right.
+    assert!(rows(r"?- implements(S, T, _), !trait_sym(T).").is_empty());
+}
+
 /// Every rule `schema` advertises is exercised by some test in this file, or is
 /// named above as uncovered. A rule nobody queries is a rule nobody has checked.
 #[test]

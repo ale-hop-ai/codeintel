@@ -655,9 +655,39 @@ implements(S, T, "exact") :- scip_impl(S, T).
 % Tier A resolves both written names against the whole-repo def set with the
 % same policy `ref` uses, reusing `local_def` and `ambiguous` above. The guard
 % is per-PAIR: tier A does not restate what the compiler already gave.
+%
+% Two guards, because `TraitName`/`TypeName` are final identifiers only and a
+% path's leading segments are gone by the time a rule sees them (#40).
+%
+% `trait_sym(T)`: the name before `for` is a trait declaration, so a `def` that
+% is not one is a different thing wearing the same final identifier.
+% `impl core::error::Error for Diagnostic` must not resolve to the `Error`
+% ENUM this repository exports. This reads the extracted `Kind`; it guesses
+% nothing, and it is the rule layer's job precisely because the extractor
+% cannot know what else the repository declares.
+%
+% `S != T`: no type implements itself. `impl std::error::Error for Error`
+% writes "Error" on both sides of `for`, and the same-file clause resolves
+% both to the one local type. A resolution that collapses two different
+% written names onto one symbol is a name-tier MISS, not a fact.
+%
+% Both are tightenings of a tier that may be wrong by construction, so a row
+% they drop was never evidence. On this repository they drop two rows of
+% eight and no true one.
 implements(S, T, "name") :-
     name_impl(F, TypeN, TraitN, _),
-    impl_sym(F, TypeN, S), impl_sym(F, TraitN, T), !scip_impl(S, T).
+    impl_sym(F, TypeN, S), impl_sym(F, TraitN, T),
+    trait_sym(T), S != T, !scip_impl(S, T).
+
+% The trait-like `Kind`s, as a relation rather than three copies of the rule
+% above. `class` is here for Python, whose protocols and ABCs are classes;
+% omitting it would silently refuse every Python row the day a `@trait`
+% capture lands for it. Only Rust emits `name_impl` today
+% (`queries/rust/tags.scm`), so the other two are forward cover, not dead
+% weight -- they cost three lines and buy the next language's correctness.
+trait_sym(S) :- def(S, _, "trait", _).
+trait_sym(S) :- def(S, _, "interface", _).
+trait_sym(S) :- def(S, _, "class", _).
 
 % Either side of the `for`. This exists to bind F and N POSITIVELY before the
 % negation below: a rule whose only binder for a variable is `!local_def(F, N)`

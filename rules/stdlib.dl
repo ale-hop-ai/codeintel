@@ -51,9 +51,38 @@ implements(S, T, "exact") :- scip_impl(S, T).
 % `local_def` and `ambiguous` below. The guard is per-PAIR: `scip_impl` is
 % method-level where an indexer emits it at all and `name_impl` is type-level,
 % so they are different granularities and both rows are true.
+%
+% Two guards, both because `TypeName` and `TraitName` are final identifiers
+% only — no path, by design (01-facts.md § `name_impl`) — so the leading
+% segments are gone by the time a rule sees them (#40).
+%
+% `trait_sym(T)`: the name before `for` is a trait declaration, so a `def`
+% that is not one is a different thing wearing the same final identifier.
+% `impl core::error::Error for Diagnostic` must not resolve to the `Error`
+% ENUM this repository exports.
+%
+% `S != T`: no type implements itself. `impl std::error::Error for Error`
+% writes the same bare name on both sides of `for` and the same-file clause
+% of `impl_sym` resolves both to the one local `Error` type. A resolution
+% that collapses two different written names onto one symbol is a name-tier
+% MISS, not a fact.
+%
+% Both tighten a tier that may be wrong by construction, so a row they drop
+% was never evidence.
 implements(S, T, "name") :-
     name_impl(F, TypeN, TraitN, _),
-    impl_sym(F, TypeN, S), impl_sym(F, TraitN, T), !scip_impl(S, T).
+    impl_sym(F, TypeN, S), impl_sym(F, TraitN, T),
+    trait_sym(T), S != T, !scip_impl(S, T).
+
+%% trait_sym(S)  a definition the trait side of an `impl` can name.
+% A relation rather than three copies of the rule above. `class` is here for
+% Python, whose protocols and ABCs are classes; omitting it would silently
+% refuse every Python row the day a `@trait` capture lands for it. Only Rust
+% emits `name_impl` today (`queries/rust/tags.scm`), so the other two are
+% forward cover.
+trait_sym(S) :- def(S, _, "trait", _).
+trait_sym(S) :- def(S, _, "interface", _).
+trait_sym(S) :- def(S, _, "class", _).
 
 %% impl_sym(F, N, S)  a name an `impl` writes, as a symbol.
 % Four clauses: either side of the `for`, each resolved same-file-first. The
