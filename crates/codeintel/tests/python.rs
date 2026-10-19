@@ -127,7 +127,7 @@ fn query(root: &Path, program: &str) -> (Vec<String>, String) {
 fn a_python_tree_indexes_and_names_its_indexer() {
     let dir = tier_a_tree();
     let summary = index(dir.path());
-    assert!(summary.contains("7 indexed"), "{summary}");
+    assert!(summary.contains("8 indexed"), "{summary}");
     // Not "no SCIP index found" — the literal command, because the gap between
     // tier A and tier B is the difference between a symbol map and a call
     // graph (`specs/02-extraction.md` § Acquisition).
