@@ -350,6 +350,23 @@ impl fmt::Display for Report<'_> {
                     input.documents
                 )?;
             }
+            // What `index` printed, kept where a bug report can find it: the
+            // run that said it was an hour ago and nobody saved the output
+            // (`specs/05-surface.md` § `status`).
+            if let Some(matched) = manifest.scip_matched {
+                let documents: u64 = manifest.scip.iter().map(|i| i.documents).sum();
+                writeln!(
+                    f,
+                    "scip coverage: {matched} of {documents} document(s) matched an indexed file"
+                )?;
+                if matched == 0 && documents > 0 {
+                    writeln!(
+                        f,
+                        "      none of it landed: the index's paths are relative to some other \
+                         directory. re-run `codeintel index` for the --scip-root to pass"
+                    )?;
+                }
+            }
             if let Some(rate) = census.anchor_rate() {
                 writeln!(
                     f,

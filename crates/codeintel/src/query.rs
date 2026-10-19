@@ -935,6 +935,15 @@ fn push_char(args: &mut [String], c: char) {
 pub struct ScipState {
     /// True when no SCIP index was ingested.
     pub absent: bool,
+    /// How many documents the ingested inputs carried, and how many named a
+    /// file this index holds. `None` when no input was ingested, or when the
+    /// manifest predates the count.
+    ///
+    /// Zero matched out of some is the same emptiness as `absent` with a
+    /// different repair, and it used to answer `ok` with zero rows — an index
+    /// built from a subdirectory matches nothing and says nothing (#60,
+    /// `specs/05-surface.md` § Status taxonomy).
+    pub matched: Option<(u64, u64)>,
     /// Indexed files whose bytes the SCIP inputs did not see
     /// ([`facts::FileEntry::scip_stale`]).
     pub stale: Vec<String>,
@@ -952,11 +961,15 @@ impl ScipState {
         let Some(newest) = manifest.scip.iter().map(|i| i.mtime).max() else {
             return Self {
                 absent: true,
+                matched: None,
                 stale: Vec::new(),
             };
         };
         Self {
             absent: false,
+            matched: manifest
+                .scip_matched
+                .map(|matched| (matched, manifest.scip.iter().map(|i| i.documents).sum())),
             stale: manifest
                 .files
                 .iter()
@@ -977,18 +990,34 @@ impl ScipState {
         } else {
             format!("run: {}", langs.join(" && "))
         };
+        let wanted = depends
+            .iter()
+            .filter(|d| SCIP_BACKED.contains(&d.as_str()))
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
         if self.absent {
             return Some((
                 Status::NoScip,
                 format!(
-                    "this query depends on {}, which only a SCIP index populates; the answer \
-                     above is what tier A alone can see. {commands}",
-                    depends
-                        .iter()
-                        .filter(|d| SCIP_BACKED.contains(&d.as_str()))
-                        .cloned()
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    "this query depends on {wanted}, which only a SCIP index populates; the \
+                     answer above is what tier A alone can see. {commands}"
+                ),
+            ));
+        }
+        // Ingested and landed nowhere. The relations are as empty as they are
+        // with no index at all, so the status is the same one; only the repair
+        // differs, and the hint is where a repair belongs.
+        if let Some((0, documents)) = self.matched
+            && documents > 0
+        {
+            return Some((
+                Status::NoScip,
+                format!(
+                    "this query depends on {wanted}, and the SCIP index that was ingested \
+                     populated none of it: 0 of {documents} document(s) matched an indexed \
+                     file. its paths are relative to some other directory — `codeintel index` \
+                     names the one to pass as --scip-root"
                 ),
             ));
         }
@@ -1099,6 +1128,12 @@ fn refresh(
     // index was built is re-extracted against the *old* anchors, so it keeps
     // whatever resolved identity still matches and reports `scip-stale`
     // (`docs/plan.md` M3). A full `codeintel index` is what reconciles it.
+    // The `--scip-root` of each input is carried with it. It is not a
+    // property of the file, so dropping it here would re-ingest every
+    // document at its un-based path, match nothing, and delete every tier-B
+    // fact — the same silent degradation this block exists to prevent, one
+    // layer down (`specs/02-extraction.md` § Document paths, and
+    // `--scip-root`).
     let plan = Plan {
         deadline: Some(Instant::now() + Duration::from_millis(MAX_REFRESH_MS)),
         scip: store
@@ -1106,6 +1141,12 @@ fn refresh(
             .scip
             .iter()
             .map(|input| PathBuf::from(&input.path))
+            .collect(),
+        scip_roots: store
+            .manifest()
+            .scip
+            .iter()
+            .map(|input| input.root.clone())
             .collect(),
         ..Plan::default()
     };
