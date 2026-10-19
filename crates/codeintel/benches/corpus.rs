@@ -9,7 +9,9 @@
 //!
 //! `<name>` picks `benches/corpora/<name>/`, which holds `corpus.json`,
 //! `queries.tsv` and `baseline.json`. The bench works on a copy of the corpus in
-//! a temp directory, never on the checkout. It writes `target/bench/<name>.json`,
+//! a temp directory, never on the checkout. It writes
+//! `target/bench/<name>-<run-id>.json`, where the run id is the rev that
+//! produced it (`benches/conditions.rs`),
 //! then compares it with that corpus's baseline: counters exactly, wall clock
 //! at +20%. Wall clock is compared only on the host the baseline was measured
 //! on, and nothing is compared against a different corpus commit.
@@ -179,9 +181,13 @@ fn run() -> Result<Verdict> {
         percentile(&pooled_cli, 0.50)
     );
 
+    // Stamped with what produced it, so two builds cannot write the same file
+    // and a result can never be quoted as another build's (#78). The committed
+    // baseline stays at its own fixed path; it is the per-run results that
+    // must not collide.
     let out = manifest
         .join("../../target/bench")
-        .join(format!("{name}.json"));
+        .join(format!("{name}-{}.json", conditions::run_id()));
     write_json(&out, &current)?;
     println!("wrote {}", out.display());
 

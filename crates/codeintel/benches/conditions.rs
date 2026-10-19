@@ -205,20 +205,57 @@ pub(crate) fn report(start: Conditions, end: Conditions) -> Value {
         "max_load_per_core": MAX_LOAD_PER_CORE,
         "trustworthy": start.trustworthy(),
         "dirty_tree": dirty_tree(),
+        "run_id": run_id(),
     })
+}
+
+/// What produced a result, as a filename fragment.
+///
+/// A run's identity is the **code** that produced it, because that is what the
+/// numbers describe. Clean tree: the short rev. Dirty tree: the rev is a lie on
+/// its own, so a fingerprint of the actual working state goes with it —
+/// `<rev>-dirty-<8 hex>` — and two different mid-change builds land in
+/// different files. Mid-change profiling is exactly when `docs/plan.md` § #28
+/// went wrong, so it is the case that most needs distinguishing.
+///
+/// Two runs of **identical** code still overwrite each other, deliberately:
+/// they describe the same thing, so the newer one supersedes, and stamping a
+/// timestamp on every run would fill `target/` with files that answer no
+/// question the first one did not. Keep a result you care about by copying it.
+#[must_use]
+pub(crate) fn run_id() -> String {
+    let rev = git(&["rev-parse", "--short=12", "HEAD"]).unwrap_or_else(|| "norev".to_string());
+    if !dirty_tree() {
+        return rev;
+    }
+    // Tracked edits and the list of untracked paths both change what was
+    // built, so both feed the fingerprint. `git diff HEAD` covers staged and
+    // unstaged tracked changes; the porcelain list catches a new file that no
+    // diff mentions.
+    let mut state = git(&["diff", "HEAD"]).unwrap_or_default();
+    state.push_str(&git(&["status", "--porcelain"]).unwrap_or_default());
+    let hash = facts::content_hash(state.as_bytes());
+    let short: String = hash.trim_start_matches("blake3:").chars().take(8).collect();
+    format!("{rev}-dirty-{short}")
+}
+
+/// A git command's trimmed stdout, or `None` when it fails.
+fn git(args: &[&str]) -> Option<String> {
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
 /// Whether the repository had uncommitted changes when this ran. A baseline
 /// written from a dirty tree describes a build nobody can check out again.
 #[must_use]
 pub(crate) fn dirty_tree() -> bool {
-    Command::new("git")
-        .args(["status", "--porcelain"])
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .is_some_and(|o| !o.stdout.is_empty())
+    git(&["status", "--porcelain"]).is_some_and(|s| !s.is_empty())
 }
 
 /// The 1, 5 and 15 minute load averages, or empty where there are none.

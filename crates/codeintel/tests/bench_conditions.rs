@@ -152,3 +152,29 @@ fn the_boundary_is_inclusive() {
     };
     assert!(exactly.trustworthy(), "at the limit is still allowed");
 }
+
+#[test]
+fn a_run_id_names_the_code_that_produced_it() {
+    // #78: two builds writing one path is how a parallel-walk result got
+    // quoted as the serial walk's. The id has to change when the code does.
+    let id = conditions::run_id();
+    assert!(!id.is_empty(), "a run always has an identity");
+    assert!(
+        !id.contains('/') && !id.contains(' '),
+        "a run id becomes a filename: {id}"
+    );
+    // This tree is dirty while the change is being written and clean after it
+    // lands, so assert the shape of whichever case is live rather than
+    // pinning one and failing in the other.
+    if conditions::dirty_tree() {
+        assert!(
+            id.contains("-dirty-"),
+            "a dirty tree's rev alone does not identify what was built: {id}"
+        );
+    } else {
+        assert!(
+            !id.contains("-dirty-"),
+            "a clean tree is identified by its rev alone: {id}"
+        );
+    }
+}
