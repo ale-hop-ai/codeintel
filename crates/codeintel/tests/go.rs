@@ -3,7 +3,9 @@
 //! `docs/plan.md` M5's done-when for a language, in the part that needs the
 //! whole binary rather than the extractor: its `imports.scm` produces usable
 //! `import/3` rows, a conformance rule over them passes and fails correctly,
-//! and the anchor rate against its SCIP index clears 95%.
+//! and every definition anchors against its SCIP index except the ones that
+//! structurally cannot, which are named (`specs/02-extraction.md`
+//! § Validation — a set rather than a rate, #79).
 //!
 //! The fixture carries a real `index.scip` produced by `scip-go`, committed so
 //! that these run without the indexer installed. Regenerate it by running
@@ -119,6 +121,28 @@ fn query(root: &Path, program: &str) -> (Vec<String>, String) {
             .collect(),
         String::from_utf8_lossy(&out.stderr).to_string(),
     )
+}
+
+/// Definitions with no `resolved` row, as `file:Name`, sorted.
+///
+/// The anchor gate asserts on this set rather than on the rate `index`
+/// prints. At fixture size a rate is arithmetic about the fixture: one miss
+/// in 33 definitions is three points, so the gate sat at zero headroom and
+/// failed on the next definition added whatever the join had done (#79).
+fn unanchored(root: &Path) -> Vec<String> {
+    let (rows, stderr) = query(root, "?- def(S, F, _, N), !resolved(S).");
+    assert!(stderr.contains("status=ok"), "{stderr}");
+    // `?- def(S, F, _, N)` projects three columns, not four: a wildcard is not
+    // a column. S, then F, then N.
+    let mut out: Vec<String> = rows
+        .iter()
+        .filter_map(|r| {
+            let columns: Vec<&str> = r.split('\t').collect();
+            Some(format!("{}:{}", columns.get(1)?, columns.get(2)?))
+        })
+        .collect();
+    out.sort();
+    out
 }
 
 #[test]
@@ -322,23 +346,37 @@ fn every_language_in_one_tree_is_one_index() {
 }
 
 #[test]
-fn every_definition_anchors_against_the_scip_index() {
-    // `docs/plan.md` M5: anchor rate >= 95%. The rate is what says tier A and
-    // tier B agree about *where* a definition is; below it, the two tiers are
-    // describing different files and `exact` provenance is decoration.
+fn only_the_definitions_that_cannot_anchor_fail_to() {
+    // `docs/plan.md` M5 states this gate as a rate, >= 95%, which is the right
+    // shape for a real tree and the wrong one here. At fixture size one miss
+    // is several points, so the gate sat at zero headroom and the next
+    // definition anyone added failed it whatever the anchor join had done
+    // (#79). The failure then pointed at regenerating a committed SCIP index,
+    // which needs an indexer installed to add a fixture — backwards.
+    //
+    // So the set is named instead. Every definition below cannot anchor for a
+    // stated reason that is not the join's doing; every other definition must.
+    // `index` still computes and prints the rate — that is M5's metric for a
+    // real tree and `specs/05-surface.md` pins its reporting — this test just
+    // stops asserting a threshold a corpus this size cannot support.
     let dir = tree();
     let summary = index(dir.path());
     assert!(summary.contains("scip-go"), "{summary}");
-    let rate = summary
-        .lines()
-        .find_map(|l| l.trim().strip_prefix("anchored: "))
-        .unwrap_or_else(|| panic!("no anchor line in {summary}"));
-    let percent: f64 = rate
-        .split_once('(')
-        .and_then(|(_, tail)| tail.strip_suffix("%)"))
-        .and_then(|n| n.parse().ok())
-        .unwrap_or_else(|| panic!("unreadable anchor rate {rate:?}"));
-    assert!(percent >= 95.0, "anchor rate is {percent}%");
+    // Reported, never inferred: the rate still has to reach the summary.
+    assert!(summary.contains("anchored: "), "{summary}");
+    assert_eq!(
+        unanchored(dir.path()),
+        [
+            // Appended to `kinds.go` after `index.scip` was built (#43), so
+            // the committed index has no occurrence for it. Nothing about the
+            // join: the indexer never saw this definition.
+            "kinds.go:Drain",
+        ],
+        "a definition stopped anchoring, or one was added that the committed \
+         index.scip predates. Added one: list it here with the reason. Did \
+         not: the anchor join has drifted, and regenerating index.scip to make \
+         this pass would bury it (#79)."
+    );
 }
 
 #[test]

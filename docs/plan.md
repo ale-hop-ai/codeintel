@@ -790,7 +790,10 @@ there is no `@reference.call` at all. The whole query is ours. Two grammars
 **Done when (each language)**
 - Golden facts, span exactness, kind fidelity, query liveness, locality,
   incremental equivalence — the full M2 suite.
-- Anchor rate >= 95% against its SCIP index.
+- Anchor rate >= 95% against its SCIP index, on a real tree. On the committed
+  fixture CI pins the exact set of definitions that do not anchor instead — at
+  fixture size a rate measures the fixture, not the join
+  ([02-extraction.md](../specs/02-extraction.md) § Validation, #79).
 - Its `imports.scm` produces usable `import/3` rows, and a conformance rule over
   them passes and fails correctly on a fixture.
 - A polyglot fixture (Rust + Go + Python + TS in one tree) indexes and queries
