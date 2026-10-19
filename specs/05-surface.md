@@ -28,7 +28,7 @@ guessing what an empty result means.
 | `truncated` | query ran, a cap fired | which cap (`max_result_rows` / `max_result_bytes`), and its value |
 | `no-index` | no index for this root | `run: codeintel index .` |
 | `stale` | sources changed and auto-refresh was skipped, exceeded `max_refresh_ms`, or `schema_version` mismatched | `run: codeintel index .` — names the N files |
-| `no-scip` | the goal's **relation-dependency closure** reaches a relation only SCIP populates, and none was ingested | which relations, and the indexer command for the languages present |
+| `no-scip` | the goal's **relation-dependency closure** reaches a relation only SCIP populates, and none was ingested — **or** an index was ingested and not one of its documents matched an indexed file, which leaves those relations just as empty | which relations, and the indexer command for the languages present. When documents were ingested and none matched, the hint says so, with the count and the `--scip-root` that would fix it |
 | `scip-stale` | an indexed file holds bytes `index.scip` did not see ([04-storage.md](04-storage.md) § Manifest, `scip_hash`) | which files, and the indexer command |
 | `invalid-query` | parse or safety failure | the rule, the variable, the violated rule |
 | `unstratified` | negation cycle | the cycle |
@@ -77,7 +77,8 @@ refresh that did not finish makes the SCIP verdict moot.
 ## CLI
 
 ```
-codeintel index  [PATH] [--scip FILE]... [--rebuild] [--lang L]... [--index-dir DIR]
+codeintel index  [PATH] [--scip FILE]... [--scip-root DIR]... [--rebuild]
+                 [--lang L]... [--index-dir DIR]
 codeintel query  <PROGRAM|-> [--path DIR] [--format text|json] [--limit N]
                  [--rules FILE]... [--raw] [--no-refresh] [--expect-empty]
                  [--index-dir DIR]
@@ -114,6 +115,13 @@ present. `--rebuild` discards and rewrites, including the dictionary. `--lang`
 restricts grammars: files of every other language are neither refreshed nor
 dropped, they are carried forward unchanged.
 
+`--scip-root` declares the directory a SCIP input's document paths are relative
+to, for an indexer that had to be run from a subdirectory
+([02-extraction.md](02-extraction.md) § Document paths, and `--scip-root`). Zero
+means the repository root, one applies to every `--scip`, N pairs positionally
+with N; any other count is an error. Like `--index-dir`, it is a flag and not a
+verb, so the surface budget is unchanged.
+
 `index` prints the exact indexer command for every language it found.
 Copy-pasteable, not a description of one. It never runs one: `--run-indexers`
 is not built ([docs/plan.md](../docs/plan.md) M3, § Explicitly deferred).
@@ -130,10 +138,25 @@ SCIP documents the walk does not reach are listed there too, with the reason
 affordable where the walk's is not: the documents are an enumerated set, already
 in memory, and testing each against the walked paths costs no extra traversal.
 
+**SCIP coverage is a match count, not a document count.** The summary prints
+`N of M documents matched an indexed file`, and when that number is zero with
+`M > 0` it is a reported degradation, not a `0.0%` anchor rate the reader has to
+diagnose: `0 of 2523 SCIP documents matched an indexed file`, the first few
+unmatched paths, and — when exactly one prefix re-bases every one of them onto
+an indexed file — `paths look relative to a subdirectory; re-run with
+--scip-root daemon`. When no single prefix does, or more than one does, it says
+that instead and suggests nothing. Detection never re-bases on its own
+([02-extraction.md](02-extraction.md) § Detection suggests; it never re-bases).
+
+This is invariant 5 at the only place it can be caught. "SCIP present, nothing
+matched" and "no SCIP at all" are different repairs, and a silent `anchored:
+0/2523 defs (0.0%)` names neither (#60).
+
 **There is no `ignored` count.** For the *walk*: the `ignore` crate does not
 report the entries its matchers drop, so the number costs a second full
-traversal with the matchers off — which on a repo with a populated `target/` is the most expensive thing in
-the walk, spent on a figure that changes no decision. An earlier draft of this
+traversal with the matchers off — which on a repo with a populated `target/` is
+the most expensive thing in the walk, spent on a figure that changes no
+decision. An earlier draft of this
 line read "412 ignored, 3 too large, ...".
 
 ### `query`
@@ -504,6 +527,11 @@ will not load is still `corrupt` and exits 2.
 Index freshness, per-tier. Reports the counts a user needs to trust or distrust
 an answer: files indexed, files changed since index, SCIP tool/coverage/
 staleness/ambiguous columns, anchor rate, unsupported languages, fact counts per relation.
+
+SCIP coverage is reported the same way `index` reports it: documents matched
+against indexed files, with the zero-match line and its `--scip-root`
+suggestion, because the state a bug report has to carry is the one `index`
+printed an hour ago and nobody kept.
 
 The verdict uses the checks `query` uses, in this order: `no-index` when there
 is nothing here; `stale` when the index was written for another

@@ -199,11 +199,14 @@ impl Ingest {
     /// Read and normalize one `index.scip`.
     ///
     /// `root` is the repository root, used to find a document's source when it
-    /// did not carry its own text and its positions need transcoding.
+    /// did not carry its own text and its positions need transcoding. `under`
+    /// is the repo-relative directory the index's document paths are relative
+    /// to — `--scip-root`, empty for the root itself
+    /// (`specs/02-extraction.md` § Document paths, and `--scip-root`).
     ///
     /// # Errors
     /// The file cannot be read, or it is not a SCIP index.
-    pub fn read(path: &Path, root: &Path) -> Result<Self> {
+    pub fn read(path: &Path, root: &Path, under: &str) -> Result<Self> {
         let bytes = std::fs::read(path).map_err(|e| Error::Scip {
             path: path.display().to_string(),
             message: e.to_string(),
@@ -212,12 +215,12 @@ impl Ingest {
             path: path.display().to_string(),
             message: e.to_string(),
         })?;
-        Ok(Self::of(&index, root))
+        Ok(Self::of(&index, root, under))
     }
 
     /// Normalize an already-parsed index.
     #[must_use]
-    pub fn of(index: &Index, root: &Path) -> Self {
+    pub fn of(index: &Index, root: &Path, under: &str) -> Self {
         let mut out = Self {
             tool: index
                 .metadata
@@ -231,7 +234,7 @@ impl Ingest {
 
         let mut candidates: BTreeMap<String, (String, String, String)> = BTreeMap::new();
         for document in &index.documents {
-            out.document(document, root, &mut candidates);
+            out.document(document, root, under, &mut candidates);
         }
         for info in &index.external_symbols {
             package_of(&info.symbol, &mut candidates);
@@ -288,16 +291,24 @@ impl Ingest {
         &mut self,
         document: &Document,
         root: &Path,
+        under: &str,
         candidates: &mut BTreeMap<String, (String, String, String)>,
     ) {
-        let path = document.relative_path.replace('\\', "/");
+        // Re-based before anything else reads it: the rebased path is the
+        // repo-relative one, so it is what `escapes_root` judges, what the
+        // source is read from for transcoding, what `rewrite_local` keys a
+        // local symbol by, and what the anchor join matches on. Re-basing
+        // after any of those would leave a fact keyed one way and placed
+        // another (`specs/02-extraction.md` § Document paths, and
+        // `--scip-root`).
+        let path = rebase(under, &document.relative_path.replace('\\', "/"));
         if escapes_root(&path) {
             self.skipped
                 .push((path, "path escapes the repository root"));
             return;
         }
         let encoding = document.position_encoding.enum_value_or_default();
-        let Some(columns) = Columns::for_document(document, root, encoding) else {
+        let Some(columns) = Columns::for_document(document, root, &path, encoding) else {
             self.skipped
                 .push((path, "source unavailable for transcoding"));
             return;
@@ -373,18 +384,62 @@ impl Ingest {
     }
 }
 
-/// Record a symbol that names a package, which is how SCIP says where a thing
-/// came from (`specs/01-facts.md` § `extern`).
+/// Put a SCIP document path under `under`, the `--scip-root` directory.
 ///
-/// A SCIP symbol carries its own package — `<scheme> <manager> <name>
-/// <version> <descriptor>` — so this works on any symbol string and does not
-/// need a `SymbolInformation` to exist for it. That matters: an index
-/// references far more symbols than it describes. `rust-analyzer` emits
-/// `SymbolInformation` for what the project defines and leaves `std`, `core`
-/// and `alloc` as bare occurrences, so keying this on `SymbolInformation`
-/// meant `extern/4` was **empty on every index that had no local dependency
-/// described** — including the fixture, where `HashMap` and `String` are
-/// referenced by name and were reported as no external packages at all.
+/// `under` is repo-relative with `/` separators; empty means the repository
+/// root and the path is returned unchanged. Nothing here validates `under` —
+/// a root that climbs out of the tree produces a path that `escapes_root` then
+/// refuses, which is the one place that judgement belongs
+/// (`specs/02-extraction.md` § Document paths, and `--scip-root`).
+#[must_use]
+pub fn rebase(under: &str, path: &str) -> String {
+    let under = under.replace('\\', "/");
+    let under = under.trim_matches('/');
+    if under.is_empty() {
+        return path.to_string();
+    }
+    format!("{under}/{path}")
+}
+
+/// Every repo-relative prefix that would re-base **all** of `docs` onto a path
+/// in `indexed`.
+///
+/// Reported, never applied: a prefix this finds is unique against the tree we
+/// walked today, not against the tree the indexer saw, and adopting it would
+/// make a document's path an inference rather than a SCIP field
+/// (`specs/02-extraction.md` § Detection suggests; it never re-bases). The
+/// caller prints the one answer, or says there were none or several.
+///
+/// Sound by construction: every valid prefix must also re-base the first
+/// document, so deriving the candidates from that one document alone loses
+/// nothing. Cost is one pass over `indexed` plus one lookup per candidate per
+/// document, and the candidates are the files whose path ends in that one
+/// document's path.
+#[must_use]
+pub fn suggest_roots(docs: &BTreeSet<String>, indexed: &BTreeSet<String>) -> Vec<String> {
+    let Some(first) = docs.iter().next() else {
+        return Vec::new();
+    };
+    let mut candidates: BTreeSet<&str> = BTreeSet::new();
+    for file in indexed {
+        if let Some(prefix) = file.strip_suffix(first.as_str()) {
+            // The empty prefix is the no-op case: the paths already match and
+            // the caller would not be asking.
+            if let Some(prefix) = prefix.strip_suffix('/') {
+                candidates.insert(prefix);
+            }
+        }
+    }
+    candidates
+        .into_iter()
+        .filter(|prefix| {
+            docs.iter()
+                .all(|doc| indexed.contains(&format!("{prefix}/{doc}")))
+        })
+        .map(str::to_string)
+        .collect()
+}
+
 /// Whether a `Document.relative_path` names something outside the repository.
 ///
 /// `relative_path` is specified as relative to the project root, and every fact
@@ -407,6 +462,18 @@ fn escapes_root(path: &str) -> bool {
         })
 }
 
+/// Record a symbol that names a package, which is how SCIP says where a thing
+/// came from (`specs/01-facts.md` § `extern`).
+///
+/// A SCIP symbol carries its own package — `<scheme> <manager> <name>
+/// <version> <descriptor>` — so this works on any symbol string and does not
+/// need a `SymbolInformation` to exist for it. That matters: an index
+/// references far more symbols than it describes. `rust-analyzer` emits
+/// `SymbolInformation` for what the project defines and leaves `std`, `core`
+/// and `alloc` as bare occurrences, so keying this on `SymbolInformation`
+/// meant `extern/4` was **empty on every index that had no local dependency
+/// described** — including the fixture, where `HashMap` and `String` are
+/// referenced by name and were reported as no external packages at all.
 fn package_of(symbol: &str, into: &mut BTreeMap<String, (String, String, String)>) {
     let Ok(parsed) = scip::symbol::parse_symbol(symbol) else {
         return;
@@ -645,7 +712,12 @@ enum Columns {
 }
 
 impl Columns {
-    fn for_document(document: &Document, root: &Path, encoding: PositionEncoding) -> Option<Self> {
+    fn for_document(
+        document: &Document,
+        root: &Path,
+        path: &str,
+        encoding: PositionEncoding,
+    ) -> Option<Self> {
         let utf16 = match encoding {
             PositionEncoding::UTF8CodeUnitOffsetFromLineStart => return Some(Self::Identity),
             // Not "byte-oriented by default". `scip-python` 0.6.6 and
@@ -657,7 +729,7 @@ impl Columns {
             PositionEncoding::UTF32CodeUnitOffsetFromLineStart => Some(false),
         };
         let text = if document.text.is_empty() {
-            std::fs::read_to_string(root.join(&document.relative_path)).ok()?
+            std::fs::read_to_string(root.join(path)).ok()?
         } else {
             document.text.clone()
         };
@@ -873,7 +945,7 @@ mod tests {
         }
         let mut index = Index::new();
         index.documents.push(document);
-        let ingest = Ingest::of(&index, Path::new("/nonexistent"));
+        let ingest = Ingest::of(&index, Path::new("/nonexistent"), "");
         let defs: Vec<&str> = ingest
             .docs
             .get("wide.py")
@@ -894,7 +966,7 @@ mod tests {
         document.relative_path = "nowhere.py".to_string();
         let mut index = Index::new();
         index.documents.push(document);
-        let ingest = Ingest::of(&index, Path::new("/nonexistent"));
+        let ingest = Ingest::of(&index, Path::new("/nonexistent"), "");
         assert!(ingest.docs.is_empty());
         assert_eq!(ingest.skipped.len(), 1, "{:?}", ingest.skipped);
     }
@@ -907,6 +979,7 @@ mod tests {
         let columns = Columns::for_document(
             &document,
             Path::new("/nonexistent"),
+            "nowhere.rs",
             PositionEncoding::UTF8CodeUnitOffsetFromLineStart,
         )
         .expect("utf-8 needs nothing");
@@ -922,6 +995,7 @@ mod tests {
             Columns::for_document(
                 &document,
                 Path::new("/nonexistent"),
+                "nowhere.rs",
                 PositionEncoding::UTF16CodeUnitOffsetFromLineStart,
             )
             .is_none()
@@ -929,7 +1003,7 @@ mod tests {
 
         let mut index = Index::new();
         index.documents.push(document);
-        let ingest = Ingest::of(&index, Path::new("/nonexistent"));
+        let ingest = Ingest::of(&index, Path::new("/nonexistent"), "");
         assert!(ingest.docs.is_empty());
         assert_eq!(ingest.skipped.len(), 1, "{:?}", ingest.skipped);
     }
@@ -970,7 +1044,7 @@ mod tests {
             "scip-go gomod github.com/gin-gonic/gin v1.9.1 gin/Context#JSON().".to_string();
         let mut index = Index::new();
         index.external_symbols.push(info.clone());
-        let ingest = Ingest::of(&index, Path::new("/nonexistent"));
+        let ingest = Ingest::of(&index, Path::new("/nonexistent"), "");
         assert_eq!(
             ingest.externs.get(&info.symbol),
             Some(&(
@@ -986,7 +1060,7 @@ mod tests {
         let mut index = Index::new();
         index.external_symbols.push(local);
         assert!(
-            Ingest::of(&index, Path::new("/nonexistent"))
+            Ingest::of(&index, Path::new("/nonexistent"), "")
                 .externs
                 .is_empty()
         );
@@ -1020,7 +1094,7 @@ mod tests {
 
         let mut index = Index::new();
         index.documents.push(document);
-        let ingest = Ingest::of(&index, Path::new("/nonexistent"));
+        let ingest = Ingest::of(&index, Path::new("/nonexistent"), "");
 
         let doc = ingest.docs.get("src/store.rs").expect("the document");
         assert_eq!(doc.lang, "rust");
@@ -1087,6 +1161,104 @@ mod tests {
     }
 
     #[test]
+    fn rebase_puts_a_document_under_the_declared_root() {
+        assert_eq!(rebase("", "src/lib.rs"), "src/lib.rs");
+        assert_eq!(rebase("daemon", "src/lib.rs"), "daemon/src/lib.rs");
+        assert_eq!(rebase("/daemon/", "src/lib.rs"), "daemon/src/lib.rs");
+        assert_eq!(rebase("a\\b", "src/lib.rs"), "a/b/src/lib.rs");
+        // Judged by `escapes_root`, not here.
+        assert_eq!(rebase("..", "src/lib.rs"), "../src/lib.rs");
+    }
+
+    #[test]
+    fn an_ingest_under_a_root_keys_every_fact_by_the_rebased_path() {
+        let mut document = Document::new();
+        document.relative_path = "src/lib.rs".to_string();
+        document.position_encoding = PositionEncoding::UTF8CodeUnitOffsetFromLineStart.into();
+        let mut local = Occurrence::new();
+        local.symbol = "local 4".to_string();
+        local.range = vec![1, 0, 1, 3];
+        document.occurrences = vec![local];
+        let mut index = Index::new();
+        index.documents = vec![document];
+
+        let ingest = Ingest::of(&index, Path::new("/nonexistent"), "daemon");
+        assert_eq!(
+            ingest.docs.keys().collect::<Vec<_>>(),
+            [&"daemon/src/lib.rs".to_string()]
+        );
+        assert_eq!(
+            ingest.docs["daemon/src/lib.rs"].refs[0].symbol, "local daemon/src/lib.rs 4",
+            "a local symbol is keyed by the path the facts use"
+        );
+    }
+
+    #[test]
+    fn a_root_that_climbs_out_of_the_tree_is_refused_like_any_other() {
+        let mut document = Document::new();
+        document.relative_path = "src/lib.rs".to_string();
+        document.position_encoding = PositionEncoding::UTF8CodeUnitOffsetFromLineStart.into();
+        let mut index = Index::new();
+        index.documents = vec![document];
+
+        let ingest = Ingest::of(&index, Path::new("/nonexistent"), "../elsewhere");
+        assert!(ingest.docs.is_empty());
+        assert_eq!(
+            ingest.skipped,
+            [(
+                "../elsewhere/src/lib.rs".to_string(),
+                "path escapes the repository root"
+            )],
+            "refused after re-basing, and reported"
+        );
+    }
+
+    #[test]
+    fn suggest_roots_reports_every_prefix_and_resolves_nothing() {
+        let docs: BTreeSet<String> = ["src/lib.rs", "src/db/conn.rs"]
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
+        let indexed = |paths: &[&str]| -> BTreeSet<String> {
+            paths.iter().map(|s| (*s).to_string()).collect()
+        };
+
+        assert_eq!(
+            suggest_roots(
+                &docs,
+                &indexed(&["daemon/src/lib.rs", "daemon/src/db/conn.rs"])
+            ),
+            ["daemon"]
+        );
+
+        // Two subtrees re-base all of them. The caller reports both; nothing
+        // here picks one (§ Detection suggests; it never re-bases).
+        assert_eq!(
+            suggest_roots(
+                &docs,
+                &indexed(&[
+                    "a/src/lib.rs",
+                    "a/src/db/conn.rs",
+                    "b/src/lib.rs",
+                    "b/src/db/conn.rs",
+                ])
+            ),
+            ["a", "b"]
+        );
+
+        // A prefix that re-bases one document and not the other is not a
+        // prefix. Per-document matching is what this refuses to become.
+        assert!(
+            suggest_roots(&docs, &indexed(&["daemon/src/lib.rs", "src/db/conn.rs"])).is_empty()
+        );
+
+        assert!(suggest_roots(&BTreeSet::new(), &indexed(&["a.rs"])).is_empty());
+        // The already-matching case: the caller is not asking, and an empty
+        // prefix is not an answer.
+        assert!(suggest_roots(&docs, &indexed(&["src/lib.rs", "src/db/conn.rs"])).is_empty());
+    }
+
+    #[test]
     fn a_document_outside_the_repository_is_skipped_and_named() {
         // `scip-go` emits the generated test-main out of the Go build cache,
         // and the document arrives as `../../../../../../Library/Caches/…`.
@@ -1109,7 +1281,7 @@ mod tests {
         document.text = "package p\n".to_string();
         let mut index = Index::new();
         index.documents.push(document);
-        let ingest = Ingest::of(&index, Path::new("."));
+        let ingest = Ingest::of(&index, Path::new("."), "");
         assert!(ingest.docs.is_empty(), "nothing outside the root is kept");
         assert_eq!(
             ingest.skipped,

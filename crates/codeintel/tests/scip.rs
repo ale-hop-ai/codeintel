@@ -852,3 +852,124 @@ fn a_gitignored_path_is_not_re_admitted_through_tier_b() {
         "the refusal is named, never silent: {stderr}"
     );
 }
+
+/// The fixture moved into `<root>/<where>/`, with `index.scip` left at the top
+/// and its document paths therefore relative to the subdirectory — exactly
+/// what `rust-analyzer scip .` run from a crate in a monorepo produces (#60).
+fn subtree(wheres: &[&str]) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("tempdir");
+    for sub in wheres {
+        let into = dir.path().join(sub);
+        copy(&fixture(), &into);
+        drop(std::fs::remove_file(into.join("expected.facts")));
+        std::fs::remove_file(into.join("index.scip")).expect("the index moves to the top");
+    }
+    std::fs::copy(fixture().join("index.scip"), dir.path().join("index.scip")).expect("copy");
+    backdate(dir.path(), SOURCE_MTIME);
+    set_mtime(&dir.path().join("index.scip"), SOURCE_MTIME + 60);
+    dir
+}
+
+/// Invariant 5. The silent half of #60: every document missed every file, the
+/// summary said `anchored: 0/2523 defs (0.0%)`, and nothing said why.
+#[test]
+fn a_scip_index_that_matches_nothing_says_so_and_names_the_root() {
+    let dir = subtree(&["daemon"]);
+    let stderr = index(dir.path());
+
+    assert!(
+        stderr.contains("0 of") && stderr.contains("document(s) matched an indexed file"),
+        "the zero-match line is missing: {stderr}"
+    );
+    assert!(
+        stderr.contains("--scip-root daemon"),
+        "the suggestion is missing or wrong: {stderr}"
+    );
+
+    // And a query over a SCIP-only relation must not answer `ok` with zero
+    // rows: the relations are as empty as they are with no index at all.
+    let (rows, status) = query(dir.path(), "?- scip_ref(S, F, L, C, From, R).");
+    assert!(rows.is_empty(), "{rows:?}");
+    assert!(status.contains("status=no-scip"), "{status}");
+    assert!(status.contains("0 of"), "the hint must say why: {status}");
+}
+
+/// The explicit half. `--scip-root` is a declaration, so the re-based path is
+/// still a SCIP field plus something the user said — never a guess
+/// (`specs/02-extraction.md` § Document paths, and `--scip-root`).
+#[test]
+fn scip_root_rebases_and_the_facts_land() {
+    let dir = subtree(&["daemon"]);
+    let out = run(dir.path(), &["index", ".", "--scip-root", "daemon"]);
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "{stderr}");
+
+    assert!(
+        !stderr.contains("0 of"),
+        "documents should have matched: {stderr}"
+    );
+    let resolved = rows(dir.path(), "?- resolved(S).");
+    assert!(resolved.len() > 20, "nothing anchored: {}", resolved.len());
+    let refs = rows(dir.path(), "?- scip_ref(S, F, L, C, From, R).");
+    assert!(!refs.is_empty(), "no tier-B references");
+    assert!(
+        refs.iter().all(|row| row.contains("daemon/")),
+        "a fact escaped the re-based root: {refs:?}"
+    );
+}
+
+/// Two subtrees re-base every document equally well, so the evidence picks
+/// nothing and the report must say that rather than choose
+/// (`specs/02-extraction.md` § Detection suggests; it never re-bases).
+#[test]
+fn two_candidate_roots_suggest_neither() {
+    let dir = subtree(&["daemon", "agent"]);
+    let stderr = index(dir.path());
+
+    assert!(stderr.contains("0 of"), "{stderr}");
+    assert!(
+        stderr.contains("2 directories would re-base all of them"),
+        "ambiguity must be reported, not resolved: {stderr}"
+    );
+    assert!(
+        !stderr.contains("re-run with"),
+        "nothing may be suggested: {stderr}"
+    );
+}
+
+/// A root is part of the identity of an ingest and `stat` cannot see it.
+#[test]
+fn changing_scip_root_reingests() {
+    let dir = subtree(&["daemon"]);
+    index(dir.path());
+    let out = run(dir.path(), &["index", ".", "--scip-root", "daemon"]);
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "{stderr}");
+    assert!(
+        !stderr.contains("0 of"),
+        "the re-base was not re-ingested: {stderr}"
+    );
+}
+
+/// A mis-paired root would re-base a whole index onto the wrong subtree and
+/// still report a plausible anchor rate.
+#[test]
+fn a_mispaired_scip_root_is_an_error() {
+    let dir = subtree(&["daemon"]);
+    let out = run(
+        dir.path(),
+        &[
+            "index",
+            ".",
+            "--scip",
+            "index.scip",
+            "--scip-root",
+            "daemon",
+            "--scip-root",
+            "agent",
+        ],
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(!out.status.success(), "{stderr}");
+    assert!(stderr.contains("--scip-root given 2"), "{stderr}");
+}

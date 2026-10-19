@@ -409,6 +409,68 @@ only references and `b.scip` defines is a definition, and reading it as
 `extern` because `a.scip` alone could not see its definition made one symbol
 both `def` and `extern` (#47).
 
+#### Document paths, and `--scip-root`
+
+`Document.relative_path` is specified as relative to the project root, and
+every fact this tool emits is keyed by a repo-relative path. The two are the
+same string only when the indexer was run from the root this index covers.
+
+They routinely are not. In a monorepo whose Rust crate lives in `daemon/` with
+no workspace manifest at the top, `rust-analyzer scip .` has to be run from
+`daemon/`, and it writes `src/lib.rs` where the walk has `daemon/src/lib.rs`.
+Every document then misses every indexed file, and the result is zero anchors,
+zero `scip_ref`, zero `resolved` — a tier-A-only index wearing a SCIP input
+(#60).
+
+**`--scip-root <DIR>`** declares, repo-relative, the directory an input's
+document paths are relative to: `daemon` + `src/lib.rs` = `daemon/src/lib.rs`.
+The re-based path is what § Position normalization reads source from, what the
+anchor join keys on, and what every emitted fact carries. `escapes_root` is
+checked **after** re-basing, so a root that climbs out of the repository is
+refused like any other unusable document rather than producing a path no reader
+can open.
+
+It is repeatable and positional against `--scip`: zero roots means every input
+is relative to the repository root, one root applies to every input, and N
+roots pair with N inputs in the order given. Any other count is an error, never
+a silent reuse of the last one — a mis-paired root would re-base a whole index
+to the wrong subtree and still report a plausible anchor rate.
+
+The root is recorded per input in the manifest and a change to it re-ingests,
+exactly as a changed input does. A re-base is a different reading of the same
+bytes, and mtime and size cannot see it.
+
+#### Detection suggests; it never re-bases
+
+When no document matched an indexed file, ingest looks for a prefix `P` such
+that **every** document path `D` has `P/D` indexed, and names it in the report.
+It does not apply it. Two reasons, and the first is binding.
+
+- **Invariant 1: facts are extracted, never inferred.** A re-based path is a
+  SCIP field plus a declaration. With no declaration it is a SCIP field plus a
+  guess that happened to typecheck against the tree we walked today. Add a
+  vendored copy, delete a crate, and the same index re-bases somewhere else —
+  and every fact would move with it, with nothing in `Prov` able to say that a
+  path was chosen rather than read. `Prov` has two values and neither of them
+  means "inferred location".
+
+- **The evidence is weakest exactly where it is needed.** Uniqueness is checked
+  against the current walk, not against the tree the indexer actually saw. A
+  monorepo with `daemon/src/lib.rs` and `agent/src/lib.rs` and a one-document
+  index has two valid prefixes and no way to choose between them; a monorepo
+  with one crate has exactly one valid prefix and still no way to know it is the
+  one the indexer meant. "Provably unambiguous" is only ever provable about the
+  wrong tree.
+
+**Per-document suffix matching is worse, and is refused outright.** Letting each
+document find its own unique match makes the tool decide which file a document
+means, one document at a time, with no uniform rule to state afterwards. That is
+the guess invariant 1 forbids, written once per document instead of once.
+
+What detection buys is one line of report. The user reads it, re-runs with
+`--scip-root daemon`, and the re-base is then a fact they declared. That is the
+whole fix in practice, and it costs the facts nothing.
+
 ### Ingest
 
 From `scip.proto` (field names verbatim):
@@ -755,3 +817,9 @@ hand-written golden fact file.
    languages: a language that kept its quotes would answer
    `?- import(F, "fmt", _).` with zero rows on that language alone, and a
    per-language golden cannot see a disagreement it is not party to (#70).
+10. **Coverage is reported, never inferred.** A fixture whose SCIP documents are
+    relative to a subdirectory is indexed twice: once without `--scip-root`,
+    asserting zero matched documents, a report that says so, and a suggestion
+    naming the prefix; once with it, asserting the facts land. A case with two
+    candidate prefixes asserts that nothing is suggested. The first case passing
+    silently is the bug this validates against (#60).
