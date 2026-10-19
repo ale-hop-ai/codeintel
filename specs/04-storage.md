@@ -159,11 +159,19 @@ index and segments never need rewriting when the dictionary grows.
 of start offsets; entry `i` spans `idx[i]..idx[i+1]`. **u64, not u32** — u32
 offsets silently cap `dict.bin` at 4 GiB with no stated limit and wrap to
 garbage strings on breach. The extra four bytes per entry costs ~10 MB on a
-2.5M-string dictionary. Both are `mmap`-ed;
+2.5M-string dictionary. Both are read into memory with `fs::read`;
 resolving an atom to a string is two loads and a slice.
 
-In-memory, the indexer additionally holds a `HashMap<&str, Atom>` borrowing from
-the mmap for dedup during a run. The query path never needs it — queries compare
+**Read, not mapped.** An earlier design mapped them. The mapping bought nothing
+measurable: `validate` scans every byte before `open` returns, and `by_text`
+copies every string to the heap, so both of an mmap's advantages — paying only
+for the pages touched, and sharing them between processes — were already
+forfeited by the time the first lookup happened. Segment data, which is larger
+and hotter, was read with `fs::read` throughout. Dropping it removed the one
+`unsafe` block in `crates/facts` and one dependency (#44).
+
+In-memory, the indexer additionally holds a `HashMap<String, Atom>` for dedup
+during a run. The query path never needs it — queries compare
 atoms, and only materialize strings when formatting output.
 
 **Every string goes through the dedup map, including doc comments.** An earlier
@@ -223,7 +231,7 @@ requirements — it is a cache, so this is stated, not solved.
 ## Loading
 
 ```
-mmap every segment
+read every segment
 for each relation: concatenate its rows across segments, merge-sort, dedup
 ```
 
@@ -358,8 +366,8 @@ every other field (`NewEntry`), so no placeholder name exists to be written and
 
 **`dict_bin_len` / `dict_idx_len` bound what a reader may trust.** The manifest
 names segments but does not name dictionary extents, so a reader that loads a
-new manifest and mmaps a dictionary mid-append can read an offset past the end
-of its mapping. Recovery from a torn append is truncation to the recorded
+new manifest and reads a dictionary mid-append can read an offset past the end
+of the bytes the manifest vouched for. Recovery from a torn append is truncation to the recorded
 length: a reader bounds its view to the recorded extents, and a writer
 truncates both files to them before it appends.
 
@@ -496,9 +504,11 @@ the README rather than half-supporting it.
   per-segment checksums + dictionary extents in the manifest, above. A crashed
   index leaves the previous manifest pointing at valid, checksummed segments,
   plus orphans — `.tmp` files and unnamed segments — that the next run removes.
-- **The index directory must be excluded from file sync.** mmap over a Dropbox/iCloud
-  partial write or an SMB/NFS truncation raises `SIGBUS`, which no status code
-  can report. One line in the README.
+- **The index directory must be excluded from file sync.** A Dropbox/iCloud
+  partial write or an SMB/NFS truncation gives a torn or short read. Now that
+  nothing is mapped this surfaces as a `corrupt` status rather than the
+  `SIGBUS` an mmap raised, which no status code could report — but a synced
+  index directory is still a broken one. One line in the README.
 - **No compression.** `u32` columns of interned ids are already dense. Adding
   compression would put a decode step on the load path to save disk nobody is
   short of.

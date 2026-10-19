@@ -29,7 +29,6 @@ extract = { path = "crates/extract", version = "0.1.0" }
 # `04-storage.md`: the on-disk bytes ARE the in-memory representation, so the
 # dictionary is mapped rather than parsed. STACK.md has no entry for this;
 # research.md §6 records the deviation and its trigger.
-memmap2 = "0.9"
 # The `match` builtin. Linear time by construction, and already a non-optional
 # transitive dependency of tree-sitter — see research.md §6.
 regex = "1"
