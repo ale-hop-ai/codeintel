@@ -189,21 +189,42 @@ are exact statements about the graph rather than positions in a ranking.
 Every rule that reads `calls` or `ref` is contaminated by resolution quality,
 which is why each ships in two forms.
 
-On `tests/fixtures/rust/`, with a SCIP index present:
+**Where SCIP covers the code, the two forms agree.** On all four committed
+fixtures — `tests/fixtures/{rust,go,python,typescript}/`, each with its
+indexer's `index.scip` — `calls` and `calls_exact` return the same edges, and
+every row of `?- calls_at(From, S, F, L, P).` reads `P = "exact"`. That is by
+construction rather than by luck: the `name` rules carry `!scip_ref(...)`, so
+tier A cannot invent an edge at a position tier B already answered
+([02-extraction.md](../specs/02-extraction.md) § Validation 4). A fully covered
+tree is the case where the distinction costs you nothing.
+
+**Where SCIP does not reach, only the contaminated form has rows.** This
+repository carries no SCIP index, so:
 
 ```
-?- calls(C, S).          4 edges
-?- calls_exact(C, S).    3 edges
+?- calls(C, S).          every edge, all of it provenance `name`
+?- calls_exact(C, S).    0 rows, and status: no-scip
 ```
 
-The extra edge is `get -> get` in `src/store.rs`. `Store::get` calls
-`self.entries.get(key)`, tier A matches the identifier `get` to the only `get`
-it knows, and invents a self-call that does not exist. Its consequence is
-visible one rule further on: `?- recursive(S).` reports `get`, and `get` is not
-recursive.
+That zero is not silent. The response carries `status: no-scip` and the exact
+indexer command for every language in the tree, so "nothing here can answer
+you" never reads as "the answer is none".
 
-That is one false edge in a four-edge graph, and on this repository M3 measured
-tier A over-reporting **252 call edges, 17% of what it claims**.
+What tier A invents is visible one rule further on. `?- recursive(S).` on this
+repository reports `get` and `settle`, among others, and neither recurses:
+
+- `Db::get` (`crates/datalog/src/db.rs:26`) has the body `self.rels.get(name)`,
+  a `BTreeMap::get`. Tier A matched the identifier `get` to the enclosing
+  definition of that name and invented a self-call.
+- `Segment::settle` (`crates/facts/src/segment.rs:87`) calls `rows.settle()`,
+  which is `Relation::settle`. Same shape.
+
+One invented edge becomes a whole invented cycle, which is why §2 says to ask
+the `_exact` form of anything you intend to act on. On this repository with a
+SCIP index present, M3 measured tier A over-reporting **252 call edges, 17% of
+what it claims** ([plan.md](plan.md) M3); that figure is the entire argument
+for tier B and for keeping the two provenances apart rather than averaging
+them.
 
 - Use `calls_exact`, `impact_of_exact`, `dead_export_exact`, `entrypoint_exact`,
   `depends_exact` and `uses_package_exact` when precision matters.
@@ -250,20 +271,27 @@ ones that answer zero (#58). It is not DefinitelyTyped-specific either: on
 "does F use X", and a zero there means "no `extern` row says so", never "no".
 There is no union of the two relations, because `import`'s `Module` is a
 per-language specifier and not a package name: `"std::collections::HashMap"` in
-Rust, `"\"fmt\""` in Go, `"../db/conn"` in TypeScript. Rewriting either name
+Rust, `"fmt"` in Go, `"../db/conn"` in TypeScript. Rewriting either name
 into the other is the extractor guess
 [02-extraction.md](../specs/02-extraction.md) § Name matching forbids.
 
 ### Two artifacts this fixture shows, and what they mean
 
-`?- within(C, P).` returns a row whose child has an empty name, and
-`?- depends(F, G).` claims `src/app.rs` depends on `tests/store_test.rs`. Both
-trace to one thing: the crate-root module symbol. SCIP places a module's
-definition in a document that is not where the `mod` statement is
-([plan.md](plan.md) M3 records the same effect on the anchor rate), so
-file-granularity rules inherit that placement. Read a `depends` row involving a
-module definition as "these two files are in one module graph", not as "this
-file uses that file".
+`?- depends(F, G).` on `tests/fixtures/rust/` reports `src/lib.rs` depending on
+`src/app.rs`, `src/kinds.rs`, `src/store.rs` and every other module file. No
+code in `lib.rs` uses any of them: the file is six `pub mod` lines under a
+doc comment and nothing else. Each `mod` statement is a reference to a module symbol SCIP places
+in the module's *own* file rather than where the statement is
+([plan.md](plan.md) M3 records the same effect on the anchor rate), and
+`depends` is file-granular, so it inherits that placement. Read a `depends` row
+involving a module definition as "these two files are in one module graph", not
+as "this file uses that file".
+
+The same placement is why the nine `mod` definitions are the nine unanchored
+defs on this fixture — tier A puts them at the `mod x;` line and SCIP puts them
+at line 1 of the other file, so the join cannot match them. They are exempt by
+count, not by allowlist
+([02-extraction.md](../specs/02-extraction.md) § Validation 3).
 
 `?- ambiguous(N).` lists `self`, `key` and `store` alongside real collisions.
 SCIP emits a `local` definition for every parameter and binding, the collapse
