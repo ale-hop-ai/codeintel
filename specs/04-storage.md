@@ -15,8 +15,13 @@ That property is what buys the simplicity below. We are not a database.
 
 The index lives **outside the tree it describes.** A tool that answers
 questions about a tree does not write into it: no new directory in the
-checkout, no `.gitignore` edit, one index per repository rather than one per
-worktree, and an index can be built where the tree is read-only.
+checkout, no `.gitignore` edit, and an index can be built where the tree is
+read-only.
+
+**One index per checkout, not per repository.** The key is the canonical root
+path, so a worktree and the main checkout index separately. That is the
+correct granularity: they hold different source, and one shared index would be
+wrong for whichever was indexed second.
 
 The index directory (`<index>` below) is the first of:
 
@@ -25,8 +30,23 @@ The index directory (`<index>` below) is the first of:
 3. `<root>/.codeintel/`, **if that directory already exists** — an index a
    previous version wrote is kept in use, not silently re-indexed elsewhere.
 4. `<cache>/codeintel/<key>/`, where `<cache>` is `$XDG_CACHE_HOME` when it is
-   set to an absolute path, else `$HOME/.cache`, and `<key>` is the first 16
-   hex digits of the blake3 of the canonical root path's bytes.
+   set to an absolute path, else `$HOME/.cache`.
+
+`<key>` is `<label>-<hash>`. `<hash>` is the first 16 hex digits of the blake3
+of the canonical root path's bytes, and is the whole of what keeps two roots
+apart. `<label>` is the canonical path's **last two components**, each folded
+to ASCII alphanumerics, `.` and `_` with every other run becoming one `-`,
+each cut to 32 characters and the whole cut to 64 — so
+`~/worktrees/codeintel/fix-qc-sweep` keys as
+`codeintel-fix-qc-sweep-<hash>`. Two components and not one because a worktree
+directory is named for its branch, and `fix-qc-sweep` alone does not say which
+repository it belongs to. A path with no usable component keys as the hash
+alone.
+
+**The label is legibility, never identity.** Nothing reads it back; a user
+pruning the cache by hand should be able to see which checkout an entry
+describes without opening its manifest. Two roots that fold to one label still
+get two directories, because the hash differs.
 
 With none of `XDG_CACHE_HOME`, `HOME` or an override available, resolution
 fails with an error that names `--index-dir`; it never falls back into the tree.

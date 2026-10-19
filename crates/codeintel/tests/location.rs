@@ -84,9 +84,12 @@ fn the_default_index_is_in_the_cache_and_the_tree_is_untouched() {
 
     let cached = world.cached();
     assert_eq!(cached.len(), 1, "{cached:?}");
+    // A readable label, then the hash that actually keeps two roots apart.
     let key = cached[0].file_name().expect("name").to_string_lossy();
-    assert_eq!(key.len(), 16, "{key}");
-    assert!(key.bytes().all(|b| b.is_ascii_hexdigit()), "{key}");
+    let (label, hash) = key.rsplit_once('-').expect("label and hash");
+    assert_eq!(hash.len(), 16, "{key}");
+    assert!(hash.bytes().all(|b| b.is_ascii_hexdigit()), "{key}");
+    assert!(!label.is_empty(), "{key}");
     assert!(cached[0].join("manifest.json").exists());
 
     let reported = world.status_json()["index_dir"]

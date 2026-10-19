@@ -29,7 +29,8 @@ pub const ENV: &str = "CODEINTEL_INDEX_DIR";
 
 /// Where the index for `root` lives (`specs/04-storage.md` § Location): the
 /// `explicit` directory if given, else an existing `<root>/.codeintel/`, else a
-/// per-repository directory under the user cache.
+/// per-checkout directory under the user cache — so a worktree and the main
+/// checkout index separately.
 ///
 /// `root` may be spelled any way that resolves to the repository. Nothing is
 /// created.
@@ -75,12 +76,77 @@ fn locate_with(
     // Canonical, so `.`, a relative path and a symlinked spelling of one
     // repository all find the same index. The caller need not have done it.
     let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    let key: String = blake3::hash(canonical.as_os_str().as_encoded_bytes())
+    Ok(cache.join("codeintel").join(key_for(&canonical)))
+}
+
+/// Characters of blake3 hex in a key. Uniqueness lives here, not in the label.
+const KEY_HASH: usize = 16;
+
+/// Characters a single path component may contribute to a key's label.
+const KEY_PART: usize = 32;
+
+/// Characters the whole label may occupy, before the hash is appended.
+const KEY_LABEL: usize = 64;
+
+/// The directory name for a canonical root: a readable label, then a hash
+/// (`specs/04-storage.md` § Location).
+///
+/// The hash carries uniqueness; the label carries nothing but legibility, so
+/// that `~/worktrees/codeintel/fix-qc-sweep` and the main checkout are told
+/// apart by eye instead of by opening two manifests.
+fn key_for(canonical: &Path) -> String {
+    let hash: String = blake3::hash(canonical.as_os_str().as_encoded_bytes())
         .to_hex()
         .chars()
-        .take(16)
+        .take(KEY_HASH)
         .collect();
-    Ok(cache.join("codeintel").join(key))
+    let label = label_for(canonical);
+    if label.is_empty() {
+        hash
+    } else {
+        format!("{label}-{hash}")
+    }
+}
+
+/// The last two components of `canonical`, sanitized and joined with `-`.
+///
+/// Two and not one: a worktree directory is named for its branch, so
+/// `fix-qc-sweep` alone does not say which repository it belongs to.
+fn label_for(canonical: &Path) -> String {
+    let mut parts: Vec<String> = canonical
+        .components()
+        .filter_map(|c| match c {
+            std::path::Component::Normal(s) => Some(sanitize(&s.to_string_lossy())),
+            _ => None,
+        })
+        .filter(|part| !part.is_empty())
+        .collect();
+    parts.reverse();
+    parts.truncate(2);
+    parts.reverse();
+    let label: String = parts.join("-").chars().take(KEY_LABEL).collect();
+    label.trim_matches('-').to_string()
+}
+
+/// Keep what is unambiguous in a directory name; fold everything else to `-`.
+fn sanitize(part: &str) -> String {
+    let mut out = String::with_capacity(part.len().min(KEY_PART));
+    for ch in part.chars() {
+        let ch = if ch.is_ascii_alphanumeric() || ch == '.' || ch == '_' {
+            ch
+        } else {
+            '-'
+        };
+        // A run of folded characters is one separator, not several.
+        if ch == '-' && out.ends_with('-') {
+            continue;
+        }
+        if out.chars().count() == KEY_PART {
+            break;
+        }
+        out.push(ch);
+    }
+    out.trim_matches('-').to_string()
 }
 
 /// Where segments live inside [`DIR`].
@@ -663,7 +729,11 @@ mod tests {
 
         let cached = at(None, xdg.clone(), home.clone()).expect("locates");
         assert!(cached.starts_with("/xdg/codeintel"), "{cached:?}");
-        assert_eq!(cached.file_name().expect("key").len(), 16);
+        let key = cached.file_name().expect("key").to_string_lossy();
+        let (label, hash) = key.rsplit_once('-').expect("label and hash");
+        assert_eq!(hash.len(), KEY_HASH, "{key}");
+        assert!(hash.bytes().all(|b| b.is_ascii_hexdigit()), "{key}");
+        assert!(!label.is_empty(), "{key}");
         assert_eq!(at(None, xdg.clone(), home.clone()).expect("again"), cached);
 
         // A relative or empty XDG_CACHE_HOME is ignored, as the spec says.
@@ -688,6 +758,51 @@ mod tests {
             at(Some(Path::new("/x/y")), xdg, home).expect("explicit"),
             Path::new("/x/y")
         );
+    }
+
+    #[test]
+    fn a_key_reads_as_the_last_two_components_and_ends_in_a_hash() {
+        let key = |p: &str| key_for(Path::new(p));
+        let label = |p: &str| {
+            key(p)
+                .rsplit_once('-')
+                .map(|(l, _)| l.to_string())
+                .expect("hash")
+        };
+
+        // A worktree is told from its main checkout by eye.
+        assert_eq!(
+            label("/Users/u/worktrees/codeintel/fix-qc-sweep"),
+            "codeintel-fix-qc-sweep"
+        );
+        assert_eq!(
+            label("/Users/u/projects/futurumlab/codeintel"),
+            "futurumlab-codeintel"
+        );
+
+        // Different paths, different keys, even with one label.
+        assert_ne!(
+            key("/a/repos/codeintel"),
+            key("/b/repos/codeintel"),
+            "the hash, not the label, carries uniqueness"
+        );
+
+        // Anything a directory name should not carry is folded to one `-`.
+        assert_eq!(label("/x/we ird/na:me"), "we-ird-na-me");
+        assert_eq!(
+            label("/x/keep.dots_and_underscores"),
+            "x-keep.dots_and_underscores"
+        );
+
+        // A long component is cut, and the key stays bounded.
+        let long = format!("/x/{}", "z".repeat(200));
+        assert_eq!(label(&long).len(), 1 + 1 + KEY_PART);
+        assert!(key(&long).len() <= KEY_LABEL + 1 + KEY_HASH);
+
+        // A path with no usable component still gets a key, and it is the hash.
+        let bare = key("/");
+        assert_eq!(bare.len(), KEY_HASH, "{bare}");
+        assert!(bare.bytes().all(|b| b.is_ascii_hexdigit()), "{bare}");
     }
 
     #[test]
