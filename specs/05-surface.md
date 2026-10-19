@@ -241,6 +241,13 @@ which one happened: `shadowed` replaced a definition, `widened` added to one.
 Each entry names the predicate and the file, deduplicated per file, and both go
 to stderr as well.
 
+**A widening is a collision with something already defined** — the stdlib, or a
+rule file loaded earlier. A predicate a file introduces is not one, however many
+clauses it introduces it with: a layering policy is one clause per forbidden
+edge (`docs/cookbook.md` §1), and reporting its second clause as widening its
+first tells the user to go looking for a stdlib conflict that does not exist
+(#76).
+
 **`--expect-empty` exits 1 if any row comes back.** A conformance check states
 the violation it looks for, so finding none is the passing case. The exit code
 is 1 and not 2 because "your code violates this" and "I could not tell you" are

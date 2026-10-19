@@ -412,15 +412,28 @@ impl Loaded {
             // What this file defined, against everything defined before it.
             // `defined` grows as files load, so a second rule file widening the
             // first is reported too, not only a collision with the stdlib.
-            for head in engine.loaded().last().into_iter().flatten() {
-                // `insert` is false for a head something already defined. Three
-                // clauses of one predicate are one widening, not three, so the
-                // report is deduplicated.
+            //
+            // The file's heads are collected BEFORE any of them joins
+            // `defined`. Testing and inserting in one pass made a predicate's
+            // own second clause collide with its first, so every new
+            // multi-clause rule — which is what a layering policy is — was
+            // reported as widening a stdlib rule that did not exist (#76).
+            // A set also collapses three clauses of one predicate into the one
+            // widening they are.
+            let heads: BTreeSet<String> = engine
+                .loaded()
+                .last()
+                .into_iter()
+                .flatten()
+                .cloned()
+                .collect();
+            for head in &heads {
                 let entry = format!("{head} ({})", path.display());
-                if !defined.insert(head.clone()) && !widened.contains(&entry) {
+                if defined.contains(head) && !widened.contains(&entry) {
                     widened.push(entry);
                 }
             }
+            defined.extend(heads);
         }
         // The rules' constants belong to the engine, not to any one call.
         literals.seal();
