@@ -1,8 +1,17 @@
 # codeintel schema
 
-Everything below is what `codeintel schema` prints. It is the whole contract:
-relations, vocabularies, rules, builtins. A question you cannot answer from this
-page is a question the schema is failing to support.
+> **This page is a record, not the live schema.** It is the text the agent eval
+> was given — `docs/agent-eval.md` § What the agent saw — and it is kept frozen
+> so that a scored run stays reproducible. The schema has moved since: the
+> surface-budget trade deleted `callers_by_name`, `impact_by_name` and
+> `long_def` ([00-overview.md](../specs/00-overview.md) § Surface budget), and
+> they are still listed below because removing them would falsify the record.
+> **For what the schema holds today, run `codeintel schema`** — it is generated
+> from your own index. Checked 2026-10-19.
+
+Everything below is what `codeintel schema` printed for the eval. It is the
+whole contract: relations, vocabularies, rules, builtins. A question you cannot
+answer from this page is a question the schema is failing to support.
 
 ## Language
 

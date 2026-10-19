@@ -29,10 +29,23 @@ codeintel query '?- innermost_at("src/store.rs", 142, S), impact_of(S, C),
 ```
 
 The index lives outside the repository: `${XDG_CACHE_HOME:-~/.cache}/codeintel/<key>/`,
-one per repo. `--index-dir <PATH>` or `CODEINTEL_INDEX_DIR` moves it; an
-existing `<repo>/.codeintel/` from an older version keeps being used. Nothing is
-ever written into the tree, and `.gitignore` is never touched.
-`codeintel status` prints where it is.
+one per repo. The path resolves `--index-dir <PATH>` → `CODEINTEL_INDEX_DIR` →
+that cache directory → an existing `<repo>/.codeintel/`, which a tree that
+already has one keeps using. Nothing is ever written into the tree, and
+`.gitignore` is never touched. `codeintel status` prints the path it resolved.
+
+**`query` answers from the nearest index rather than failing.** It looks at the
+directory you gave it, then its ancestors, then exactly one descendant up to
+three levels down. When it adopts one, the response carries `root` — the tree
+the rows are really scoped to — and a hint saying so, because rows from another
+root are a different answer and not a smaller one. So an index built in a
+subdirectory serves the repository root, and one built at the root serves every
+subdirectory.
+
+It never picks between candidates: two indexes below you is `no-index` with
+both paths named, and so is one that sits four levels down. With no index
+anywhere, the answer is `status: no-index` and one line that builds the tier-A
+index, names the SCIP indexer for each language present, and re-indexes.
 
 ## Install
 
@@ -132,8 +145,16 @@ alone gives you a good symbol map and a thin, unrepresentative call graph.
 So `codeintel index` always prints the exact indexer command for the languages
 it found, e.g. `rust-analyzer scip .` or `scip-typescript index --infer-tsconfig`.
 You run it: an indexer runs your build, and `codeintel` never does
-([docs/plan.md](docs/plan.md) M3). Then `codeintel index .` again picks up
-`./index.scip`.
+([docs/plan.md](docs/plan.md) M3) — not on the query path, and not on `index`
+either until you ask with a flag ([docs/onboarding.md](docs/onboarding.md) D2).
+Then `codeintel index .` again picks up `./index.scip`.
+
+An indexer run from a subdirectory writes document paths relative to *that*
+directory, not to the repository root. `--scip-root <DIR>` says which one, and
+pairs with `--scip`: pass none, one for every `--scip`, or one each in the same
+order. Both `index` and `status` then report `scip coverage: N of M document(s)
+matched an indexed file`, so a SCIP index whose paths landed nowhere says so
+instead of looking like a tier that found nothing.
 
 ## Docs
 
@@ -149,6 +170,7 @@ Read in this order.
 | [specs/05-surface.md](specs/05-surface.md) | CLI and MCP contracts |
 | [docs/cookbook.md](docs/cookbook.md) | Conformance rules, orientation, dex's 34 methods as queries |
 | [docs/plan.md](docs/plan.md) | Ordered milestones with done-when criteria |
+| [docs/onboarding.md](docs/onboarding.md) | First-run friction, and the decisions taken on it |
 | [docs/research.md](docs/research.md) | Findings, rejected options, evidence |
 | [docs/agent-eval.md](docs/agent-eval.md) | Can an agent actually write this Datalog? Measured. |
 | [CLAUDE.md](CLAUDE.md) | Rules for agents implementing this |
@@ -203,11 +225,20 @@ are import-complete, which is all conformance needs.
 M0–M5 shipped: the Datalog engine, the fact store, the tree-sitter tier, the
 SCIP tier and the anchor join, all five verbs and the MCP tool. **Rust, Go,
 Python and TypeScript** (with TSX) index today, each with a committed fixture
-index. Anchor rates on those fixtures are 80% for Rust, where every miss is one
-of its 9 modules and modules are exempt
-([02-extraction.md](specs/02-extraction.md) § Validation), 100% for Go, 96.7%
-for Python and 98.4% for TypeScript. The one miss in each of the last two is an
-occurrence whose column #21 refuses to guess.
+index. Anchor rates on those fixtures, as `codeintel index` reports them:
+
+| fixture | anchored | what the misses are |
+|---|---:|---|
+| Rust | 36/45 (80.0%) | all 9 are its modules, which are exempt ([02-extraction.md](specs/02-extraction.md) § Validation 3) |
+| Go | 25/26 (96.2%) | `Drain`, appended after `index.scip` was built so no earlier position would move |
+| Python | 29/30 (96.7%) | `AFTER_WIDE`, an occurrence whose column #21 refuses to guess |
+| TypeScript | 60/63 (95.2%) | the same `AFTER_WIDE` case, plus `clamp` and `listen` in `sig.ts`, a file the committed `index.scip` predates |
+
+Each miss is a fixture that grew after its indexer last ran, or the one column
+question #21 names — not a join that drifted. `codeintel status` reports an
+anchor rate too, over a different denominator: it counts `resolved` rows against
+*all* `def` rows, tier-B-only definitions included, so its percentage is the
+higher one.
 
 Not built yet: M6's performance work, beyond the bench harness and counter
 goldens that were pulled forward.
