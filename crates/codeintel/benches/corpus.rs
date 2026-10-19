@@ -38,10 +38,14 @@ const TOLERANCE: f64 = 0.20;
 /// sub-millisecond query moves by 20% on scheduler noise alone.
 const NOISE_FLOOR_MS: f64 = 1.0;
 
+#[path = "conditions.rs"]
+mod conditions;
+
+use conditions::{Conditions, Verdict};
+
 fn main() -> ExitCode {
     match run() {
-        Ok(true) => ExitCode::SUCCESS,
-        Ok(false) => ExitCode::from(1),
+        Ok(verdict) => verdict.code(),
         Err(e) => {
             eprintln!("bench: {e:#}");
             ExitCode::from(2)
@@ -49,7 +53,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<bool> {
+fn run() -> Result<Verdict> {
     // `cargo bench` passes `--bench` to a harness-less target; flags are not
     // ours.
     let args: Vec<String> = std::env::args()
@@ -67,6 +71,30 @@ fn run() -> Result<bool> {
         .canonicalize()
         .context("the corpus directory")?;
     let rev = git_head(&corpus);
+
+    // Before any of our own work raises it.
+    let started_under = Conditions::now();
+    let updating = std::env::var_os("UPDATE_BASELINE").is_some();
+    println!("host conditions: {}", started_under.describe());
+    if !started_under.trustworthy() {
+        // Checked here rather than after the measurements: deno takes the best
+        // part of an hour, and refusing at the end of it would be a refusal
+        // nobody waits around for.
+        if updating {
+            println!(
+                "REFUSED: not writing a baseline. {}.\nA baseline measured on a busy machine is \
+                 too slow, so the +20% gate passes everything afterwards — it fails open, and \
+                 quietly. Re-run UPDATE_BASELINE=1 when the machine is idle.",
+                started_under.describe()
+            );
+            return Ok(Verdict::Fail);
+        }
+        println!(
+            "WARNING: this host is too busy for the wall clock to mean much. The run still \
+             reports numbers; it will not write a baseline from them, and a comparison against \
+             one comes back inconclusive"
+        );
+    }
 
     let tmp = tempfile::tempdir().context("tempdir")?;
     let root = tmp.path().canonicalize().context("tempdir")?;
@@ -117,6 +145,9 @@ fn run() -> Result<bool> {
     let current = json!({
         "corpus": { "name": name, "rev": rev, "files": files, "defs": defs },
         "host": host(),
+        // Beside the result, not inside `host()`: that value is compared for
+        // equality to decide "same machine", and load differs every run.
+        "conditions": conditions::report(started_under, Conditions::now()),
         // Needs root to drop (`purge`, /proc/sys/vm/drop_caches). Not measured,
         // and saying so rather than leaving the key out.
         "cold_page_cache": null,
@@ -150,19 +181,26 @@ fn run() -> Result<bool> {
 
     let baseline = spec.join("baseline.json");
     if std::env::var_os("UPDATE_BASELINE").is_some() {
+        // The load refusal already happened at the top of the run.
+        if conditions::dirty_tree() {
+            println!(
+                "note: the tree is dirty, so this baseline describes a build that cannot be \
+                 checked out again. Recorded in the result as `conditions.dirty_tree`"
+            );
+        }
         write_json(&baseline, &current)?;
         println!("wrote {}", baseline.display());
-        return Ok(true);
+        return Ok(Verdict::Pass);
     }
     let Ok(text) = std::fs::read_to_string(&baseline) else {
         println!(
             "no baseline at {}: nothing compared. UPDATE_BASELINE=1 writes one",
             baseline.display()
         );
-        return Ok(false);
+        return Ok(Verdict::Fail);
     };
     let base: Value = serde_json::from_str(&text).context("baseline.json")?;
-    Ok(compare(&base, &current))
+    Ok(compare(&base, &current, started_under))
 }
 
 /// Median of `INDEX_RUNS` cold tier-A indexes, each into a fresh store.
@@ -385,15 +423,20 @@ impl std::io::Write for Stamps {
     }
 }
 
-/// Report every difference and return whether the run passes.
-fn compare(base: &Value, current: &Value) -> bool {
+/// Report every difference and say what the run concluded.
+///
+/// Counters are exact and load does not move them, so they decide `Fail` on
+/// any host. The clock is the part a busy machine invalidates, so when the
+/// host was loaded it is reported and not judged: the run comes back
+/// `Inconclusive` rather than claiming a pass it did not earn.
+fn compare(base: &Value, current: &Value, under: Conditions) -> Verdict {
     let (base_rev, rev) = (base.pointer("/corpus/rev"), current.pointer("/corpus/rev"));
     if base_rev != rev {
         println!(
             "REFUSED: the baseline measured corpus {base_rev:?}, this is {rev:?}. A baseline \
              against a different tree measures nothing"
         );
-        return false;
+        return Verdict::Fail;
     }
     let mut failed = Vec::new();
 
@@ -431,7 +474,16 @@ fn compare(base: &Value, current: &Value) -> bool {
         }
     }
 
-    if base.get("host") == current.get("host") {
+    // Counter differences are collected above and decide below, whatever the
+    // host was doing.
+    let clock_is_meaningful = under.trustworthy();
+    if !clock_is_meaningful {
+        println!(
+            "wall clock NOT judged: {}. Counters were compared and are exact",
+            under.describe()
+        );
+    }
+    if clock_is_meaningful && base.get("host") == current.get("host") {
         let metrics = base.get("metrics").and_then(Value::as_object);
         for (key, old) in metrics.into_iter().flatten() {
             let new = current
@@ -455,7 +507,7 @@ fn compare(base: &Value, current: &Value) -> bool {
                 );
             }
         }
-    } else {
+    } else if clock_is_meaningful {
         println!(
             "wall clock NOT compared: baseline host {:?}, this host {:?}. Counters were",
             base.get("host"),
@@ -466,7 +518,13 @@ fn compare(base: &Value, current: &Value) -> bool {
     for f in &failed {
         println!("FAIL {f}");
     }
-    failed.is_empty()
+    let verdict = Verdict::decide(failed.is_empty(), under);
+    if verdict == Verdict::Inconclusive {
+        println!(
+            "INCONCLUSIVE: counters agreed; the clock was not judged. Re-run on an idle machine"
+        );
+    }
+    verdict
 }
 
 fn judge(name: &str, old: f64, new: f64, floor: f64, failed: &mut Vec<String>) {

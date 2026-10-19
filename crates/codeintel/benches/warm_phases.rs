@@ -40,7 +40,12 @@ use anyhow::{Context, Result, bail};
 use codeintel::index::{self, Plan};
 use codeintel::query::{Options, Warm};
 use facts::Store;
-use serde_json::json;
+use serde_json::{Value, json};
+
+#[path = "conditions.rs"]
+mod conditions;
+
+use conditions::Conditions;
 
 /// Every phase, in the order a round runs them.
 const PHASES: [&str; 9] = [
@@ -83,6 +88,15 @@ fn run() -> Result<()> {
     let corpus = PathBuf::from(corpus)
         .canonicalize()
         .context("the corpus directory")?;
+
+    // Before our own work raises it. A profile is a wall-clock number too.
+    let started_under = Conditions::now();
+    println!("host conditions: {}", started_under.describe());
+    if !started_under.trustworthy() {
+        println!(
+            "WARNING: these numbers describe a busy machine as much as they describe the code"
+        );
+    }
 
     let tmp = tempfile::tempdir().context("tempdir")?;
     let root = tmp.path().canonicalize().context("tempdir")?;
@@ -198,11 +212,17 @@ fn run() -> Result<()> {
     let mcp_p50 = measure_mcp(&root, &dir, &goal)?;
     println!("\nanchor: mcp p50 {mcp_p50:.2} ms, flush to flush, same query");
 
-    report_phases(name, &goal, &phases, mcp_p50)
+    report_phases(name, &goal, &phases, mcp_p50, started_under)
 }
 
 /// p50 and p95 of each phase, printed and written as JSON.
-fn report_phases(name: &str, goal: &str, phases: &[(&str, Vec<f64>)], mcp_p50: f64) -> Result<()> {
+fn report_phases(
+    name: &str,
+    goal: &str,
+    phases: &[(&str, Vec<f64>)],
+    mcp_p50: f64,
+    started_under: Conditions,
+) -> Result<()> {
     let p50 = |label: &str| {
         phases
             .iter()
@@ -255,6 +275,13 @@ fn report_phases(name: &str, goal: &str, phases: &[(&str, Vec<f64>)], mcp_p50: f
         "corpus": name,
         "query": goal,
         "runs": RUNS,
+        // Which build produced this, and what else the machine was doing.
+        // Without it a profile is just numbers in a file: `target/bench/` holds
+        // one path per corpus and every run overwrites it, so a table quoted
+        // from the wrong run reads exactly like a table quoted from the right
+        // one. That happened to deno in `docs/plan.md` § #28 — a parallel-walk
+        // JSON was read as the serial walk's.
+        "provenance": conditions::report(started_under, Conditions::now()),
         "phases": measured,
         "derived": { "stale_check_ms": stale_check, "evaluate_ms": evaluate },
         "anchor": { "mcp_p50_ms": mcp_p50 },
@@ -284,10 +311,10 @@ fn cheapest_query(spec: &Path) -> Result<String> {
     let Ok(text) = std::fs::read_to_string(spec.join("baseline.json")) else {
         return Ok(first);
     };
-    let baseline: serde_json::Value = serde_json::from_str(&text).context("baseline.json")?;
+    let baseline: Value = serde_json::from_str(&text).context("baseline.json")?;
     let cheapest = baseline
         .get("queries")
-        .and_then(serde_json::Value::as_array)
+        .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(|q| {
