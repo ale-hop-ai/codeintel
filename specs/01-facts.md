@@ -445,6 +445,26 @@ extern("scip-go gomod github.com/gin-gonic/gin v1.9.1 gin/Context#JSON().",
        "gomod", "github.com/gin-gonic/gin", "v1.9.1").
 ```
 
+`Pkg` is **the package the indexer attributed the symbol to**, which is not
+always the package the source imports, and the two are not convertible. An npm
+package typed through DefinitelyTyped resolves to the `.d.ts` inside
+`@types/<pkg>`, so `import merge from 'lodash.merge'` gives `import(F,
+"lodash.merge", "merge")` and `extern(S, "npm", "@types/lodash.merge", _)` — the
+runtime name appears in one relation and the stub name in the other, and no row
+joins them (#58). The same split shows with no DefinitelyTyped involved at all:
+on `tests/fixtures/typescript/`, every `extern` row reads `npm typescript
+5.9.3`, because `Map` and `String` come from `lib.es5.d.ts`, and no file imports
+`typescript`.
+
+This is faithful, not degraded — `Pkg` states what the indexer resolved, and
+`import`'s `Module` states what the author wrote (§ `import`). Read `Pkg` when
+the question is about the dependency a symbol *came from*, `Module` when it is
+about what a file *declares a dependency on*. Nothing here rewrites `@types/x`
+into `x`: that is an extractor guess (02-extraction.md § Name matching), and
+stripping it in a rule is no better, because `Module` is a per-language
+specifier and not a package name in the first place — `"std::collections::HashMap"`
+in Rust, `"\"fmt\""` in Go, `"../db/conn"` in TypeScript.
+
 ### `name_export(F, Name)`
 File `F` exports its local `Name` from a clause that is not the declaration:
 TypeScript's `export { x }`, `export { f as g }`, `export default f` and
@@ -830,6 +850,16 @@ undocumented_export(S) :- exported(S), !def_doc(S, _).
 
 uses_package(F, P) :- ref(S, F, _, _, _, _, _), extern(S, _, P, _).
 ```
+
+`uses_package`'s `P` is `extern`'s `Pkg` and inherits its reading exactly
+(§ `extern`): the package the *indexer* attributed the symbol to, not the
+specifier the source wrote. `?- uses_package(F, "react").` answers zero rows on
+a TypeScript repository whose every file imports `react`, because the symbols
+resolve to `@types/react`. That zero is a true statement about `extern` and a
+misleading answer to the question usually meant, so **the file-declares-a-
+dependency question is `import`, not `uses_package`**:
+`?- import(F, "react", _).` (#58). There is no union of the two: see § `extern`
+for why neither name converts into the other.
 
 Note `dead_export` and `entrypoint` use negation — both are stratified, which
 the engine verifies before evaluating ([03-datalog.md](03-datalog.md) §
