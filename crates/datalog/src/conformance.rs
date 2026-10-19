@@ -6,7 +6,7 @@
 //! in it.
 
 use crate::engine::{Engine, QueryResult};
-use crate::limits::Limits;
+use crate::limits::{Demand, Limits};
 use crate::symbols::Strings;
 
 /// An engine over `program`, with no regex engine installed.
@@ -843,7 +843,7 @@ fn body_order_does_not_change_the_adornment() {
         last.stats.transformed
     );
     assert_eq!(first.stats.derived, last.stats.derived);
-    assert_eq!(last.stats.demand, "applied");
+    assert_eq!(last.stats.demand, Demand::Applied);
 
     // Inside a rule body too, not only in the goal.
     let program = format!("{WIDE}\nreach_from(Seed, C) :- impact_of(Seed, C), calls(Seed, _).\n");
@@ -864,19 +864,17 @@ fn stats_demand_says_why_the_rewrite_did_or_did_not_apply() {
         .query("?- impact_of(S, C).", &Limits::default())
         .expect("answers");
     assert!(free.stats.transformed.is_empty());
-    assert!(
-        free.stats.demand.starts_with("nothing to seed"),
-        "{}",
-        free.stats.demand
-    );
+    // Exact, not a prefix. `demand` was a String, so this had to sniff
+    // prose; an enum says the outcome (#48).
+    assert_eq!(free.stats.demand, Demand::NothingToSeed);
     let seeded = e
         .query(r#"?- impact_of("a0", C)."#, &Limits::default())
         .expect("answers");
-    assert_eq!(seeded.stats.demand, "applied");
+    assert_eq!(seeded.stats.demand, Demand::Applied);
     let plain = e
         .query_undemanded(r#"?- impact_of("a0", C)."#, &Limits::default())
         .expect("answers");
-    assert_eq!(plain.stats.demand, "disabled");
+    assert_eq!(plain.stats.demand, Demand::Disabled);
 }
 
 /// The rewrite adds a guard literal to every body it touches, so a program
@@ -899,11 +897,7 @@ fn a_rewrite_over_the_planning_limits_falls_back_to_the_plain_program() {
         "{:?}",
         result.stats.transformed
     );
-    assert!(
-        result.stats.demand.contains("planning limits"),
-        "{}",
-        result.stats.demand
-    );
+    assert_eq!(result.stats.demand, Demand::OverLimits);
     assert_eq!(render(&e, &result), vec!["\"a1\"", "\"a2\"", "\"a3\""]);
 }
 

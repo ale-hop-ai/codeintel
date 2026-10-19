@@ -87,7 +87,7 @@ pub fn json(answer: &Answer) -> serde_json::Value {
             "derived": answer.derived,
             "refreshed": answer.refreshed,
             "transformed": answer.transformed,
-            "demand": answer.demand,
+            "demand": answer.demand.as_str(),
             "depends": answer.depends,
             "shadowed": answer.shadowed,
             "widened": answer.widened,

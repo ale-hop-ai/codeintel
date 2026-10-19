@@ -142,7 +142,7 @@ pub struct Answer {
     /// traversal and all-pairs reachability.
     pub transformed: Vec<String>,
     /// Why `transformed` holds what it holds (`datalog::Stats::demand`).
-    pub demand: String,
+    pub demand: datalog::Demand,
     /// Base relations the goal's dependency closure reaches.
     pub depends: Vec<String>,
     /// Stdlib rules the query itself shadowed. Never silent: a rule quietly
@@ -177,7 +177,7 @@ impl Answer {
             elapsed_ms: 0,
             refreshed: 0,
             transformed: Vec::new(),
-            demand: String::new(),
+            demand: datalog::Demand::default(),
             depends: Vec::new(),
             shadowed: Vec::new(),
             widened: Vec::new(),
@@ -646,7 +646,7 @@ fn evaluate(
             elapsed_ms: result.stats.elapsed_ms,
             refreshed,
             transformed: result.stats.transformed.clone(),
-            demand: result.stats.demand.clone(),
+            demand: result.stats.demand,
             depends: result.stats.depends.clone(),
             shadowed: result.stats.shadowed.clone(),
             widened: loaded.widened.clone(),

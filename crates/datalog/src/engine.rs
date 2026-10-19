@@ -14,7 +14,7 @@ use crate::atom::{Atom, Term, is_int};
 use crate::check::{Schema, check};
 use crate::db::Db;
 use crate::diag::{Diagnostic, Result, Status};
-use crate::limits::{Cap, Limits, Stats};
+use crate::limits::{Cap, Demand, Limits, Stats};
 use crate::matcher::{Matcher, Regexes};
 use crate::parse::parse;
 use crate::relation::Relation;
@@ -268,10 +268,12 @@ impl Engine {
         let demanded = if demand {
             self.demand(&plain, &schema.derived, limits)
         } else {
-            Err("disabled")
+            Err(Demand::Disabled)
         };
         let (combined, schema, strata, transformed, why) = match demanded {
-            Ok((program, schema, strata, names)) => (program, schema, strata, names, "applied"),
+            Ok((program, schema, strata, names)) => {
+                (program, schema, strata, names, Demand::Applied)
+            }
             Err(why) => (plain, schema, strata, Vec::new(), why),
         };
         let goal = combined.query.clone().unwrap_or(goal);
@@ -292,7 +294,7 @@ impl Engine {
             derived: 0,
             plan: Vec::new(),
             transformed,
-            demand: why.to_string(),
+            demand: why,
             depends,
             empty_at: None,
         };
@@ -372,14 +374,14 @@ impl Engine {
         plain: &Program,
         derived: &BTreeSet<String>,
         limits: &Limits,
-    ) -> std::result::Result<(Program, Schema, Strata, Vec<String>), &'static str> {
+    ) -> std::result::Result<(Program, Schema, Strata, Vec<String>), Demand> {
         let mut excluded: BTreeSet<String> = BTreeSet::new();
         for _ in 0..MAX_DEMAND_ATTEMPTS {
             let Some(t) = transform(plain, derived, &excluded) else {
-                return Err("nothing to seed: no derived literal has a bound argument");
+                return Err(Demand::NothingToSeed);
             };
             let Ok(schema) = check(&t.program, self.base_arities()) else {
-                return Err("rewrite failed the safety check; the program ran as written");
+                return Err(Demand::Unsafe);
             };
             if let Ok(strata) = stratify(&t.program) {
                 // The rewrite adds a guard literal to every body and splits
@@ -388,14 +390,12 @@ impl Engine {
                 // already passed them: run that rather than reject a query the
                 // user wrote within budget.
                 if check_planning_limits(&t.program, &strata, limits).is_err() {
-                    return Err("rewrite exceeded the planning limits; the program ran as written");
+                    return Err(Demand::OverLimits);
                 }
                 return Ok((t.program, schema, strata, t.names));
             }
             let Some(cycle) = negative_cycle(&t.program) else {
-                return Err(
-                    "rewrite did not stratify and named no cycle; the program ran as written",
-                );
+                return Err(Demand::NoCycle);
             };
             let mut progressed = false;
             for name in &t.seeded_negations {
@@ -407,10 +407,10 @@ impl Engine {
                 }
             }
             if !progressed {
-                return Err("rewrite did not stratify and no seeded negation was left to back off");
+                return Err(Demand::NoBackoff);
             }
         }
-        Err("rewrite backed off too many times; the program ran as written")
+        Err(Demand::Exhausted)
     }
 
     /// Loaded rules minus any a query rule shadows, plus the query's own rules.
