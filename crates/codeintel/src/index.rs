@@ -127,65 +127,20 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
     let fingerprint = extract::fingerprint();
     let extractor_changed = store.manifest().extractor_fingerprint != fingerprint;
 
-    // Stat the SCIP inputs, which is cheap, and compare before parsing them,
-    // which is not. SCIP is all-or-nothing: a reference that *disappeared*
-    // from a document leaves no evidence anywhere else, so there is nothing to
-    // drive its removal per-document. A changed input re-extracts everything
-    // (specs/04-storage.md § Incremental reindex).
-    let mut inputs = stat_scip(&root, &plan.scip);
-    let known_scip = &store.manifest().scip;
-    let scip_changed = known_scip.len() != inputs.len()
-        || !known_scip.iter().zip(&inputs).all(|(a, b)| a.same_bytes(b));
-    // Carry forward what only a parse can tell us, so a refresh that does not
-    // re-read the index does not blank the manifest's record of it.
-    if !scip_changed {
-        for (into, known) in inputs.iter_mut().zip(known_scip) {
-            into.tool.clone_from(&known.tool);
-            into.documents = known.documents;
-            into.ambiguous = known.ambiguous;
-        }
-    }
-    // A collision belongs to the merge, not to an input, so it is carried and
-    // recorded once (specs/04-storage.md § Manifest).
-    let mut scip_collisions = if scip_changed || inputs.is_empty() {
-        0
-    } else {
-        store.manifest().scip_collisions
-    };
-    let invalidated = extractor_changed || scip_changed;
-    let newest_scip = inputs.iter().map(|i| i.mtime).max();
-
-    // Parsing a large `index.scip` on every auto-refresh would put it on the
-    // query path for nothing. Parse it only when a file actually needs
-    // re-extracting; a refresh that changes nothing reads no protobuf at all.
-    // By mtime and size alone, not the racy-clean rule: a tree touched in the
-    // indexing second would otherwise decode `index.scip` on every read. A racy
-    // file that did change is re-extracted tier A only below, and `scip-stale`.
-    let stale_file = wanted.iter().any(|c| {
-        !store
-            .manifest()
-            .files
-            .get(&c.path)
-            .is_some_and(|e| e.looks_unchanged(c.mtime, c.size))
-    });
-    let reingest = !inputs.is_empty() && (plan.rebuild || invalidated || stale_file);
-    let (ingest, own) = if reingest {
-        read_scip(&root, &plan.scip)?
-    } else {
-        (Ingest::default(), BTreeMap::new())
-    };
-    report.scip_skipped.clone_from(&ingest.skipped);
-    if reingest {
-        scip_collisions = ingest.collisions.len() as u64;
-        for input in &mut inputs {
-            let own = own.get(&input.path).cloned().unwrap_or_default();
-            input.tool = own.tool;
-            input.documents = own.documents;
-            input.ambiguous = own.ambiguous;
-        }
-    }
-    report.scip.clone_from(&inputs);
-    report.scip_collisions = scip_collisions;
+    // The SCIP phase: decide whether the index must be re-read, re-read it if
+    // so, and record what it saw. Lifted out whole because it is a phase and
+    // not a step -- every binding it produces is consumed below, and none of
+    // the walk above depends on it.
+    let scip = plan_scip(store, plan, &root, &wanted, extractor_changed, &mut report)?;
+    let ScipPlan {
+        scip_changed,
+        invalidated,
+        newest_scip,
+        reingest,
+        ingest,
+        inputs,
+        scip_collisions,
+    } = scip;
 
     let mut extractors: HashMap<&'static str, Extractor> = HashMap::new();
     let mut seen: BTreeSet<String> = BTreeSet::new();
@@ -373,28 +328,7 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
         report.indexed += 1;
     }
 
-    // A refresh that only added would leave a deleted file's facts answering
-    // queries (specs/05-surface.md § `query`). A language `--lang` left out
-    // was not walked, so its files were never `seen`; they are carried forward
-    // unchanged rather than mistaken for vanished (specs/05-surface.md
-    // § `index`). A file only tier B covers is not carried by its language:
-    // nothing walks it in any run, and it is `seen` above exactly when its
-    // SCIP input still stands.
-    let walked = |lang: &str| plan.langs.is_empty() || plan.langs.iter().any(|l| l == lang);
-    let vanished: Vec<String> = store
-        .manifest()
-        .files
-        .iter()
-        .filter(|(path, entry)| {
-            !seen.contains(*path) && (entry.tiers == ["scip"] || walked(&entry.lang))
-        })
-        .map(|(path, _)| path.clone())
-        .collect();
-    for path in vanished {
-        if store.forget(&path) {
-            report.removed += 1;
-        }
-    }
+    forget_vanished(store, plan, &seen, &mut report);
 
     // The same rule `query` acts on, read from the manifest this run built
     // (`FileEntry::scip_stale`).
@@ -474,6 +408,127 @@ pub fn discard(dir: &Path) -> Result<u64> {
 /// `tool`, `documents` and `ambiguous` are filled in by [`read_scip`]; a
 /// missing input is not an error, since `./index.scip` is a default and its
 /// absence just means tier A only.
+/// Drop the facts of every file the manifest still carries and this run did
+/// not see.
+fn forget_vanished(store: &mut Store, plan: &Plan, seen: &BTreeSet<String>, report: &mut Report) {
+    // A refresh that only added would leave a deleted file's facts answering
+    // queries (specs/05-surface.md § `query`). A language `--lang` left out
+    // was not walked, so its files were never `seen`; they are carried forward
+    // unchanged rather than mistaken for vanished (specs/05-surface.md
+    // § `index`). A file only tier B covers is not carried by its language:
+    // nothing walks it in any run, and it is `seen` above exactly when its
+    // SCIP input still stands.
+    let walked = |lang: &str| plan.langs.is_empty() || plan.langs.iter().any(|l| l == lang);
+    let vanished: Vec<String> = store
+        .manifest()
+        .files
+        .iter()
+        .filter(|(path, entry)| {
+            !seen.contains(*path) && (entry.tiers == ["scip"] || walked(&entry.lang))
+        })
+        .map(|(path, _)| path.clone())
+        .collect();
+    for path in vanished {
+        if store.forget(&path) {
+            report.removed += 1;
+        }
+    }
+}
+
+/// What the SCIP phase decided, and what it read if it read anything.
+struct ScipPlan {
+    scip_changed: bool,
+    invalidated: bool,
+    newest_scip: Option<u64>,
+    reingest: bool,
+    ingest: Ingest,
+    inputs: Vec<ScipInput>,
+    scip_collisions: u64,
+}
+
+/// Stat the SCIP inputs, decide whether they must be re-read, and re-read them
+/// if so, recording what they saw on `report`.
+///
+/// # Errors
+/// Propagates a failure to read or parse an `index.scip`.
+fn plan_scip(
+    store: &Store,
+    plan: &Plan,
+    root: &Path,
+    wanted: &[Candidate],
+    extractor_changed: bool,
+    report: &mut Report,
+) -> Result<ScipPlan> {
+    // Stat the SCIP inputs, which is cheap, and compare before parsing them,
+    // which is not. SCIP is all-or-nothing: a reference that *disappeared*
+    // from a document leaves no evidence anywhere else, so there is nothing to
+    // drive its removal per-document. A changed input re-extracts everything
+    // (specs/04-storage.md § Incremental reindex).
+    let mut inputs = stat_scip(root, &plan.scip);
+    let known_scip = &store.manifest().scip;
+    let scip_changed = known_scip.len() != inputs.len()
+        || !known_scip.iter().zip(&inputs).all(|(a, b)| a.same_bytes(b));
+    // Carry forward what only a parse can tell us, so a refresh that does not
+    // re-read the index does not blank the manifest's record of it.
+    if !scip_changed {
+        for (into, known) in inputs.iter_mut().zip(known_scip) {
+            into.tool.clone_from(&known.tool);
+            into.documents = known.documents;
+            into.ambiguous = known.ambiguous;
+        }
+    }
+    // A collision belongs to the merge, not to an input, so it is carried and
+    // recorded once (specs/04-storage.md § Manifest).
+    let mut scip_collisions = if scip_changed || inputs.is_empty() {
+        0
+    } else {
+        store.manifest().scip_collisions
+    };
+    let invalidated = extractor_changed || scip_changed;
+    let newest_scip = inputs.iter().map(|i| i.mtime).max();
+
+    // Parsing a large `index.scip` on every auto-refresh would put it on the
+    // query path for nothing. Parse it only when a file actually needs
+    // re-extracting; a refresh that changes nothing reads no protobuf at all.
+    // By mtime and size alone, not the racy-clean rule: a tree touched in the
+    // indexing second would otherwise decode `index.scip` on every read. A racy
+    // file that did change is re-extracted tier A only below, and `scip-stale`.
+    let stale_file = wanted.iter().any(|c| {
+        !store
+            .manifest()
+            .files
+            .get(&c.path)
+            .is_some_and(|e| e.looks_unchanged(c.mtime, c.size))
+    });
+    let reingest = !inputs.is_empty() && (plan.rebuild || invalidated || stale_file);
+    let (ingest, own) = if reingest {
+        read_scip(root, &plan.scip)?
+    } else {
+        (Ingest::default(), BTreeMap::new())
+    };
+    report.scip_skipped.clone_from(&ingest.skipped);
+    if reingest {
+        scip_collisions = ingest.collisions.len() as u64;
+        for input in &mut inputs {
+            let own = own.get(&input.path).cloned().unwrap_or_default();
+            input.tool = own.tool;
+            input.documents = own.documents;
+            input.ambiguous = own.ambiguous;
+        }
+    }
+    report.scip.clone_from(&inputs);
+    report.scip_collisions = scip_collisions;
+    Ok(ScipPlan {
+        scip_changed,
+        invalidated,
+        newest_scip,
+        reingest,
+        ingest,
+        inputs,
+        scip_collisions,
+    })
+}
+
 fn stat_scip(root: &Path, paths: &[PathBuf]) -> Vec<ScipInput> {
     let mut inputs: Vec<ScipInput> = paths
         .iter()
