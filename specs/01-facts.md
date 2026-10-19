@@ -911,18 +911,18 @@ claimed every contaminated rule shipped in both forms while shipping only
 `dead_export` that way, and a later one named `about` among them while stdlib
 had no `about_exact`:
 
-| contaminated rule | `_exact` twin | `rules/stdlib.dl` |
-|---|---|---|
-| `calls/2` | `calls_exact/2` | 215 |
-| `impact_of/2` | `impact_of_exact/2` | 239 |
-| `reach_of/2` | `reach_of_exact/2` | 243 |
-| `reaches/2` | `reaches_exact/2` | 263 |
-| `recursive/1` | `recursive_exact/1` | 266 |
-| `dead_export/1` | `dead_export_exact/1` | 360 |
-| `entrypoint/1` | `entrypoint_exact/1` | 366 |
-| `depends/2` | `depends_exact/2` | 369 |
-| `uses_package/2` | `uses_package_exact/2` | 372 |
-| `about/5` | **none, deliberately** | 300-309 |
+| contaminated rule | `_exact` twin |
+|---|---|
+| `calls/2` | `calls_exact/2` |
+| `impact_of/2` | `impact_of_exact/2` |
+| `reach_of/2` | `reach_of_exact/2` |
+| `reaches/2` | `reaches_exact/2` |
+| `recursive/1` | `recursive_exact/1` |
+| `dead_export/1` | `dead_export_exact/1` |
+| `entrypoint/1` | `entrypoint_exact/1` |
+| `depends/2` | `depends_exact/2` |
+| `uses_package/2` | `uses_package_exact/2` |
+| `about/5` | **none, deliberately** |
 
 `about` is the one exclusion and it is a decision, not an omission. It is an
 orientation relation: ten clauses that answer "everything about `S`" in one
