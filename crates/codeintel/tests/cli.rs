@@ -232,6 +232,36 @@ fn a_non_empty_answer_carries_no_empty_hint() {
     assert!(!stderr.contains("matched 0 rows"), "{stderr}");
 }
 
+/// `specs/05-surface.md` § Response contract: a condition and an empty result
+/// are different facts, and the hint carries both.
+///
+/// The emptiness diagnosis used to fire only into an empty hint slot, so any
+/// `no-scip` / `scip-stale` / `stale` index answered zero rows with the
+/// condition alone and never said which literal stopped the join — inverting
+/// the guarantee, since a degraded index is exactly when "no" has to be told
+/// apart from "I cannot see it" (#72).
+#[test]
+fn a_condition_and_an_empty_result_both_reach_the_hint() {
+    let dir = tree();
+    index(dir.path());
+    // `tree()` drops `index.scip`, so this depends on a tier the index lacks
+    // *and* names a package nothing could match.
+    let (rows, stderr) = query(dir.path(), r#"?- uses_package(F, "nosuchpkg")."#);
+
+    assert!(rows.is_empty(), "{rows:?}");
+    // The condition keeps the status: it is the one fact nowhere else here.
+    assert!(stderr.contains("status=no-scip"), "{stderr}");
+    // Both halves, composed the way truncation composes.
+    assert!(
+        stderr.contains("which only a SCIP index populates"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains(r#". also: `uses_package(F, "nosuchpkg")` matched 0 rows"#),
+        "{stderr}"
+    );
+}
+
 #[test]
 fn json_carries_the_raw_atoms_and_the_display_form() {
     // A programmatic consumer must never have to parse the pretty form back

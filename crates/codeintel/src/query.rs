@@ -551,8 +551,18 @@ fn evaluate(
         // typo, a wrong constant and a path that was never indexed, and that is
         // the one case the status taxonomy cannot separate on its own
         // (`specs/05-surface.md` § Response contract).
-        if hint.is_none() && rows.is_empty() {
-            hint = Some(empty_hint(&result, &loaded.relations, &loaded.engine));
+        //
+        // A condition already in the slot does not displace it: the condition
+        // says what the index could not see and the emptiness says which
+        // literal stopped the join, and a degraded index is precisely when the
+        // caller most needs both. Composed the way truncation composes above,
+        // and the status stays the condition for the same reason.
+        if rows.is_empty() && !truncated {
+            let empty = empty_hint(&result, &loaded.relations, &loaded.engine);
+            hint = Some(match hint {
+                Some(condition) => format!("{condition}. also: {empty}"),
+                None => empty,
+            });
         }
         Answer {
             status,
