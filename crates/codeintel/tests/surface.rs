@@ -9,6 +9,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use codeintel::census::{Census, LangCount};
 use codeintel::schema;
 
 fn binary() -> &'static str {
@@ -72,49 +73,105 @@ fn stdout(root: &Path, args: &[&str]) -> String {
 /// copy length. Estimates of this text span **~1,400 tokens** (4 chars/token,
 /// prose-like) to **~1,750** (a BPE-shaped count that charges per punctuation
 /// mark and per identifier fragment, which is what dense tabular output really
-/// looks like). The honest statement is that the output sits *at* its budget,
-/// not comfortably inside it: `specs/05-surface.md` § `schema` records the band.
+/// looks like).
 ///
 /// This is now the *only* budget the standard library spends against — the rule
 /// count cap was dropped (`specs/00-overview.md` § Surface budget), because a
 /// rule's cost to an agent is the bytes it must read, and a count cap pushed
 /// back against the one growth path the design actually wants.
 ///
-/// So this asserts the thing it can: the text does not grow. A change that
-/// pushes past it is a change that has to argue for itself.
+/// **Measured against [`worst_case`], not against a fixture tree** (#42). It was
+/// measured against `tree()` — twelve files of one language — while `schema`
+/// embeds live per-kind and per-language counts, so its length scales with the
+/// index it reports on and the fixture is the *smallest* input there is. The
+/// ceiling read green at 5,700 while this repository rendered 5,788, and a
+/// ceiling that only binds on the smallest possible input is not a ceiling. The
+/// loose 10,000 that replaced it caught a doubling and nothing subtler.
 ///
-/// **Raised from 5,700 to 10,000, deliberately loosely.** 5,700 was measured
-/// against `tree()` — twelve files of one language — and `schema` embeds live
-/// per-kind and per-language counts, so its length scales with the index it
-/// reports on. This repository's own index renders 5,788 characters, over a
-/// ceiling CI called green, because CI never measured a real tree. A ceiling
-/// that only binds on the smallest possible input is not a ceiling.
+/// 6,000 against the worst case is a ceiling with roughly 10% of headroom over
+/// a census no real index exceeds, and it binds on every index. A change that
+/// pushes past it is a change that has to argue for itself: the rule list must
+/// stay complete, so the copy is what gives — or the standard library is too
+/// big and a rule goes.
+const MAX_SCHEMA_CHARS: usize = 6_000;
+
+/// The largest census `schema` can be asked to render.
 ///
-/// The honest fix is to measure a realistic index and cut copy until it fits;
-/// that is deferred. 10,000 is a headroom number, not a budget: it catches the
-/// change that doubles this text and nothing subtler. `specs/05-surface.md`
-/// § `schema` still states the real intent in tokens, and it is the statement
-/// that binds a human reviewer. The sixteenth base relation, `name_export`
-/// (#22), lands inside this headroom with room to spare.
-const MAX_SCHEMA_CHARS: usize = 10_000;
+/// Every count at seven digits, every `Kind` and `Role` occupied, and every
+/// language `extract::lang` ships present — the three axes along which this
+/// output grows. Built rather than indexed, because a tree exercising all of
+/// them is a tree nobody has and the numbers would still be whatever that tree
+/// happened to hold.
+///
+/// Derived from `facts::RELATIONS`, `KINDS`, `ROLES` and `LANGS` rather than
+/// listed, so a new relation or a tenth language raises the measured worst case
+/// instead of silently leaving it behind.
+///
+/// `MAX_ROWS` is the one declared number: a ceiling measured against unbounded
+/// counts cannot exist. Ten million rows in a single base relation is roughly a
+/// ten-million-line repository's `name_ref`, and an index past it renders one
+/// extra character per relation per digit.
+fn worst_case() -> Census {
+    const MAX_ROWS: usize = 9_999_999;
+    let mut census = Census {
+        indexed: true,
+        ..Default::default()
+    };
+    for rel in facts::RELATIONS {
+        census.relations.insert(rel.name, MAX_ROWS);
+    }
+    for kind in extract::lang::KINDS {
+        census.kinds.insert((*kind).to_string(), MAX_ROWS);
+    }
+    for role in extract::lang::ROLES {
+        census.roles.insert((*role).to_string(), MAX_ROWS);
+    }
+    for lang in extract::lang::LANGS {
+        census.langs.insert(
+            lang.name.to_string(),
+            LangCount {
+                files: MAX_ROWS,
+                ..Default::default()
+            },
+        );
+    }
+    census
+}
 
 #[test]
 fn the_schema_fits_its_size_budget_with_the_rule_list_complete() {
-    let dir = tree();
-    run(dir.path(), &["index", "."]);
-    let text = stdout(dir.path(), &["schema"]);
+    let census = worst_case();
+    let text = schema::Schema { census: &census }.to_string();
 
     assert!(
         text.len() <= MAX_SCHEMA_CHARS,
-        "schema is {} chars, ceiling is {MAX_SCHEMA_CHARS}. The rule list must \
-         stay complete, so the copy is what gives — or the standard library is \
-         too big and a rule goes.",
+        "schema is {} chars on the worst-case census, ceiling is {MAX_SCHEMA_CHARS}. The \
+         rule list must stay complete, so the copy is what gives — or the standard \
+         library is too big and a rule goes.\n{text}",
         text.len()
     );
 
     for rule in schema::rules(schema::STDLIB) {
         assert!(text.contains(&rule.head), "{} is not advertised", rule.head);
     }
+}
+
+/// The ceiling binds the binary, not just a `Display` a test can construct.
+///
+/// `worst_case()` renders through `schema::Schema`; so does `codeintel schema`,
+/// and this is the assertion that says so. A real index must come in under the
+/// worst case, and the fixture is the one index CI always has.
+#[test]
+fn the_rendered_schema_is_what_the_binary_prints() {
+    let dir = tree();
+    run(dir.path(), &["index", "."]);
+    let text = stdout(dir.path(), &["schema"]);
+    assert!(
+        text.len() <= MAX_SCHEMA_CHARS,
+        "the fixture index renders {} chars, over the worst case",
+        text.len()
+    );
+    assert!(text.starts_with("START HERE"), "{text}");
 }
 
 #[test]
@@ -177,11 +234,17 @@ fn the_rule_list_matches_the_rules() {
     //                   traversals over `calls` that shipped without the
     //                   `_exact` sibling this file's own header promises.
     //
+    //   44 -> 41 (#42) three rules deleted to buy back schema characters, each
+    //                   one join an agent can write itself:
+    //                   `callers_by_name(C, N)` = `calls(C, S), def(S, _, _, N)`,
+    //                   `impact_by_name` the same over `impact_of`, and
+    //                   `long_def(S)` = `def_lines(S, L), L > 80` — whose own
+    //                   doc line already said to use `def_lines`.
+    //
     // This is the DRIFT tripwire, not the budget: the rule-count cap was
     // dropped in favour of the byte ceiling asserted by
-    // `the_schema_fits_its_size_budget_with_the_rule_list_complete`, and that
-    // ceiling has room.
-    assert_eq!(advertised.len(), 44, "the rule count moved: {advertised:?}");
+    // `the_schema_fits_its_size_budget_with_the_rule_list_complete`.
+    assert_eq!(advertised.len(), 41, "the rule count moved: {advertised:?}");
 }
 
 #[test]

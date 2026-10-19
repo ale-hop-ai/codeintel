@@ -393,23 +393,34 @@ that gates copy length. Estimates of this text span **~1,400 tokens** at four
 characters per token — prose-like, and what an earlier draft of this paragraph
 claimed — to **~1,750** under a BPE-shaped count that charges per punctuation
 mark and per identifier fragment, which is what dense tabular output actually
-looks like. Today: **5,599 characters, 38 rules**, and the honest statement is
-that `schema` is *at* its budget rather than inside it.
+looks like. Today: **5,256 characters, 41 rules** on this repository, and the
+honest statement is that `schema` is *at* its budget rather than inside it.
 
 That matters because it is now the *only* constraint the standard library
-spends against. The RULES section is ~2,900 of those characters — **over half
-the output** — so every rule added spends copy that is genuinely not there, and
-it spends it visibly. The CI assertion is therefore on
-characters, which can be measured, at a ceiling the current output meets: it
-catches growth, which is what it is for. If it fires, the standard library is
+spends against. The RULES section is over half the output, so every rule added
+spends copy that is genuinely not there, and it spends it visibly. The CI
+assertion is therefore on characters, which can be measured — **6,000, against
+a worst-case census rather than a fixture tree** ([00-overview.md](00-overview.md)
+§ Surface budget, #42). `schema` embeds live per-kind and per-language counts,
+so a ceiling measured against the smallest possible index binds on nothing; the
+worst case is every relation, kind, role and shipped language at seven-digit
+counts, and it renders 5,490. If the assertion fires, the standard library is
 too big — cut rules, not the catalogue.
+
+Two things pay for it, and only one is allowed to. Fixed-width padding is free
+to cut: the 44-wide argument column existed for `def_span` alone and the other
+fifteen relation rows paid for it, as the 30-wide head column did over forty
+rules. A rule is the real currency, and three went for #42 —
+`callers_by_name`, `impact_by_name` and `long_def`, each one join or one
+comparison a caller writes itself. Buying room by writing worse docs is the
+failure mode here, and unlike a count it is visible in the diff.
 
 ```
 START HERE — you have a location, you need a symbol
   ?- innermost_at("src/store.rs", 142, S).     from ripgrep / git diff /
                                                 a stack trace / a compiler error
   ?- def(S, F, _, N), contains(N, "auth").      from a word
-  ?- about(S, Rel, A, B, L).                    everything about S, one round trip
+  ?- def(S, _, _, "Store"), about(S, Rel, A, B, L).   everything about S, one trip
 
 RELATIONS
   file(F, Lang)
@@ -444,8 +455,6 @@ NOTES
   lines are 1-based; columns are 0-based UTF-8 bytes
   integers and their string forms are different atoms: Line = "42" never matches
   < and > are integers only
-  seed recursive rules (impact_of/reach_of) with a constant, or they compute
-    all-pairs reachability and hit the budget
   Prov "name" = tree-sitter text matching: method calls x.f() are mostly
     MISSING. For precision use calls_exact / impact_of_exact, and check
     `codeintel status` for whether a SCIP index is present and fresh.

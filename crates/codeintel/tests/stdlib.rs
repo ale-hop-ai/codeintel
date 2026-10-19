@@ -379,15 +379,47 @@ fn calls_reads_both_ways_from_either_end() {
 }
 
 #[test]
-fn the_by_name_rules_take_a_name_instead_of_a_symid() {
-    // Both files that call `open` — and no SymId to type.
-    let mut callers = rows(r#"?- callers_by_name(C, "open")."#);
-    callers.sort();
+fn a_name_reaches_callers_without_a_symid() {
+    // `callers_by_name`/`impact_by_name` were deleted at schema 3 (#42): both
+    // were one join, and the schema budget is the one that binds. The join is
+    // what an agent writes instead, and it still answers — both callers of
+    // `open`, with no SymId to type.
+    //
+    // It costs a column: the joined symbol is a variable the goal mentions, so
+    // it comes back. That is the whole difference, and it is the reason the
+    // rule existed rather than a reason to keep it.
+    // Columns are in order of first appearance, so which one is the caller
+    // depends on which literal the query leads with.
+    let callers = callers_of(r#"?- calls(C, S), def(S, _, _, "open")."#, true, "open");
     assert_eq!(callers, ["draw src/ui/panel.rs:8", "start src/app.rs:7"]);
 
-    let mut impacted = rows(r#"?- impact_by_name(C, "open")."#);
-    impacted.sort();
+    let impacted = callers_of(
+        r#"?- def(S, _, _, "open"), impact_of(S, C)."#,
+        false,
+        "open",
+    );
     assert_eq!(impacted, ["draw src/ui/panel.rs:8", "start src/app.rs:7"]);
+}
+
+/// One column of a two-column by-name join, deduplicated, with the other
+/// column asserted to be the named target.
+fn callers_of(query: &str, caller_first: bool, name: &str) -> Vec<String> {
+    let mut out: Vec<String> = rows(query)
+        .iter()
+        .map(|row| {
+            let (first, second) = row.split_once('\t').expect("two columns");
+            let (caller, target) = if caller_first {
+                (first, second)
+            } else {
+                (second, first)
+            };
+            assert!(target.starts_with(name), "{row}");
+            caller.to_string()
+        })
+        .collect();
+    out.sort();
+    out.dedup();
+    out
 }
 
 // ------------------------------------------------------------ seeded traversal
@@ -672,15 +704,14 @@ fn entrypoint_is_a_callable_nothing_calls() {
 }
 
 #[test]
-fn def_lines_measures_and_long_def_judges() {
-    // Nothing in this fixture is over 80 lines, and the rule says so rather
-    // than ranking what is longest. `ok` with zero rows is the answer.
-    // `def_lines` states the length and leaves the comparison to the caller.
-    // `long_def` is the one opinionated form, and its 80 is fixed — three of
-    // the four M4 agent-eval failures were `long_def(A, N), N > 60`, a no-op
-    // filter over an already-`> 80` set (`docs/agent-eval.md`).
+fn def_lines_measures_and_leaves_the_threshold_to_the_caller() {
+    // `long_def(S)` was deleted at schema 3 (#42). Its own doc line already
+    // said to use `def_lines`, and a threshold nobody can change is copy in
+    // the one output with a size budget. The caller states it instead —
+    // nothing in this fixture is over 80 lines, and `ok` with zero rows is
+    // the answer rather than a ranking of what is longest.
     assert!(
-        rows("?- long_def(S).").is_empty(),
+        rows("?- def_lines(S, N), N > 80.").is_empty(),
         "nothing here spans 80 lines"
     );
 

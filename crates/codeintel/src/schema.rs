@@ -95,20 +95,20 @@ impl fmt::Display for Schema<'_> {
         let census = self.census;
         f.write_str(
             "START HERE -- you have a location, you need a symbol\n  \
-             ?- innermost_at(\"src/store.rs\", 142, S).   from ripgrep / git diff / a stack trace\n  \
-             ?- def(S, F, _, N), contains(N, \"auth\").    from a word\n  \
-             ?- about(S, Rel, A, B, L).                  everything about S, one round trip\n\n\
+             ?- innermost_at(\"src/store.rs\", 142, S).           from ripgrep / git diff / a stack trace\n  \
+             ?- def(S, F, _, N), contains(N, \"auth\").           from a word\n  \
+             ?- def(S, _, _, \"Store\"), about(S, Rel, A, B, L).  everything about S, one trip\n\n\
              RELATIONS  base facts, extracted. Counts from THIS index.\n",
         )?;
         for rel in facts::RELATIONS {
             let (args, note) = signature(rel.name);
-            let row = format!(
-                "  {:<11} {:<44} {:<6} {note}",
+            let gap = if note.is_empty() { "" } else { "  " };
+            writeln!(
+                f,
+                "  {:<11} {args} {}{gap}{note}",
                 rel.name,
-                args,
                 census.rows(rel.name)
-            );
-            writeln!(f, "{}", row.trim_end())?;
+            )?;
         }
 
         f.write_str("\nVALUES  closed sets, counted here. A value at 0 returns no rows.\n  Kind ")?;
@@ -134,8 +134,7 @@ impl fmt::Display for Schema<'_> {
 
         f.write_str("\n\nRULES  derived. A new question is a rule, not a verb.\n")?;
         for rule in rules(STDLIB) {
-            let row = format!("  {:<30} {}", rule.head, rule.doc);
-            writeln!(f, "{}", row.trim_end())?;
+            writeln!(f, "  {}  {}", rule.head, rule.doc)?;
         }
 
         f.write_str(
@@ -144,9 +143,7 @@ impl fmt::Display for Schema<'_> {
              NOTES\n  \
              lines 1-based, columns 0-based UTF-8 bytes. < and > are integers only.\n  \
              an integer and its string differ: Line = \"42\" never matches. line 0 = n/a.\n  \
-             seed impact_of/reach_of with a constant or they go all-pairs.\n  \
-             a symbol column prints `Name path:line`; do not join def/at for it.\n    \
-             --raw prints the SymId.\n  \
+             a symbol column prints `Name path:line`, not the SymId; --raw prints it.\n  \
              Prov \"name\" is text matching: method calls x.f() are mostly MISSING.\n    \
              For precision use the _exact rules; `codeintel status` says if SCIP\n    \
              is present and fresh.\n\n\
