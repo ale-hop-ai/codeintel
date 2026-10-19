@@ -266,7 +266,16 @@ long_def(S) :- def_lines(S, N), N > 80.
 %% undocumented_export(S)  exported with no doc comment.
 undocumented_export(S) :- exported(S), !def_doc(S, _).
 
-%% uses_package(F, P)  F references external package P.
+% P is `extern`'s Pkg: the package the INDEXER attributed the symbol to, not
+% the specifier the source wrote. An npm package typed through DefinitelyTyped
+% resolves into `@types/<pkg>`, so `?- uses_package(F, "react").` is zero rows
+% on a repository where every file imports `react` (#58). The two names are not
+% convertible and this does not union `import` in: `Module` is a per-language
+% specifier, not a package name -- `"std::collections::HashMap"` in Rust,
+% `"\"fmt\""` in Go, `"../db/conn"` in TypeScript. Rewriting either side into
+% the other is the guess 02-extraction.md forbids. Ask `import` instead.
+%% uses_package(F, P)  F references external package P, as the INDEXER names
+%%   it -- `@types/x`, not `x`. For what a file imports, ask `import`. #58
 uses_package(F, P) :- ref(S, F, _, _, _, _, _), extern(S, _, P, _).
 
 % === the precise forms =================================================
@@ -281,5 +290,6 @@ entrypoint_exact(S) :- def(S, _, K, _), callable(K), resolved(S),
                        !calls_exact(_, S).
 %% depends_exact(F, G)  depends, SCIP-resolved refs only.
 depends_exact(F, G) :- ref(S, F, _, _, _, _, "exact"), def(S, G, _, _), F != G.
-%% uses_package_exact(F, P)  uses_package, SCIP-resolved refs only.
+%% uses_package_exact(F, P)  uses_package, SCIP-resolved refs only. P is the
+%%   indexer's package name, same as `uses_package`. #58
 uses_package_exact(F, P) :- ref(S, F, _, _, _, _, "exact"), extern(S, _, P, _).

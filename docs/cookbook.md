@@ -140,8 +140,8 @@ The 17 that *are* questions:
 | `ImportsForFile` | `?- import("src/store.rs", M, Alias).` |
 | `ImportsForDir` | `?- import(F, M, _), prefix(F, "src/db/").` |
 | `InternalPackageImports` | `?- import(F, M, _), prefix(M, "crate::").` |
-| `ExternalImports` | `?- uses_package(F, P).` |
-| `UsedByPackages` | `?- uses_package(F, "tokio").` |
+| `ExternalImports` | `?- uses_package(F, P).` — indexer's package names, § 4 |
+| `UsedByPackages` | `?- import(F, M, _), prefix(M, "tokio").` — § 4 |
 | `MainEntrypoints` | `?- entrypoint(S), def(S, F, _, N).` |
 | `CallerFiles` | `?- def(S, _, _, "get"), calls(C, S), def(C, F, _, _).` |
 | `UnresolvedInboundForFile` | `?- name_ref(N, "src/store.rs", L, _, _), !def(_, _, _, N).` |
@@ -207,6 +207,45 @@ tier A over-reporting **252 call edges, 17% of what it claims**.
   invisible call, so a symbol can look unreferenced when it is not.
 - `entrypoint` **inverts**: a callable looks like an entrypoint precisely when
   its callers were not resolved.
+
+### `uses_package` names the indexer's package, not the import's
+
+`uses_package(F, P)`'s `P` is `extern`'s `Pkg` — the package the *indexer*
+attributed the symbol to. That is not always the package the source imports,
+and the gap is not a provenance tier, so no `_exact` form closes it.
+
+On TypeScript it bites hardest. `import merge from 'lodash.merge'` gives:
+
+```
+?- import(F, "lodash.merge", A).        the row, with A = "merge"
+?- uses_package(F, "lodash.merge").     0 rows
+?- uses_package(F, "@types/lodash.merge").  the row
+```
+
+scip-typescript resolves the symbol to the `.d.ts` inside `@types/lodash.merge`,
+so `extern` reports the DefinitelyTyped stub and never the runtime name. Most of
+a typical TypeScript repository is typed that way — `react`, `react-dom`,
+`lodash*` — so the packages an agent is most likely to ask about are exactly the
+ones that answer zero (#58). It is not DefinitelyTyped-specific either: on
+`tests/fixtures/typescript/`, which depends on nothing, every `extern` row reads
+`npm typescript 5.9.3`, because `Map` and `String` come from `lib.es5.d.ts`.
+
+**So pick by the question, not by the word "package":**
+
+| question | relation |
+|---|---|
+| does this file declare a dependency on `react`? | `?- import(F, "react", _).` |
+| …in Rust, where the specifier is a path? | `?- import(F, M, _), prefix(M, "tokio").` |
+| which dependency did this *symbol* come from? | `?- extern(S, _, P, V).` |
+| which files touch any third-party symbol? | `?- uses_package(F, P).` |
+
+`uses_package` is truthful about what it states; it is the wrong question for
+"does F use X", and a zero there means "no `extern` row says so", never "no".
+There is no union of the two relations, because `import`'s `Module` is a
+per-language specifier and not a package name: `"std::collections::HashMap"` in
+Rust, `"\"fmt\""` in Go, `"../db/conn"` in TypeScript. Rewriting either name
+into the other is the extractor guess
+[02-extraction.md](../specs/02-extraction.md) § Name matching forbids.
 
 ### Two artifacts this fixture shows, and what they mean
 

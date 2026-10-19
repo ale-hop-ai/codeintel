@@ -1121,3 +1121,39 @@ fn an_argument_the_tool_does_not_have_is_refused() {
         serde_json::Value::Bool(false)
     );
 }
+
+/// The advertised doc for `uses_package` must name the trap. Regression for #58.
+///
+/// `schema` is what an agent reads before writing a query, and "F references
+/// external package P" sent it to `?- uses_package(F, "react").` — zero rows
+/// on a TypeScript repository where every file imports `react`, because
+/// scip-typescript resolves those symbols into `@types/react`. The relation is
+/// truthful about `extern`; the advertisement was not truthful about which
+/// name `P` holds. The fix for #58 is documentation, so the documentation is
+/// what this test holds in place.
+#[test]
+fn uses_package_advertises_whose_package_name_it_reports() {
+    for name in ["uses_package", "uses_package_exact"] {
+        let rule = schema::rules(schema::STDLIB)
+            .into_iter()
+            .find(|r| schema::split_head(&r.head).is_some_and(|(n, _)| n == name))
+            .unwrap_or_else(|| panic!("`{name}` is not advertised"));
+        assert!(
+            rule.doc.contains("INDEXER") || rule.doc.contains("indexer"),
+            "`{name}`'s doc must say the package name is the indexer's, not \
+             the import's (#58): {:?}",
+            rule.doc
+        );
+    }
+
+    let uses_package = schema::rules(schema::STDLIB)
+        .into_iter()
+        .find(|r| schema::split_head(&r.head).is_some_and(|(n, _)| n == "uses_package"))
+        .expect("advertised");
+    assert!(
+        uses_package.doc.contains("import"),
+        "`uses_package`'s doc must point at the relation that answers what a \
+         file declares (#58): {:?}",
+        uses_package.doc
+    );
+}

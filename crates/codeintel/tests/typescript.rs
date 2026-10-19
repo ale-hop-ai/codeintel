@@ -414,3 +414,60 @@ fn an_export_clause_exports_a_declaration_that_stays_restricted() {
     );
     assert!(rows.is_empty(), "{rows:?}");
 }
+
+/// `uses_package` names the package the INDEXER resolved to, and that is not
+/// the specifier the source wrote. Regression for #58.
+///
+/// The reported case is a `DefinitelyTyped` stub: `import merge from 'lodash.merge'`
+/// makes `import(F, "lodash.merge", "merge")` while scip-typescript resolves
+/// the symbol into the stub, so `extern` says `@types/lodash.merge` and
+/// `?- uses_package(F, "lodash.merge").` is zero rows — on a repository where
+/// most packages are typed that way, which is most `TypeScript` repositories.
+///
+/// This fixture depends on nothing, and shows the same split anyway: `Map` and
+/// `String` come from `lib.es5.d.ts`, which scip-typescript attributes to the
+/// `typescript` package. No file imports `typescript`. So the two columns are
+/// disjoint here, which is the whole shape of the bug in one assertion, and it
+/// needs no `@types/` dependency committed to a fixture to say so.
+///
+/// The fix for #58 was documentation (`docs/cookbook.md` § 4,
+/// `specs/01-facts.md` § `extern`): the relations stay as they are, because
+/// `import`'s `Module` is a per-language specifier and not a package name, so
+/// neither side converts into the other without the guess
+/// `specs/02-extraction.md` § Name matching forbids. This test pins the
+/// behaviour those documents now describe, so a later union is a failure here
+/// rather than a silent change of what the `P` column means.
+#[test]
+fn uses_package_names_the_indexers_package_not_the_imports() {
+    let dir = tree();
+    index(dir.path());
+
+    let (packages, stderr) = query(dir.path(), "?- uses_package(F, P).");
+    assert!(stderr.contains("status=ok"), "{stderr}");
+    assert_eq!(
+        column(&packages, 1),
+        ["typescript"],
+        "the fixture declares no dependency; every extern is the stdlib \
+         `.d.ts`, which scip-typescript attributes to `typescript`"
+    );
+
+    let (imports, _) = query(dir.path(), "?- import(F, M, _).");
+    let specifiers = column(&imports, 1);
+    assert!(!specifiers.is_empty(), "the fixture has imports");
+    assert!(
+        !specifiers.contains(&"typescript"),
+        "no file imports `typescript`, yet it is the only package \
+         `uses_package` reports: {specifiers:?}"
+    );
+
+    // The trap, stated as the query an agent writes. `ok` with zero rows is
+    // indistinguishable from "this file does not use it" without the hint.
+    let (none, stderr) = query(dir.path(), r#"?- uses_package(F, "../db/conn")."#);
+    assert!(stderr.contains("status=ok"), "{stderr}");
+    assert_eq!(none, Vec::<String>::new());
+
+    // And the recipe `docs/cookbook.md` § 4 now sends that question to.
+    let (declared, stderr) = query(dir.path(), r#"?- import(F, "../db/conn", _)."#);
+    assert!(stderr.contains("status=ok"), "{stderr}");
+    assert_eq!(column(&declared, 0), ["app/app.ts", "ui/panel.tsx"]);
+}
