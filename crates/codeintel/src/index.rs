@@ -172,96 +172,26 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
             report.stale.push(candidate.path);
             continue;
         }
-        let known = store.manifest().files.get(&candidate.path);
-        if !plan.rebuild
-            && !scip.invalidated
-            && known.is_some_and(|e| e.is_clean(candidate.mtime, candidate.size, before.indexed_at))
-        {
-            report.unchanged += 1;
-            continue;
-        }
-
-        let Ok(bytes) = std::fs::read(&candidate.abs) else {
-            // Vanished or unreadable between the walk and here. Report it
-            // rather than dropping its facts on a transient error.
-            report.skips.unreadable.push(candidate.path.clone());
+        // Two halves, and the split is where the I/O stops being a decision
+        // and starts being work: `pending` decides, `extract` does.
+        let Some(pending) = pending(
+            store,
+            plan,
+            &scip,
+            before.indexed_at,
+            &candidate,
+            &mut report,
+        ) else {
             continue;
         };
-        let hash = facts::content_hash(&bytes);
-        if !plan.rebuild
-            && !scip.invalidated
-            && let Some(same) = known.filter(|e| e.hash == hash)
-        {
-            // Touched but not changed: refresh the fast-path fields so the next
-            // run does not hash it again.
-            let mut entry = same.clone();
-            entry.mtime = candidate.mtime;
-            entry.size = candidate.size;
-            store
-                .manifest_mut()
-                .files
-                .insert(candidate.path.clone(), entry);
-            report.unchanged += 1;
-            continue;
-        }
-        let Ok(src) = String::from_utf8(bytes) else {
-            report.binary += 1;
-            continue;
-        };
-
-        let (scip_saw, scip_hash) = scip.view(
-            candidate.mtime,
-            &hash,
-            known.and_then(|e| e.scip_hash.as_deref()),
-        );
-
-        let extractor = match extractors.entry(candidate.lang.name) {
-            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-            std::collections::hash_map::Entry::Vacant(e) => e.insert(
-                Extractor::new(candidate.lang)
-                    .with_context(|| format!("preparing the {} extractor", candidate.lang.name))?,
-            ),
-        };
-        // Tier A runs first, entirely, then tier B — the join needs tier A's
-        // `def_name` index to anchor against (specs/02-extraction.md).
-        let anchors = if scip_saw {
-            Anchors::of(&scip.ingest, &candidate.path)
-        } else {
-            Anchors::default()
-        };
-        let mut extracted = extractor
-            .file(&candidate.path, &src, store.interner_mut(), &anchors)
-            .with_context(|| format!("extracting {}", candidate.path))?;
-        report.counts.defs += extracted.counts.defs;
-        report.counts.refs += extracted.counts.refs;
-        report.counts.imports += extracted.counts.imports;
-        report.anchored += extracted.anchored;
-
-        let scip_counts = if scip_saw {
-            tier_b::emit(
-                &mut extracted.segment,
-                &scip.ingest,
-                &candidate.path,
-                Some(&src),
-                &extracted.defs,
-                store.interner_mut(),
-            )
-            .with_context(|| format!("ingesting SCIP facts for {}", candidate.path))?
-        } else {
-            tier_b::Counts::default()
-        };
-        add(&mut report.scip_counts, scip_counts);
-
-        let mut entry = new_entry(&candidate, &hash);
-        entry.scip_hash = scip_hash;
-        if !anchors.is_empty() || scip_counts.refs > 0 {
-            entry.tiers.push("scip".to_string());
-        }
-        let mut segment = extracted.segment;
-        store
-            .put(&candidate.path, &mut segment, entry)
-            .with_context(|| format!("writing the segment for {}", candidate.path))?;
-        report.indexed += 1;
+        extract(
+            store,
+            &scip,
+            &mut extractors,
+            &candidate,
+            pending,
+            &mut report,
+        )?;
     }
 
     // Files only tier B covers keep their segments across a refresh that did
@@ -757,6 +687,146 @@ fn add(into: &mut tier_b::Counts, counts: tier_b::Counts) {
     into.resolved += counts.resolved;
     into.only += counts.only;
     into.collided += counts.collided;
+}
+
+/// A file that has to be extracted, and what this pass already knows about it.
+struct Pending {
+    /// Its current contents.
+    src: String,
+    /// The hash of those bytes.
+    hash: String,
+    /// Whether this pass's SCIP inputs saw them (`ScipPlan::view`).
+    scip_saw: bool,
+    /// The `scip_hash` its manifest entry should carry (`ScipPlan::view`).
+    scip_hash: Option<String>,
+}
+
+/// Decide what this pass owes one walked file, and do the cheap outcomes here.
+///
+/// `None` means the file is accounted for — unchanged, unreadable, or not
+/// UTF-8 — and `report` already says which. `Some` means it has to be
+/// extracted, and carries the bytes this function had to read anyway.
+///
+/// Four of the five outcomes are "no extraction", which is why they live
+/// together: the common case for a `query` auto-refresh is that every file
+/// takes one of them, and reading the fast paths as one block is what makes
+/// the cost of a refresh legible (`specs/04-storage.md` § Incremental
+/// reindex).
+fn pending(
+    store: &mut Store,
+    plan: &Plan,
+    scip: &ScipPlan,
+    indexed_at: u64,
+    candidate: &Candidate,
+    report: &mut Report,
+) -> Option<Pending> {
+    let known = store.manifest().files.get(&candidate.path);
+    if !plan.rebuild
+        && !scip.invalidated
+        && known.is_some_and(|e| e.is_clean(candidate.mtime, candidate.size, indexed_at))
+    {
+        report.unchanged += 1;
+        return None;
+    }
+
+    let Ok(bytes) = std::fs::read(&candidate.abs) else {
+        // Vanished or unreadable between the walk and here. Report it
+        // rather than dropping its facts on a transient error.
+        report.skips.unreadable.push(candidate.path.clone());
+        return None;
+    };
+    let hash = facts::content_hash(&bytes);
+    if !plan.rebuild
+        && !scip.invalidated
+        && let Some(same) = known.filter(|e| e.hash == hash)
+    {
+        // Touched but not changed: refresh the fast-path fields so the next
+        // run does not hash it again.
+        let mut entry = same.clone();
+        entry.mtime = candidate.mtime;
+        entry.size = candidate.size;
+        store
+            .manifest_mut()
+            .files
+            .insert(candidate.path.clone(), entry);
+        report.unchanged += 1;
+        return None;
+    }
+    let Ok(src) = String::from_utf8(bytes) else {
+        report.binary += 1;
+        return None;
+    };
+    let known_scip = known.and_then(|e| e.scip_hash.as_deref());
+    let (scip_saw, scip_hash) = scip.view(candidate.mtime, &hash, known_scip);
+    Some(Pending {
+        src,
+        hash,
+        scip_saw,
+        scip_hash,
+    })
+}
+
+/// Extract one file, both tiers, and write its segment.
+///
+/// # Errors
+/// A grammar that will not load, an extractor failure, an exhausted
+/// dictionary, or a failure to write the segment.
+fn extract(
+    store: &mut Store,
+    scip: &ScipPlan,
+    extractors: &mut HashMap<&'static str, Extractor>,
+    candidate: &Candidate,
+    file: Pending,
+    report: &mut Report,
+) -> Result<()> {
+    let extractor = match extractors.entry(candidate.lang.name) {
+        std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+        std::collections::hash_map::Entry::Vacant(e) => e.insert(
+            Extractor::new(candidate.lang)
+                .with_context(|| format!("preparing the {} extractor", candidate.lang.name))?,
+        ),
+    };
+    // Tier A runs first, entirely, then tier B — the join needs tier A's
+    // `def_name` index to anchor against (specs/02-extraction.md).
+    let anchors = if file.scip_saw {
+        Anchors::of(&scip.ingest, &candidate.path)
+    } else {
+        Anchors::default()
+    };
+    let mut extracted = extractor
+        .file(&candidate.path, &file.src, store.interner_mut(), &anchors)
+        .with_context(|| format!("extracting {}", candidate.path))?;
+    report.counts.defs += extracted.counts.defs;
+    report.counts.refs += extracted.counts.refs;
+    report.counts.imports += extracted.counts.imports;
+    report.anchored += extracted.anchored;
+
+    let scip_counts = if file.scip_saw {
+        tier_b::emit(
+            &mut extracted.segment,
+            &scip.ingest,
+            &candidate.path,
+            Some(&file.src),
+            &extracted.defs,
+            store.interner_mut(),
+        )
+        .with_context(|| format!("ingesting SCIP facts for {}", candidate.path))?
+    } else {
+        tier_b::Counts::default()
+    };
+    add(&mut report.scip_counts, scip_counts);
+
+    let mut entry = new_entry(candidate, &file.hash);
+    entry.scip_hash = file.scip_hash;
+    if !anchors.is_empty() || scip_counts.refs > 0 {
+        entry.tiers.push("scip".to_string());
+    }
+    let mut segment = extracted.segment;
+    store
+        .put(&candidate.path, &mut segment, entry)
+        .with_context(|| format!("writing the segment for {}", candidate.path))?;
+    report.indexed += 1;
+    Ok(())
 }
 
 fn new_entry(candidate: &Candidate, hash: &str) -> NewEntry {
