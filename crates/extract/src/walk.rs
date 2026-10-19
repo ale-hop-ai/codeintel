@@ -10,6 +10,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use crate::lang::{self, Lang};
 
@@ -76,6 +77,9 @@ pub struct Walked {
     pub skips: Skips,
 }
 
+/// How many threads the walk runs.
+const THREADS: usize = 4;
+
 /// The one walk policy: hidden entries skipped, `.gitignore` honoured whether
 /// or not this is a git checkout, a legacy in-tree store never descended into.
 ///
@@ -93,7 +97,8 @@ fn walker(root: &Path, depth: Option<usize>) -> ignore::WalkBuilder {
         // an export, a vendored copy. The default refuses to, and the effect is
         // that `target/` silently becomes 40,000 indexed files.
         .require_git(false)
-        .max_depth(depth);
+        .max_depth(depth)
+        .threads(THREADS);
     // The store is derived and may still live under the root; indexing it would
     // be indexing ourselves.
     walker.filter_entry(|e| e.file_name() != std::ffi::OsStr::new(".codeintel"));
@@ -134,59 +139,156 @@ pub fn dirs(root: &Path, depth: usize, cap: usize) -> (Vec<(usize, PathBuf)>, bo
     (out, bounded)
 }
 
+/// What the walk decided about one entry, computed off the shared state so a
+/// parallel visitor can produce it without holding a lock.
+///
+/// The policy lives here and only here: every reason an entry is dropped is a
+/// variant, so a visitor records the verdict rather than re-deriving it.
+enum Verdict {
+    /// Not a file, or not under `root`. Never reaches `visible`.
+    Ignore,
+    /// Reached, and worth extracting.
+    Take(Box<Candidate>),
+    /// Reached, but no grammar handles this extension.
+    Unsupported(String),
+    /// Reached, but past [`MAX_BYTES`].
+    TooLarge,
+    /// Reached, but its metadata would not read.
+    Unreadable,
+}
+
+/// Apply the walk's per-entry policy. The `String` is the repo-relative path,
+/// present for everything the matchers let through — that is the membership
+/// list [`Walked::visible`] holds.
+fn classify(root: &Path, entry: &ignore::DirEntry) -> (Option<String>, Verdict) {
+    if !entry.file_type().is_some_and(|t| t.is_file()) {
+        return (None, Verdict::Ignore);
+    }
+    let Some(path) = relative(root, entry.path()) else {
+        return (None, Verdict::Ignore);
+    };
+    let Some(lang) = lang::for_path(&path) else {
+        let ext = path
+            .rsplit_once('.')
+            .map_or_else(|| "(none)".to_string(), |(_, ext)| format!(".{ext}"));
+        return (Some(path), Verdict::Unsupported(ext));
+    };
+    let Ok(meta) = entry.metadata() else {
+        return (Some(path), Verdict::Unreadable);
+    };
+    if meta.len() > MAX_BYTES {
+        return (Some(path), Verdict::TooLarge);
+    }
+    let candidate = Candidate {
+        abs: entry.path().to_path_buf(),
+        lang,
+        size: meta.len(),
+        mtime: mtime_of(&meta),
+        path: path.clone(),
+    };
+    (Some(path), Verdict::Take(Box::new(candidate)))
+}
+
 /// Walk `root` and return the indexable files, sorted by path.
 ///
 /// Sorted because `docs/plan.md` M2 requires that shuffling the file order
 /// changes nothing, and the cheapest way to hold that is to not have an order
-/// that depends on the filesystem in the first place.
+/// that depends on the filesystem in the first place. That requirement is also
+/// what makes the walk safe to parallelize: every output is either sorted here
+/// (`files`, `skips.unreadable`) or order-independent by type (`visible` is a
+/// `BTreeSet`, `skips.unsupported` a `BTreeMap` of counts), so thread
+/// interleaving cannot reach the result.
+///
+/// Parallel because it is the dominant cost of a warm call —
+/// `docs/plan.md` § #28 measured it at 161 of the 168 ms `refresh` spends on
+/// deno, against a per-file stale check of 2.8 ms. The cost is directory
+/// traversal and ignore-matching, which is what `ignore` parallelizes; nothing
+/// about the contract changes, only how many threads run the same policy.
 #[must_use]
 pub fn walk(root: &Path) -> Walked {
-    let mut out = Vec::new();
-    let mut visible = BTreeSet::new();
-    let mut skips = Skips::default();
-    for entry in walker(root, None).build() {
+    let shared = Mutex::new(Walked::default());
+    walker(root, None).build_parallel().visit(&mut Visit {
+        root,
+        shared: &shared,
+    });
+
+    let mut out = shared
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    out.files.sort_by(|a, b| a.path.cmp(&b.path));
+    // Nondeterministic in arrival order, and reported to a human
+    // (`specs/05-surface.md` § `index`). Sorted for the same reason `files` is.
+    out.skips.unreadable.sort_unstable();
+    out
+}
+
+/// Builds one visitor per walker thread.
+struct Visit<'a> {
+    root: &'a Path,
+    shared: &'a Mutex<Walked>,
+}
+
+/// One walker thread's share of the result, merged under the lock when the
+/// thread is done rather than per entry — a tree of 4,649 files takes as many
+/// locks as there are threads.
+struct Visitor<'a> {
+    root: &'a Path,
+    shared: &'a Mutex<Walked>,
+    local: Walked,
+}
+
+impl<'s> ignore::ParallelVisitorBuilder<'s> for Visit<'s> {
+    fn build(&mut self) -> Box<dyn ignore::ParallelVisitor + 's> {
+        Box::new(Visitor {
+            root: self.root,
+            shared: self.shared,
+            local: Walked::default(),
+        })
+    }
+}
+
+impl ignore::ParallelVisitor for Visitor<'_> {
+    fn visit(&mut self, entry: Result<ignore::DirEntry, ignore::Error>) -> ignore::WalkState {
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {
-                skips.unreadable.push(e.to_string());
-                continue;
+                self.local.skips.unreadable.push(e.to_string());
+                return ignore::WalkState::Continue;
             }
         };
-        if !entry.file_type().is_some_and(|t| t.is_file()) {
-            continue;
+        let (path, verdict) = classify(self.root, &entry);
+        if let Some(path) = path {
+            self.local.visible.insert(path.clone());
+            match verdict {
+                Verdict::Take(candidate) => self.local.files.push(*candidate),
+                Verdict::Unsupported(ext) => {
+                    *self.local.skips.unsupported.entry(ext).or_default() += 1;
+                }
+                Verdict::TooLarge => self.local.skips.too_large += 1,
+                Verdict::Unreadable => self.local.skips.unreadable.push(path),
+                Verdict::Ignore => {}
+            }
         }
-        let Some(path) = relative(root, entry.path()) else {
-            continue;
-        };
-        visible.insert(path.clone());
-        let Some(lang) = lang::for_path(&path) else {
-            let ext = path
-                .rsplit_once('.')
-                .map_or_else(|| "(none)".to_string(), |(_, ext)| format!(".{ext}"));
-            *skips.unsupported.entry(ext).or_default() += 1;
-            continue;
-        };
-        let Ok(meta) = entry.metadata() else {
-            skips.unreadable.push(path);
-            continue;
-        };
-        if meta.len() > MAX_BYTES {
-            skips.too_large += 1;
-            continue;
-        }
-        out.push(Candidate {
-            path,
-            abs: entry.path().to_path_buf(),
-            lang,
-            size: meta.len(),
-            mtime: mtime_of(&meta),
-        });
+        ignore::WalkState::Continue
     }
-    out.sort_by(|a, b| a.path.cmp(&b.path));
-    Walked {
-        files: out,
-        visible,
-        skips,
+}
+
+impl Drop for Visitor<'_> {
+    fn drop(&mut self) {
+        let mut shared = self
+            .shared
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        shared.files.append(&mut self.local.files);
+        shared.visible.append(&mut self.local.visible);
+        shared.skips.too_large += self.local.skips.too_large;
+        shared
+            .skips
+            .unreadable
+            .append(&mut self.local.skips.unreadable);
+        for (ext, n) in std::mem::take(&mut self.local.skips.unsupported) {
+            *shared.skips.unsupported.entry(ext).or_default() += n;
+        }
     }
 }
 
@@ -242,6 +344,35 @@ mod tests {
         assert_eq!(skips.unsupported.get(".md"), Some(&1));
         assert_eq!(skips.unsupported.get(".scala"), Some(&1));
         assert_eq!(skips.unsupported.get(".rs"), None, "target/ is gitignored");
+    }
+
+    /// The walk runs on four threads, so every output it produces has to be
+    /// either sorted or order-independent. A wide, deep tree gives the threads
+    /// something to interleave; a single run proves nothing.
+    #[test]
+    fn a_parallel_walk_is_byte_identical_across_runs() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        for d in 0..16 {
+            let sub = root.join(format!("pkg{d}")).join("src");
+            std::fs::create_dir_all(&sub).expect("mkdir");
+            for f in 0..16 {
+                std::fs::write(sub.join(format!("m{f}.rs")), "fn a() {}\n").expect("write");
+                std::fs::write(sub.join(format!("n{f}.scala")), "object A\n").expect("write");
+            }
+        }
+        let first = walk(root);
+        assert_eq!(first.files.len(), 16 * 16, "the fixture is wide enough");
+        for _ in 0..20 {
+            let again = walk(root);
+            let a: Vec<&str> = first.files.iter().map(|c| c.path.as_str()).collect();
+            let b: Vec<&str> = again.files.iter().map(|c| c.path.as_str()).collect();
+            assert_eq!(a, b, "file order moved between runs");
+            assert_eq!(first.visible, again.visible);
+            assert_eq!(first.skips.unsupported, again.skips.unsupported);
+            assert_eq!(first.skips.too_large, again.skips.too_large);
+            assert_eq!(first.skips.unreadable, again.skips.unreadable);
+        }
     }
 
     #[test]

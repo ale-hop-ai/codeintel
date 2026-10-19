@@ -1296,6 +1296,34 @@ dominating, which is the size the criteria are written against.
 Issue #28 stays open, retitled to the contract question rather than the
 profiling one: the profiling is done.
 
+**Addendum, same day: there was a fix inside the contract after all.** The
+table above says the walk dominates; it does not say the walk was
+single-threaded, and it was. `ignore` ships a parallel walker, and using it
+changes nothing about what the walk decides — same policy, same matchers, same
+outputs — so none of the four rejected ideas above is involved. Measured over 31
+runs per corpus, p50 / p95 in ms, walk alone:
+
+| corpus | serial | parallel (4 threads) |
+|---|---|---|
+| fd (~7k) | 0.90 / 1.20 | 1.51 / 4.10 |
+| tokio (~183k) | 7.16 / 15.45 | 4.80 / 6.86 |
+| deno (~831k) | 389.58 / 1117.24 | 165.36 / 269.22 |
+
+deno halves and its tail improves 4x; tokio's p95 improves 2.3x. **fd regresses
+by 0.6 ms p50**, which is thread-pool startup on a tree of 24 files and is
+stated rather than buried — it is 0.6 ms against a 20 ms p50 criterion, and the
+tail it buys back at the other two decades is worth it. Thread count is four,
+not one per core: the walk is bound by directory reads, and 2, 3, 6 and 8 were
+all worse than 4 on these corpora.
+
+**These numbers were measured on a host that was not quiet** — two dozen agent
+sessions were live, several busy — which is exactly what this repo's own rule
+says not to cite. They are reported because the effect is far larger than the
+noise and the direction is consistent across every corpus and thread count, but
+the authority is `provision apply tasks/bench.yml` on a quiet host, and the
+baselines there should be re-measured before any of these figures is quoted as
+settled.
+
 ---
 
 ---
