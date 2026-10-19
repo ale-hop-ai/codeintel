@@ -220,12 +220,27 @@ fn index_cold(root: &Path) -> Result<(f64, usize, usize)> {
     let mut runs = Vec::new();
     let (mut files, mut defs) = (0, 0);
     for _ in 0..INDEX_RUNS {
-        index::discard(root)?;
+        // The **index** directory, not the root. `discard` empties whatever it
+        // is given; pointed at the root it deleted the corpus copy, and every
+        // number after it described an empty tree (see the guard below).
+        index::discard(&root.join(".codeintel"))?;
         let started = Instant::now();
         let mut store = Store::open(root, root.join(".codeintel"), &extract::fingerprint())?;
         let report = index::refresh(&mut store, &Plan::default())?;
         runs.push(ms(started));
         (files, defs) = (report.indexed, report.counts.defs);
+    }
+    // A corpus that indexes nothing is a broken harness, not a fast one, and
+    // its numbers are plausible enough to commit by accident: small, quick,
+    // and every query answering zero rows. `UPDATE_BASELINE` does not compare
+    // against anything, so nothing else would have objected
+    // (`specs/00-overview.md` invariant 5 — never a silent empty).
+    if files == 0 || defs == 0 {
+        bail!(
+            "the cold index found {files} file(s) and {defs} def(s) in {}. A pinned corpus is \
+             never empty, so the harness is wrong, not the tree",
+            root.display()
+        );
     }
     Ok((percentile(&runs, 0.50), files, defs))
 }
