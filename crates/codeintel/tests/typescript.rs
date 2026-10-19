@@ -520,3 +520,71 @@ fn uses_package_names_the_indexers_package_not_the_imports() {
     assert!(stderr.contains("status=ok"), "{stderr}");
     assert_eq!(column(&declared, 0), ["app/app.ts", "ui/panel.tsx"]);
 }
+
+/// #75. `calls` must not move because the source outgrew the SCIP index.
+///
+/// `scip-typescript` gives every document a module symbol whose enclosing
+/// range runs to one line past the last line it saw. In the fixture as
+/// committed that end line cannot be placed in the source, so the range is
+/// dropped and module-scope references fall through to the file — which
+/// `calls_at` already refuses. Append two lines and the same range becomes
+/// placeable, the module owns every module-scope reference, and because the
+/// module is also a `def` the old guard let it through: `export default
+/// outer` arrived as a `calls` row.
+///
+/// The trigger was "the file is longer than the index", an ordinary stale
+/// state that says nothing about the code. The answer must be identical
+/// either way, and it is the clean answer that is right: a module is a scope,
+/// not a body.
+#[test]
+fn a_module_is_not_a_caller_however_long_the_file_is() {
+    let goal = "?- calls(C, S), def(C, \"kinds.ts\", _, _).";
+
+    let clean = tree();
+    index(clean.path());
+    let (before, status) = query(clean.path(), goal);
+    assert!(status.contains("status=ok"), "{status}");
+    assert!(!before.is_empty(), "the fixture lost its calls");
+
+    let grown = tree();
+    let kinds = grown.path().join("kinds.ts");
+    let src = std::fs::read_to_string(&kinds).expect("the fixture has kinds.ts")
+        + "\nexport function appended(): void {}\n";
+    std::fs::write(&kinds, src).expect("writes");
+    // Back onto the pinned clock, so `index` still reads the SCIP inputs as
+    // having seen this file. That is the state the issue describes: a longer
+    // source against an index nobody regenerated.
+    set_mtime(&kinds, SOURCE_MTIME);
+    index(grown.path());
+
+    let (after, status) = query(grown.path(), goal);
+    assert!(status.contains("status=ok"), "{status}");
+    assert_eq!(
+        after, before,
+        "growing the file moved `calls`; the module symbol is a caller again"
+    );
+    assert!(
+        !after.iter().any(|row| row.starts_with("kinds.ts\t")),
+        "a module-scope reference became a call: {after:?}"
+    );
+}
+
+/// The guard above can only see the module if the module is typed one. The
+/// document's own symbol has a `SymbolInformation` with no `kind` in it, so
+/// the kind comes from the mandatory descriptor grammar instead
+/// (`specs/02-extraction.md` § A namespace descriptor is a `module`).
+#[test]
+fn a_documents_own_symbol_is_a_module_not_an_unknown() {
+    let dir = tree();
+    index(dir.path());
+    let (rows, status) = query(
+        dir.path(),
+        "?- def(S, \"kinds.ts\", K, \"kinds.ts\"), K = \"module\".",
+    );
+    assert!(status.contains("status=ok"), "{status}");
+    assert_eq!(
+        rows.len(),
+        1,
+        "the document symbol is not a module: {rows:?}"
+    );
+}

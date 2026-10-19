@@ -208,9 +208,18 @@ callable("macro").
 % guard that actually does the work: a call site must be enclosed by a
 % definition, so `use x::f` / `pub use m::f` (attributed to the file) drop
 % out, and `impact_of`/`entrypoint` stop treating a file as a caller.
+%
+% `FromKind != "module"` is the same guard finished. A module-scope reference
+% has two spellings of one owner: the file, when nothing encloses it, and the
+% document's own module symbol, when the indexer gave that symbol an enclosing
+% range the reference falls inside. Both are the file. Only the first was
+% refused, so whether `export default outer` became a `calls` row turned on
+% whether that range happened to be placeable in the source on disk — a file
+% one line longer than the index flipped it (#75). The module is a `def`, so
+% the `def(From, ...)` guard passes; it is not a body, so it cannot call.
 calls_at(From, S, F, L, Prov) :-
     ref(S, F, L, _, From, Role, Prov), Role != "def",
-    def(From, _, _, _),
+    def(From, _, FromKind, _), FromKind != "module",
     def(S, _, K, _), callable(K).
 
 %% calls(From, S)  From calls S, either provenance.
