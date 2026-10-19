@@ -114,10 +114,12 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
     let started_at = facts::manifest::now();
 
     store.sweep().context("sweeping what a crashed run left")?;
-    let (found, skips) = walk(&root);
-    report.skips = skips;
+    let walked = walk(&root);
+    report.skips = walked.skips;
+    let visible = walked.visible;
 
-    let wanted: Vec<Candidate> = found
+    let wanted: Vec<Candidate> = walked
+        .files
         .into_iter()
         .filter(|c| plan.langs.is_empty() || plan.langs.iter().any(|l| l == c.lang.name))
         .collect();
@@ -282,51 +284,15 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
         seen.extend(kept);
     }
 
-    // Files only tier B covers: an unsupported language, or one the walk does
-    // not reach. They get an ordinary per-file segment rather than the single
-    // `_scip.bin` blob in specs/04-storage.md § Layout — see the note there.
-    for (path, doc) in &ingest.docs {
-        if seen.contains(path) || plan.deadline.is_some_and(|d| Instant::now() >= d) {
-            continue;
-        }
-        let Ok(meta) = std::fs::metadata(root.join(path)) else {
-            // SCIP names a file that is not here. Emitting facts about it would
-            // answer questions about source nobody can open.
-            continue;
-        };
-        seen.insert(path.clone());
-        let mut segment = facts::Segment::new();
-        let file = store.intern(path).context("the dictionary is full")?;
-        let lang = store.intern(&doc.lang).context("the dictionary is full")?;
-        segment.push("file", &[file, lang]);
-        let scip_counts = tier_b::emit(
-            &mut segment,
-            &ingest,
-            path,
-            std::fs::read_to_string(root.join(path)).ok().as_deref(),
-            &[],
-            store.interner_mut(),
-        )
-        .with_context(|| format!("ingesting SCIP facts for {path}"))?;
-        add(&mut report.scip_counts, scip_counts);
-        store
-            .put(
-                path,
-                &mut segment,
-                NewEntry {
-                    mtime: walk::mtime_of(&meta),
-                    size: meta.len(),
-                    hash: String::new(),
-                    lang: doc.lang.clone(),
-                    tiers: vec!["scip".to_string()],
-                    // Nothing walks it, so nothing edits it as far as this
-                    // index can tell: never stale.
-                    scip_hash: Some(String::new()),
-                },
-            )
-            .with_context(|| format!("writing the segment for {path}"))?;
-        report.indexed += 1;
-    }
+    tier_b_only(
+        store,
+        plan,
+        &root,
+        &ingest,
+        &visible,
+        &mut seen,
+        &mut report,
+    )?;
 
     forget_vanished(store, plan, &seen, &mut report);
 
@@ -444,6 +410,82 @@ struct ScipPlan {
     ingest: Ingest,
     inputs: Vec<ScipInput>,
     scip_collisions: u64,
+}
+
+/// Index the files only tier B covers: a language no grammar handles, or one
+/// the `--lang` filter dropped. They get an ordinary per-file segment rather
+/// than the single `_scip.bin` blob in specs/04-storage.md § Layout — see the
+/// note there.
+///
+/// `visible` is the walk's membership list, and a document naming a path that
+/// is not in it is refused, not indexed (`specs/02-extraction.md` § Budget).
+///
+/// # Errors
+/// An exhausted dictionary, or a failure to write a segment.
+fn tier_b_only(
+    store: &mut Store,
+    plan: &Plan,
+    root: &Path,
+    ingest: &Ingest,
+    visible: &BTreeSet<String>,
+    seen: &mut BTreeSet<String>,
+    report: &mut Report,
+) -> Result<()> {
+    for (path, doc) in &ingest.docs {
+        if seen.contains(path) || plan.deadline.is_some_and(|d| Instant::now() >= d) {
+            continue;
+        }
+        if !visible.contains(path) {
+            // The walk is the only statement about which paths belong to this
+            // tree, and it did not reach this one: `.gitignore` excluded it,
+            // it is hidden, or it sits behind a symlink the walk does not
+            // follow. Indexing it here would re-admit through tier B exactly
+            // what tier A was told to skip — on a monorepo ignoring
+            // `packages/*/build`, every generated `.d.ts` the indexer covered,
+            // one duplicate `def` per already-indexed export (#54,
+            // `specs/02-extraction.md` § Budget).
+            report.scip_skipped.push((path.clone(), "ignored"));
+            continue;
+        }
+        let Ok(meta) = std::fs::metadata(root.join(path)) else {
+            // SCIP names a file that is not here. Emitting facts about it would
+            // answer questions about source nobody can open.
+            continue;
+        };
+        seen.insert(path.clone());
+        let mut segment = facts::Segment::new();
+        let file = store.intern(path).context("the dictionary is full")?;
+        let lang = store.intern(&doc.lang).context("the dictionary is full")?;
+        segment.push("file", &[file, lang]);
+        let scip_counts = tier_b::emit(
+            &mut segment,
+            ingest,
+            path,
+            std::fs::read_to_string(root.join(path)).ok().as_deref(),
+            &[],
+            store.interner_mut(),
+        )
+        .with_context(|| format!("ingesting SCIP facts for {path}"))?;
+        add(&mut report.scip_counts, scip_counts);
+        store
+            .put(
+                path,
+                &mut segment,
+                NewEntry {
+                    mtime: walk::mtime_of(&meta),
+                    size: meta.len(),
+                    hash: String::new(),
+                    lang: doc.lang.clone(),
+                    tiers: vec!["scip".to_string()],
+                    // Nothing walks it, so nothing edits it as far as this
+                    // index can tell: never stale.
+                    scip_hash: Some(String::new()),
+                },
+            )
+            .with_context(|| format!("writing the segment for {path}"))?;
+        report.indexed += 1;
+    }
+    Ok(())
 }
 
 /// Stat the SCIP inputs, decide whether they must be re-read, and re-read them

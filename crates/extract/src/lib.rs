@@ -21,7 +21,7 @@ pub use lang::{Export, LANGS, Lang};
 pub use scip::Ingest;
 pub use tier_a::{Counts, Extracted, Extractor};
 pub use tier_b::{Anchor, Anchors};
-pub use walk::{Candidate, walk};
+pub use walk::{Candidate, Walked, walk};
 
 /// blake3 over everything that decides what a fact file looks like.
 ///

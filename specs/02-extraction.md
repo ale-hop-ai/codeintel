@@ -319,6 +319,19 @@ Skip a file if: binary, > 2 MB, matched by `.gitignore`/`.ignore` (via the
 facts — not a `file` row — so `!file(F, _)` means "not indexed", which is
 different from "indexed and empty".
 
+**The ignore rules bound the whole index, not just tier A.** The walk is this
+tool's only statement about which paths belong to the tree, so a SCIP document
+naming a path the walk does not reach — ignored, hidden, or behind a symlink the
+walk does not follow — is skipped exactly as an ignored source file is: no
+`file` row, no tier-B-only `def`, no `scip_ref`. Enforcing the budget in tier A
+alone re-admitted, through tier B, every generated artifact the indexer happened
+to cover: on a `yarn` monorepo whose `.gitignore` holds `packages/*/build`,
+`scip-typescript` covers the generated `build/**/*.d.ts` and each one came back
+as a second `def` for an export already indexed from its source (#54). The
+budget is per *path*, and the walk is what decides it. Each such document is
+counted and named with the other skipped documents in the `index` summary
+([05-surface.md](05-surface.md) § `index`); it is never silent.
+
 ---
 
 ## Tier B — SCIP
