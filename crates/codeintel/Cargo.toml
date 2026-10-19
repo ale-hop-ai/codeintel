@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 repository.workspace = true
+# Both benches are declared below. Without this, `benches/conditions.rs` — a
+# module the two of them share via `#[path]`, not a bench — is auto-discovered
+# as a third bench target with no `main`, and every item in it reads as dead.
+autobenches = false
 
 [dependencies]
 anyhow.workspace = true
