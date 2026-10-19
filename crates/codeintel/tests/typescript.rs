@@ -135,8 +135,8 @@ fn column(rows: &[String], n: usize) -> Vec<&str> {
 fn a_typescript_tree_indexes_and_names_its_indexer() {
     let dir = tier_a_tree();
     let summary = index(dir.path());
-    // Seven `.ts` (a `.d.ts` among them) and two `.tsx`.
-    assert!(summary.contains("9 indexed"), "{summary}");
+    // Eight `.ts` (a `.d.ts` among them) and two `.tsx`.
+    assert!(summary.contains("10 indexed"), "{summary}");
     // Not "no SCIP index found" — the literal command
     // (`specs/02-extraction.md` § Acquisition).
     assert!(summary.contains("scip-typescript"), "{summary}");

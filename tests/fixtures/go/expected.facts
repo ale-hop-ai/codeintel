@@ -6,6 +6,7 @@ def("local kinds.go Config#Handle().", "kinds.go", "method", "Handle").
 def("local kinds.go Config#Limit.", "kinds.go", "field", "Limit").
 def("local kinds.go Config#describe().", "kinds.go", "method", "describe").
 def("local kinds.go Config#quiet.", "kinds.go", "field", "quiet").
+def("local kinds.go Drain().", "kinds.go", "function", "Drain").
 def("local kinds.go Handler#", "kinds.go", "interface", "Handler").
 def("local kinds.go Handler#Handle().", "kinds.go", "method", "Handle").
 def("local kinds.go Key#", "kinds.go", "typealias", "Key").
@@ -30,6 +31,7 @@ def_doc("local kinds.go Config#", "Config is a struct, with a documented field."
 def_doc("local kinds.go Config#Handle().", "Handle satisfies Handler. Its receiver is the only thing that says so: the\nmethod is lexically at file scope and semantically owned by Config.").
 def_doc("local kinds.go Config#Limit.", "Limit is how many entries to keep.").
 def_doc("local kinds.go Config#describe().", "describe is unexported, so `exported` must not hold for it.").
+def_doc("local kinds.go Drain().", "Drain takes a receive-only channel. The `<-` in `<-chan` is an operator, not\na bracket: counting it as one left the depth above zero for the rest of the\nline, so def_sig ran past the closing paren and swallowed the `{` (#43).\nAppended so no earlier SCIP position moves and index.scip stays valid.").
 def_doc("local kinds.go Handler#", "Handler is an interface, so a method with no body has somewhere to live.").
 def_doc("local kinds.go Handler#Handle().", "Handle is the required method.").
 def_doc("local kinds.go Key#", "Key is a type alias.").
@@ -51,6 +53,7 @@ def_name("local kinds.go Config#Handle().", 38, 16).
 def_name("local kinds.go Config#Limit.", 12, 1).
 def_name("local kinds.go Config#describe().", 43, 16).
 def_name("local kinds.go Config#quiet.", 13, 1).
+def_name("local kinds.go Drain().", 51, 5).
 def_name("local kinds.go Handler#", 25, 5).
 def_name("local kinds.go Handler#Handle().", 27, 1).
 def_name("local kinds.go Key#", 22, 5).
@@ -76,6 +79,7 @@ def_sig("local kinds.go Config#Handle().", "func (c Config) Handle(key Key) bool
 def_sig("local kinds.go Config#Limit.", "Limit int").
 def_sig("local kinds.go Config#describe().", "func (c Config) describe() string").
 def_sig("local kinds.go Config#quiet.", "quiet bool").
+def_sig("local kinds.go Drain().", "func Drain(in <-chan Key, limit int) bool").
 def_sig("local kinds.go Handler#", "type Handler interface").
 def_sig("local kinds.go Handler#Handle().", "Handle(key Key) bool").
 def_sig("local kinds.go Key#", "type Key").
@@ -101,6 +105,7 @@ def_span("local kinds.go Config#Handle().", 36, 40, 1005, 1230).
 def_span("local kinds.go Config#Limit.", 11, 12, 445, 493).
 def_span("local kinds.go Config#describe().", 42, 45, 1232, 1347).
 def_span("local kinds.go Config#quiet.", 13, 13, 495, 505).
+def_span("local kinds.go Drain().", 47, 53, 1349, 1728).
 def_span("local kinds.go Handler#", 24, 28, 737, 896).
 def_span("local kinds.go Handler#Handle().", 26, 27, 839, 894).
 def_span("local kinds.go Key#", 21, 22, 694, 735).
@@ -142,6 +147,7 @@ name_ref("ToUpper", "store/store.go", 45, 30, "local store/store.go Entry#Descri
 name_ref("Warm", "store/store_test.go", 8, 13, "local store/store_test.go TestWarm().").
 name_ref("clear", "store/store.go", 39, 1, "local store/store.go Store#evict().").
 name_ref("len", "kinds.go", 39, 23, "local kinds.go Config#Handle().").
+name_ref("len", "kinds.go", 52, 8, "local kinds.go Drain().").
 parent("local app/app.go Start().", "app/app.go").
 parent("local db/conn.go Open().", "db/conn.go").
 parent("local kinds.go Banner.", "kinds.go").
@@ -150,6 +156,7 @@ parent("local kinds.go Config#Handle().", "local kinds.go Config#").
 parent("local kinds.go Config#Limit.", "local kinds.go Config#").
 parent("local kinds.go Config#describe().", "local kinds.go Config#").
 parent("local kinds.go Config#quiet.", "local kinds.go Config#").
+parent("local kinds.go Drain().", "kinds.go").
 parent("local kinds.go Handler#", "kinds.go").
 parent("local kinds.go Handler#Handle().", "local kinds.go Handler#").
 parent("local kinds.go Key#", "kinds.go").
@@ -175,6 +182,7 @@ visibility("local kinds.go Config#Handle().", "public").
 visibility("local kinds.go Config#Limit.", "public").
 visibility("local kinds.go Config#describe().", "restricted").
 visibility("local kinds.go Config#quiet.", "restricted").
+visibility("local kinds.go Drain().", "public").
 visibility("local kinds.go Handler#", "public").
 visibility("local kinds.go Handler#Handle().", "public").
 visibility("local kinds.go Key#", "public").

@@ -41,6 +41,8 @@ def("local kinds.ts parse().", "kinds.ts", "function", "parse").
 def("local kinds.ts retries.", "kinds.ts", "variable", "retries").
 def("local kinds.ts sealed().", "kinds.ts", "function", "sealed").
 def("local net/conn.ts open().", "net/conn.ts", "function", "open").
+def("local sig.ts clamp().", "sig.ts", "function", "clamp").
+def("local sig.ts listen().", "sig.ts", "function", "listen").
 def("local store/store.test.ts testWarm().", "store/store.test.ts", "function", "testWarm").
 def("local store/store.ts Entry#", "store/store.ts", "class", "Entry").
 def("local store/store.ts Entry#constructor().", "store/store.ts", "constructor", "constructor").
@@ -64,6 +66,8 @@ def_doc("local kinds.ts Handler#", "A documented interface.").
 def_doc("local kinds.ts Handler#handle().", "Handle one key.").
 def_doc("local kinds.ts describe().", "An arrow binding is a function, so `calls` can reach it.").
 def_doc("local net/conn.ts open().", "A second connection layer, exporting a function with the same name as\ndb/conn's. That ambiguity is the whole point: tier A cannot decide which\n`open` a caller in a third file means, and gives up rather than guessing.").
+def_doc("local sig.ts clamp().", "`<=` and `>=` are operators too, and a real generic is still a bracket.").
+def_doc("local sig.ts listen().", "`=>` is an operator, not a closing bracket.").
 def_doc("local store/store.test.ts testWarm().", "A test file, so is_test(F) has something to match on by path.").
 def_doc("local store/store.ts Entry#", "One entry in the store.").
 def_doc("local store/store.ts Store#", "A tiny key-value store, implementing an interface from another file.").
@@ -116,6 +120,8 @@ def_name("local kinds.ts parse().", 78, 16).
 def_name("local kinds.ts retries.", 9, 4).
 def_name("local kinds.ts sealed().", 15, 9).
 def_name("local net/conn.ts open().", 6, 16).
+def_name("local sig.ts clamp().", 16, 16).
+def_name("local sig.ts listen().", 10, 16).
 def_name("local store/store.test.ts testWarm().", 4, 16).
 def_name("local store/store.ts Entry#", 4, 13).
 def_name("local store/store.ts Entry#constructor().", 7, 2).
@@ -177,6 +183,8 @@ def_sig("local kinds.ts parse().", "export function parse(input: string): number
 def_sig("local kinds.ts retries.", "let retries = 3").
 def_sig("local kinds.ts sealed().", "function sealed(target: unknown): void").
 def_sig("local net/conn.ts open().", "export function open(url: string): boolean").
+def_sig("local sig.ts clamp().", "export function clamp<T extends number = number>(value: T, high: T): T").
+def_sig("local sig.ts listen().", "export function listen(on: (key: string) => void, options: { once: boolean }): void").
 def_sig("local store/store.test.ts testWarm().", "export function testWarm(): boolean").
 def_sig("local store/store.ts Entry#", "export class Entry").
 def_sig("local store/store.ts Entry#constructor().", "constructor(value: string)").
@@ -238,6 +246,8 @@ def_span("local kinds.ts parse().", 78, 80, 1559, 1640).
 def_span("local kinds.ts retries.", 9, 9, 258, 273).
 def_span("local kinds.ts sealed().", 15, 17, 444, 501).
 def_span("local net/conn.ts open().", 1, 8, 0, 315).
+def_span("local sig.ts clamp().", 15, 18, 598, 790).
+def_span("local sig.ts listen().", 9, 13, 431, 596).
 def_span("local store/store.test.ts testWarm().", 3, 6, 40, 190).
 def_span("local store/store.ts Entry#", 3, 14, 42, 237).
 def_span("local store/store.ts Entry#constructor().", 7, 9, 114, 170).
@@ -258,6 +268,7 @@ file("app/app.ts", "typescript").
 file("db/conn.ts", "typescript").
 file("kinds.ts", "typescript").
 file("net/conn.ts", "typescript").
+file("sig.ts", "typescript").
 file("store/store.test.ts", "typescript").
 file("store/store.ts", "typescript").
 file("ui/panel.tsx", "typescriptreact").
@@ -334,6 +345,8 @@ parent("local kinds.ts parse().", "kinds.ts").
 parent("local kinds.ts retries.", "kinds.ts").
 parent("local kinds.ts sealed().", "kinds.ts").
 parent("local net/conn.ts open().", "net/conn.ts").
+parent("local sig.ts clamp().", "sig.ts").
+parent("local sig.ts listen().", "sig.ts").
 parent("local store/store.test.ts testWarm().", "store/store.test.ts").
 parent("local store/store.ts Entry#", "store/store.ts").
 parent("local store/store.ts Entry#constructor().", "local store/store.ts Entry#").
@@ -392,6 +405,8 @@ visibility("local kinds.ts parse().", "public").
 visibility("local kinds.ts retries.", "restricted").
 visibility("local kinds.ts sealed().", "restricted").
 visibility("local net/conn.ts open().", "public").
+visibility("local sig.ts clamp().", "public").
+visibility("local sig.ts listen().", "public").
 visibility("local store/store.test.ts testWarm().", "public").
 visibility("local store/store.ts Entry#", "public").
 visibility("local store/store.ts Entry#constructor().", "public").

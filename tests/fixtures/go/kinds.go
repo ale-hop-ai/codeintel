@@ -43,3 +43,11 @@ func (c Config) Handle(key Key) bool {
 func (c Config) describe() string {
 	return Banner
 }
+
+// Drain takes a receive-only channel. The `<-` in `<-chan` is an operator, not
+// a bracket: counting it as one left the depth above zero for the rest of the
+// line, so def_sig ran past the closing paren and swallowed the `{` (#43).
+// Appended so no earlier SCIP position moves and index.scip stays valid.
+func Drain(in <-chan Key, limit int) bool {
+	return len(in) <= limit
+}
