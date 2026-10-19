@@ -322,10 +322,22 @@ Present iff `S` has SCIP-grade identity. The gate for precision-critical
 queries: `def(S,...), resolved(S)` restricts to symbols a compiler agreed exist.
 
 ### `import(F, Module, Alias)`
-One row per import statement. `Module` is the module specifier **as written**
-(`"./util"`, `"github.com/x/y"`, `"std::collections"`), not resolved to a path —
-resolution is the SCIP tier's job and shows up in `ref`/`extern`. `Alias` is the
-local binding, or `""`.
+One row per import statement. `Module` is the module specifier's **content, as
+written** (`./util`, `github.com/x/y`, `std::collections`), not resolved to a
+path — resolution is the SCIP tier's job and shows up in `ref`/`extern`.
+`Alias` is the local binding, or `""`.
+
+*Content* settles the one thing "as written" left open. A specifier written as
+a string literal contributes the text **between its delimiters**, in every
+language: Go's `import "fmt"` is `Module = "fmt"`, never `"\"fmt\""`, and
+TypeScript's `from './util'` is `./util`. A specifier that is not a literal — a
+Rust path, a Python dotted name — has no delimiters to shed and is its own
+content. Reading a literal's content is neither resolution nor a guess: the
+delimiters are tokens in the tree, so the content is a byte range like any
+other fact (invariant 1). Nothing else is normalized — an escape sequence
+inside the literal stays as the author wrote it. The column is therefore
+spelled one way across languages, and `?- import(F, "fmt", _).` means the same
+thing on all of them (#70).
 
 One row per import statement, not per name it binds: `Module` is the specifier
 text as written, and a brace list is not split, so `use a::{b, c as d}` is one
@@ -339,7 +351,8 @@ row could not hold both aliases. `from m import a, b as c` is **one** row with
 names for `m`. The dots of a relative import are part of the specifier as
 written, so `from ..db import conn` has `Module = "..db"`.
 
-TypeScript's `Module` is the string's content, without its quotes.
+TypeScript writes its specifier as a string literal, so `Module` is that
+string's content.
 `import * as ns from "m"` and `import fs = require("fs")` set `Alias`, because
 each binds a local name for the module. A default or named import
 (`import d from "m"`, `import { a as b } from "m"`) does not: those bind
@@ -352,6 +365,7 @@ argument need not be a literal.
 ```
 import("src/api.rs", "crate::store", "").
 import("web/app.ts", "./util/retry", "retry").
+import("store/store.go", "fmt", "").
 ```
 
 ### `scip_ref(S, F, Line, Col, From, Role)`

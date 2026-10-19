@@ -1,5 +1,7 @@
-; Go imports. `@module` is the specifier AS WRITTEN, quotes and all — nothing
-; is resolved to a path (01-facts.md § `import`). `@alias` is the local
+; Go imports. `@module` is the import path literal; the extractor reads its
+; CONTENT, the span between the quote tokens, so the row says `fmt` and not
+; `"fmt"` — the same spelling every other language uses (01-facts.md
+; § `import`). Nothing is resolved to a path. `@alias` is the local
 ; binding, which in Go is also `_` for an import-for-effect and `.` for a dot
 ; import; both are recorded verbatim rather than normalized away, because
 ; "imported only for its side effects" is a thing a conformance rule wants to

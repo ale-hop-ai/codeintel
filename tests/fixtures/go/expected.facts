@@ -125,13 +125,13 @@ file("net/conn.go", "go").
 file("store/store.go", "go").
 file("store/store_test.go", "go").
 file("ui/panel.go", "go").
-import("app/app.go", "\"example.com/fixture/db\"", "").
-import("net/conn.go", "\"strings\"", "").
-import("store/store.go", "\"fmt\"", "").
-import("store/store.go", "\"strings\"", "str").
-import("store/store_test.go", "\"testing\"", "").
-import("ui/panel.go", "\"example.com/fixture/db\"", "").
-import("ui/panel.go", "\"example.com/fixture/net\"", "_").
+import("app/app.go", "example.com/fixture/db", "").
+import("net/conn.go", "strings", "").
+import("store/store.go", "fmt", "").
+import("store/store.go", "strings", "str").
+import("store/store_test.go", "testing", "").
+import("ui/panel.go", "example.com/fixture/db", "").
+import("ui/panel.go", "example.com/fixture/net", "_").
 name_ref("Fatal", "store/store_test.go", 9, 4, "local store/store_test.go TestWarm().").
 name_ref("Get", "store/store.go", 50, 10, "local store/store.go Warm().").
 name_ref("HasPrefix", "net/conn.go", 11, 16, "local net/conn.go Open().").

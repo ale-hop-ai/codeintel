@@ -269,7 +269,11 @@ Per file, one parse, then:
    be inferring, which is invariant 1. `@scope.*` items define nothing and get
    no row.
 6. Run `imports.scm` → `import` rows. The module specifier is captured **as
-   written**; no resolution. The same query's `@export` captures →
+   written**; no resolution. Where a language writes that specifier as a string
+   literal, the row carries the literal's **content** — the span between the
+   delimiter tokens the grammar already gives us, read from the tree and not
+   matched out of the text ([01-facts.md](01-facts.md) § `import`). The same
+   query's `@export` captures →
    `name_export(F, Name)` rows, one per local name an `export { }`,
    `export default` or `export =` clause names
    ([01-facts.md](01-facts.md) § `name_export`). The two live in one query
@@ -722,3 +726,8 @@ hand-written golden fact file.
 8. **Incremental equivalence.** Index the fixture; mutate one file; reindex
    incrementally. The resulting fact set must equal a full cold reindex, byte
    for byte. This is the test that would have caught the bug `name_ref` fixes.
+9. **Module spelling.** No `import` row's `Module` may start or end with a
+   source delimiter, in any language. The only guard about agreement *between*
+   languages: a language that kept its quotes would answer
+   `?- import(F, "fmt", _).` with zero rows on that language alone, and a
+   per-language golden cannot see a disagreement it is not party to (#70).

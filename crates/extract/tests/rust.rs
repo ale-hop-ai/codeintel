@@ -80,6 +80,11 @@ fn facts_are_a_function_of_their_own_file() {
 }
 
 #[test]
+fn an_import_module_has_no_quotes() {
+    common::assert_modules_undelimited(&extracted());
+}
+
+#[test]
 fn a_second_extraction_is_byte_identical() {
     common::assert_deterministic(&root());
 }

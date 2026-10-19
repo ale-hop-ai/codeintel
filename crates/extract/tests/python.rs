@@ -1,6 +1,6 @@
 //! Tier A against `tests/fixtures/python/`.
 //!
-//! The six shared guards of `specs/02-extraction.md` § Validation are in
+//! The shared guards of `specs/02-extraction.md` § Validation are in
 //! [`common`]. What is here is what only Python can claim: that a method is
 //! a method although the grammar's query cannot say so, that a docstring
 //! inside the definition is its documentation, and that a dunder is public.
@@ -82,6 +82,11 @@ fn no_node_takes_two_definition_captures() {
 #[test]
 fn facts_are_a_function_of_their_own_file() {
     common::assert_facts_are_local(&extracted());
+}
+
+#[test]
+fn an_import_module_has_no_quotes() {
+    common::assert_modules_undelimited(&extracted());
 }
 
 #[test]
