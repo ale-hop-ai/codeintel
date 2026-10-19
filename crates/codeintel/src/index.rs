@@ -161,15 +161,6 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
     // not a step -- every binding it produces is consumed below, and none of
     // the walk above depends on it.
     let scip = plan_scip(store, plan, &root, &wanted, extractor_changed, &mut report)?;
-    let ScipPlan {
-        scip_changed,
-        invalidated,
-        newest_scip,
-        reingest,
-        ingest,
-        inputs,
-        scip_collisions,
-    } = scip;
 
     let mut extractors: HashMap<&'static str, Extractor> = HashMap::new();
     let mut seen: BTreeSet<String> = BTreeSet::new();
@@ -181,118 +172,26 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
             report.stale.push(candidate.path);
             continue;
         }
-        let known = store.manifest().files.get(&candidate.path);
-        if !plan.rebuild
-            && !invalidated
-            && known.is_some_and(|e| e.is_clean(candidate.mtime, candidate.size, before.indexed_at))
-        {
-            report.unchanged += 1;
-            continue;
-        }
-
-        let Ok(bytes) = std::fs::read(&candidate.abs) else {
-            // Vanished or unreadable between the walk and here. Report it
-            // rather than dropping its facts on a transient error.
-            report.skips.unreadable.push(candidate.path.clone());
+        // Two halves, and the split is where the I/O stops being a decision
+        // and starts being work: `pending` decides, `extract` does.
+        let Some(pending) = pending(
+            store,
+            plan,
+            &scip,
+            before.indexed_at,
+            &candidate,
+            &mut report,
+        ) else {
             continue;
         };
-        let hash = facts::content_hash(&bytes);
-        if !plan.rebuild
-            && !invalidated
-            && let Some(same) = known.filter(|e| e.hash == hash)
-        {
-            // Touched but not changed: refresh the fast-path fields so the next
-            // run does not hash it again.
-            let mut entry = same.clone();
-            entry.mtime = candidate.mtime;
-            entry.size = candidate.size;
-            store
-                .manifest_mut()
-                .files
-                .insert(candidate.path.clone(), entry);
-            report.unchanged += 1;
-            continue;
-        }
-        let Ok(src) = String::from_utf8(bytes) else {
-            report.binary += 1;
-            continue;
-        };
-
-        // Did the SCIP inputs see these bytes? By mtime, or by the hash the
-        // manifest recorded at the last ingest of the same inputs — which is
-        // what lets a file edited and then restored stop being `scip-stale`
-        // without rerunning the indexer. A file they did not see is tier A
-        // only: its positions have moved, so anchoring against the old ones
-        // would adopt the wrong identity or none, and a tier-B-only `def`
-        // beside the tier-A one is two rows for one definition
-        // (specs/02-extraction.md § The anchor join). With no re-ingest planned
-        // nothing was read, and an index that was not read saw nothing.
-        let scip_saw = reingest
-            && (newest_scip.is_some_and(|scip| candidate.mtime <= scip)
-                || (!scip_changed
-                    && known.is_some_and(|e| e.scip_hash.as_deref() == Some(hash.as_str()))));
-        // What the inputs last saw, kept across an edit they did not see so a
-        // restore can match it; `""` when they never saw any version.
-        let scip_hash = if inputs.is_empty() {
-            None
-        } else if scip_saw {
-            Some(hash.clone())
-        } else if reingest {
-            known
-                .and_then(|e| e.scip_hash.clone())
-                .filter(|_| !scip_changed)
-                .or_else(|| Some(String::new()))
-        } else {
-            known.and_then(|e| e.scip_hash.clone())
-        };
-
-        let extractor = match extractors.entry(candidate.lang.name) {
-            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
-            std::collections::hash_map::Entry::Vacant(e) => e.insert(
-                Extractor::new(candidate.lang)
-                    .with_context(|| format!("preparing the {} extractor", candidate.lang.name))?,
-            ),
-        };
-        // Tier A runs first, entirely, then tier B — the join needs tier A's
-        // `def_name` index to anchor against (specs/02-extraction.md).
-        let anchors = if scip_saw {
-            Anchors::of(&ingest, &candidate.path)
-        } else {
-            Anchors::default()
-        };
-        let mut extracted = extractor
-            .file(&candidate.path, &src, store.interner_mut(), &anchors)
-            .with_context(|| format!("extracting {}", candidate.path))?;
-        report.counts.defs += extracted.counts.defs;
-        report.counts.refs += extracted.counts.refs;
-        report.counts.imports += extracted.counts.imports;
-        report.anchored += extracted.anchored;
-
-        let scip_counts = if scip_saw {
-            tier_b::emit(
-                &mut extracted.segment,
-                &ingest,
-                &candidate.path,
-                Some(&src),
-                &extracted.defs,
-                store.interner_mut(),
-            )
-            .with_context(|| format!("ingesting SCIP facts for {}", candidate.path))?
-        } else {
-            tier_b::Counts::default()
-        };
-        add(&mut report.scip_counts, scip_counts);
-
-        let mut entry = new_entry(&candidate, &hash);
-        entry.scip_hash = scip_hash;
-        if !anchors.is_empty() || scip_counts.refs > 0 {
-            entry.tiers.push("scip".to_string());
-        }
-        let mut segment = extracted.segment;
-        store
-            .put(&candidate.path, &mut segment, entry)
-            .with_context(|| format!("writing the segment for {}", candidate.path))?;
-        report.indexed += 1;
+        extract(
+            store,
+            &scip,
+            &mut extractors,
+            &candidate,
+            pending,
+            &mut report,
+        )?;
     }
 
     // Files only tier B covers keep their segments across a refresh that did
@@ -300,7 +199,7 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
     // facts are dropped. Not when the inputs changed without being re-read,
     // which is `index.scip` going away: every fact those files hold came from
     // it, and keeping them would answer `no-scip` beside rows marked `exact`.
-    if !reingest && !scip_changed {
+    if !scip.reingest && !scip.scip_changed {
         let kept: Vec<String> = store
             .manifest()
             .files
@@ -315,7 +214,7 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
         store,
         plan,
         &root,
-        &ingest,
+        &scip.ingest,
         &visible,
         &mut seen,
         &mut report,
@@ -324,16 +223,16 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
     forget_vanished(store, plan, &seen, &mut report);
 
     measure_coverage(
-        &ingest,
+        &scip.ingest,
         &seen,
-        reingest,
+        scip.reingest,
         store.manifest().scip_matched,
         &mut report,
     );
 
     // The same rule `query` acts on, read from the manifest this run built
     // (`FileEntry::scip_stale`).
-    if let Some(newest) = newest_scip {
+    if let Some(newest) = scip.newest_scip {
         report.scip_stale = store
             .manifest()
             .files
@@ -343,32 +242,51 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
             .collect();
     }
 
-    // Only a run that re-extracted everything the fingerprint covers may
-    // record it. A `--lang` run or one a deadline stopped leaves files built
-    // by the old extractor; writing the new fingerprint over them would make
-    // the next full run trust them (specs/04-storage.md § Manifest).
-    if plan.langs.is_empty() && report.stale.is_empty() {
+    record(store, plan, scip, fingerprint, started_at, &before, &report)?;
+    report.elapsed_ms = started.elapsed().as_millis();
+    Ok(report)
+}
+
+/// Write what this run learned onto the manifest, and commit if it moved.
+///
+/// # Errors
+/// I/O failure writing the dictionary or the manifest.
+fn record(
+    store: &mut Store,
+    plan: &Plan,
+    scip: ScipPlan,
+    fingerprint: String,
+    started_at: u64,
+    before: &facts::Manifest,
+    report: &Report,
+) -> Result<()> {
+    // One rule, asked twice before and now named once: did this run
+    // re-extract everything the fingerprint and the timestamp are claims
+    // about? A `--lang` run, or one a deadline stopped, leaves files built by
+    // the old extractor — and writing either stamp over them would make the
+    // next full run trust them (`specs/04-storage.md` § Manifest).
+    let complete = plan.langs.is_empty() && report.stale.is_empty();
+    if complete {
         store.manifest_mut().extractor_fingerprint = fingerprint;
     }
-    store.manifest_mut().scip = inputs;
-    store.manifest_mut().scip_collisions = scip_collisions;
+    store.manifest_mut().scip = scip.inputs;
+    store.manifest_mut().scip_collisions = scip.scip_collisions;
     store.manifest_mut().scip_matched = report.scip_matched;
     // A refresh that changed nothing writes nothing. `query` refreshes before
-    // every answer, and committing the same manifest again is an fsync per read.
-    // Every write this run made lands in the manifest, so equality is the whole
-    // test. A store with no index yet commits regardless, so indexing an empty
-    // tree still leaves an index (`specs/04-storage.md` § Incremental reindex).
-    if !store.has_index() || *store.manifest() != before {
-        // Only a run that looked at every file may say when it looked, like the
-        // fingerprint above; and only one committing anyway, so a read that
-        // changed nothing still writes nothing (specs/04-storage.md § Manifest).
-        if plan.langs.is_empty() && report.stale.is_empty() {
+    // every answer, and committing the same manifest again is an fsync per
+    // read. Every write this run made lands in the manifest, so equality is
+    // the whole test. A store with no index yet commits regardless, so
+    // indexing an empty tree still leaves an index
+    // (`specs/04-storage.md` § Incremental reindex).
+    if !store.has_index() || *store.manifest() != *before {
+        // Inside the commit test, not before it: a read that changed nothing
+        // must not start writing a new timestamp.
+        if complete {
             store.manifest_mut().indexed_at = started_at;
         }
         store.commit().context("committing the index")?;
     }
-    report.elapsed_ms = started.elapsed().as_millis();
-    Ok(report)
+    Ok(())
 }
 
 /// Throw the index away, keeping only the dictionary generation counter.
@@ -439,13 +357,66 @@ fn forget_vanished(store: &mut Store, plan: &Plan, seen: &BTreeSet<String>, repo
 
 /// What the SCIP phase decided, and what it read if it read anything.
 struct ScipPlan {
+    /// The inputs differ from the ones the manifest records.
     scip_changed: bool,
+    /// Every file must be re-extracted, whatever its mtime says.
     invalidated: bool,
+    /// The newest input's mtime, when there is one.
     newest_scip: Option<u64>,
+    /// An ingest ran this pass, so there is something that could have seen a
+    /// file's current bytes.
     reingest: bool,
+    /// What it read. Empty when nothing was read.
     ingest: Ingest,
+    /// What the manifest will record as this index's SCIP inputs.
     inputs: Vec<ScipInput>,
+    /// Symbols defined in more than one document across the merged inputs.
     scip_collisions: u64,
+}
+
+impl ScipPlan {
+    /// What this pass's SCIP inputs mean for one file: whether they saw its
+    /// current bytes, and the `scip_hash` its manifest entry should carry.
+    ///
+    /// `known` is the `scip_hash` the manifest already holds for this path.
+    ///
+    /// Lifted out of the per-file loop because it is the one piece of that
+    /// loop with no I/O in it and the one that is hard to read — four inputs
+    /// deciding two outputs, where getting either wrong is silent. `scip_saw`
+    /// wrong in one direction anchors a file against stale positions and
+    /// adopts the wrong identity; wrong in the other drops tier B for a file
+    /// the indexer did see. `scip_hash` wrong makes `scip-stale` lie. Pure, so
+    /// the table below is a test and not an argument.
+    fn view(&self, mtime: u64, hash: &str, known: Option<&str>) -> (bool, Option<String>) {
+        // Did the inputs see these bytes? By mtime, or by the hash the
+        // manifest recorded at the last ingest of the same inputs — which is
+        // what lets a file edited and then restored stop being `scip-stale`
+        // without rerunning the indexer. A file they did not see is tier A
+        // only: its positions have moved, so anchoring against the old ones
+        // would adopt the wrong identity or none, and a tier-B-only `def`
+        // beside the tier-A one is two rows for one definition
+        // (`specs/02-extraction.md` § The anchor join). With no re-ingest
+        // planned nothing was read, and an index that was not read saw
+        // nothing.
+        let saw = self.reingest
+            && (self.newest_scip.is_some_and(|scip| mtime <= scip)
+                || (!self.scip_changed && known == Some(hash)));
+        // What the inputs last saw, kept across an edit they did not see so a
+        // restore can match it; `""` when they never saw any version.
+        let scip_hash = if self.inputs.is_empty() {
+            None
+        } else if saw {
+            Some(hash.to_string())
+        } else if self.reingest {
+            known
+                .map(ToString::to_string)
+                .filter(|_| !self.scip_changed)
+                .or_else(|| Some(String::new()))
+        } else {
+            known.map(ToString::to_string)
+        };
+        (saw, scip_hash)
+    }
 }
 
 /// Index the files only tier B covers: a language no grammar handles, or one
@@ -737,6 +708,146 @@ fn add(into: &mut tier_b::Counts, counts: tier_b::Counts) {
     into.collided += counts.collided;
 }
 
+/// A file that has to be extracted, and what this pass already knows about it.
+struct Pending {
+    /// Its current contents.
+    src: String,
+    /// The hash of those bytes.
+    hash: String,
+    /// Whether this pass's SCIP inputs saw them (`ScipPlan::view`).
+    scip_saw: bool,
+    /// The `scip_hash` its manifest entry should carry (`ScipPlan::view`).
+    scip_hash: Option<String>,
+}
+
+/// Decide what this pass owes one walked file, and do the cheap outcomes here.
+///
+/// `None` means the file is accounted for — unchanged, unreadable, or not
+/// UTF-8 — and `report` already says which. `Some` means it has to be
+/// extracted, and carries the bytes this function had to read anyway.
+///
+/// Four of the five outcomes are "no extraction", which is why they live
+/// together: the common case for a `query` auto-refresh is that every file
+/// takes one of them, and reading the fast paths as one block is what makes
+/// the cost of a refresh legible (`specs/04-storage.md` § Incremental
+/// reindex).
+fn pending(
+    store: &mut Store,
+    plan: &Plan,
+    scip: &ScipPlan,
+    indexed_at: u64,
+    candidate: &Candidate,
+    report: &mut Report,
+) -> Option<Pending> {
+    let known = store.manifest().files.get(&candidate.path);
+    if !plan.rebuild
+        && !scip.invalidated
+        && known.is_some_and(|e| e.is_clean(candidate.mtime, candidate.size, indexed_at))
+    {
+        report.unchanged += 1;
+        return None;
+    }
+
+    let Ok(bytes) = std::fs::read(&candidate.abs) else {
+        // Vanished or unreadable between the walk and here. Report it
+        // rather than dropping its facts on a transient error.
+        report.skips.unreadable.push(candidate.path.clone());
+        return None;
+    };
+    let hash = facts::content_hash(&bytes);
+    if !plan.rebuild
+        && !scip.invalidated
+        && let Some(same) = known.filter(|e| e.hash == hash)
+    {
+        // Touched but not changed: refresh the fast-path fields so the next
+        // run does not hash it again.
+        let mut entry = same.clone();
+        entry.mtime = candidate.mtime;
+        entry.size = candidate.size;
+        store
+            .manifest_mut()
+            .files
+            .insert(candidate.path.clone(), entry);
+        report.unchanged += 1;
+        return None;
+    }
+    let Ok(src) = String::from_utf8(bytes) else {
+        report.binary += 1;
+        return None;
+    };
+    let known_scip = known.and_then(|e| e.scip_hash.as_deref());
+    let (scip_saw, scip_hash) = scip.view(candidate.mtime, &hash, known_scip);
+    Some(Pending {
+        src,
+        hash,
+        scip_saw,
+        scip_hash,
+    })
+}
+
+/// Extract one file, both tiers, and write its segment.
+///
+/// # Errors
+/// A grammar that will not load, an extractor failure, an exhausted
+/// dictionary, or a failure to write the segment.
+fn extract(
+    store: &mut Store,
+    scip: &ScipPlan,
+    extractors: &mut HashMap<&'static str, Extractor>,
+    candidate: &Candidate,
+    file: Pending,
+    report: &mut Report,
+) -> Result<()> {
+    let extractor = match extractors.entry(candidate.lang.name) {
+        std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+        std::collections::hash_map::Entry::Vacant(e) => e.insert(
+            Extractor::new(candidate.lang)
+                .with_context(|| format!("preparing the {} extractor", candidate.lang.name))?,
+        ),
+    };
+    // Tier A runs first, entirely, then tier B — the join needs tier A's
+    // `def_name` index to anchor against (specs/02-extraction.md).
+    let anchors = if file.scip_saw {
+        Anchors::of(&scip.ingest, &candidate.path)
+    } else {
+        Anchors::default()
+    };
+    let mut extracted = extractor
+        .file(&candidate.path, &file.src, store.interner_mut(), &anchors)
+        .with_context(|| format!("extracting {}", candidate.path))?;
+    report.counts.defs += extracted.counts.defs;
+    report.counts.refs += extracted.counts.refs;
+    report.counts.imports += extracted.counts.imports;
+    report.anchored += extracted.anchored;
+
+    let scip_counts = if file.scip_saw {
+        tier_b::emit(
+            &mut extracted.segment,
+            &scip.ingest,
+            &candidate.path,
+            Some(&file.src),
+            &extracted.defs,
+            store.interner_mut(),
+        )
+        .with_context(|| format!("ingesting SCIP facts for {}", candidate.path))?
+    } else {
+        tier_b::Counts::default()
+    };
+    add(&mut report.scip_counts, scip_counts);
+
+    let mut entry = new_entry(candidate, &file.hash);
+    entry.scip_hash = file.scip_hash;
+    if !anchors.is_empty() || scip_counts.refs > 0 {
+        entry.tiers.push("scip".to_string());
+    }
+    let mut segment = extracted.segment;
+    store
+        .put(&candidate.path, &mut segment, entry)
+        .with_context(|| format!("writing the segment for {}", candidate.path))?;
+    report.indexed += 1;
+    Ok(())
+}
+
 fn new_entry(candidate: &Candidate, hash: &str) -> NewEntry {
     NewEntry {
         mtime: candidate.mtime,
@@ -745,5 +856,111 @@ fn new_entry(candidate: &Candidate, hash: &str) -> NewEntry {
         lang: candidate.lang.name.to_string(),
         tiers: vec!["ts".to_string()],
         scip_hash: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A plan with no inputs read and none recorded: the tier-A-only case.
+    fn plan() -> ScipPlan {
+        ScipPlan {
+            scip_changed: false,
+            invalidated: false,
+            newest_scip: None,
+            reingest: false,
+            ingest: Ingest::default(),
+            inputs: Vec::new(),
+            scip_collisions: 0,
+        }
+    }
+
+    /// One recorded input. Only `inputs.is_empty()` is read by `view`, so
+    /// the fields are placeholders — spelled out rather than defaulted
+    /// because `ScipInput` deliberately has no `Default` (#48).
+    fn input() -> ScipInput {
+        ScipInput {
+            path: "index.scip".to_string(),
+            tool: String::new(),
+            root: String::new(),
+            mtime: 0,
+            size: 0,
+            documents: 0,
+            ambiguous: 0,
+        }
+    }
+
+    /// A plan that read inputs whose newest document is `newest`.
+    fn ingested(newest: u64, changed: bool) -> ScipPlan {
+        ScipPlan {
+            scip_changed: changed,
+            newest_scip: Some(newest),
+            reingest: true,
+            inputs: vec![input()],
+            ..plan()
+        }
+    }
+
+    #[test]
+    fn with_no_scip_at_all_nothing_is_seen_and_nothing_is_recorded() {
+        assert_eq!(plan().view(10, "h", None), (false, None));
+        // Even a file the manifest once had a hash for: with no inputs
+        // recorded there is no SCIP index to be stale against.
+        assert_eq!(plan().view(10, "h", Some("old")), (false, None));
+    }
+
+    #[test]
+    fn a_file_older_than_the_index_was_seen() {
+        assert_eq!(
+            ingested(100, false).view(50, "h", None),
+            (true, Some("h".to_string()))
+        );
+        // Equal counts as seen: the index was built at or after this write.
+        assert_eq!(
+            ingested(100, false).view(100, "h", None),
+            (true, Some("h".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_file_newer_than_the_index_was_not_seen() {
+        let (saw, hash) = ingested(100, false).view(101, "h", None);
+        assert!(!saw);
+        // Empty string, not `None`: the inputs exist and never saw any
+        // version of this file, which is what `scip-stale` reads.
+        assert_eq!(hash, Some(String::new()));
+    }
+
+    #[test]
+    fn an_edit_reverted_to_bytes_the_index_saw_is_seen_again() {
+        // The whole point of recording the hash: no indexer rerun needed.
+        assert_eq!(
+            ingested(100, false).view(999, "h", Some("h")),
+            (true, Some("h".to_string()))
+        );
+    }
+
+    #[test]
+    fn changed_inputs_make_the_recorded_hash_worthless() {
+        // The hash was recorded against *different* inputs, so matching it
+        // says nothing about what these ones saw.
+        let (saw, hash) = ingested(100, true).view(999, "h", Some("h"));
+        assert!(!saw);
+        assert_eq!(hash, Some(String::new()));
+    }
+
+    #[test]
+    fn without_a_reingest_the_recorded_hash_is_carried_forward() {
+        // Nothing was read this pass, so nothing was learned: the entry keeps
+        // what it had rather than claiming the inputs saw it.
+        let carried = ScipPlan {
+            inputs: vec![input()],
+            ..plan()
+        };
+        assert_eq!(
+            carried.view(999, "h", Some("old")),
+            (false, Some("old".to_string()))
+        );
     }
 }
