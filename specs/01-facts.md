@@ -723,17 +723,26 @@ trait_sym(S) :- def(S, _, "trait", _).
 trait_sym(S) :- def(S, _, "interface", _).
 trait_sym(S) :- def(S, _, "class", _).
 
-% Either side of the `for`. This exists to bind F and N POSITIVELY before the
-% negation below: a rule whose only binder for a variable is `!local_def(F, N)`
-% is unsafe and the engine rejects it, which is why `ref` leads with `name_ref`
-% and this leads with `impl_name`.
-impl_name(F, N) :- name_impl(F, N, _, _).
-impl_name(F, N) :- name_impl(F, _, N, _).
-
-% same file wins, else a unique exported definition repo-wide
-impl_sym(F, N, S) :- impl_name(F, N), def(S, F, _, N).
-impl_sym(F, N, S) :-
-    impl_name(F, N), !local_def(F, N), def(S, _, _, N), exported(S), !ambiguous(N).
+% Four clauses: either side of the `for`, each resolved same-file-first. The
+% leading `name_impl` binds F and N POSITIVELY, which is what makes the negated
+% branches safe -- a rule whose only binder for a variable is `!local_def(F, N)`
+% is unsafe and the engine rejects it, which is why `ref` leads with `name_ref`.
+%
+% `name_impl` is written out twice per branch rather than factored through an
+% `impl_name(F, N)` helper, for the reason the two `scip_claim` clauses are
+% (§ Tier precedence): `!local_def` and `!ambiguous` are ground negations the
+% demand rewrite backs off, and backing off runs the rules as written -- which
+% works only while they name base relations alone. A derived `impl_name` keeps
+% a magic predicate alive in the backed-off program and the rewrite loses the
+% cycle it needs to break. `local_def` and `ambiguous` are shaped this way too.
+% same file wins
+impl_sym(F, N, S) :- name_impl(F, N, _, _), def(S, F, _, N).
+impl_sym(F, N, S) :- name_impl(F, _, N, _), def(S, F, _, N).
+% else a unique exported definition repo-wide
+impl_sym(F, N, S) :- name_impl(F, N, _, _),
+    !local_def(F, N), def(S, _, _, N), exported(S), !ambiguous(N).
+impl_sym(F, N, S) :- name_impl(F, _, N, _),
+    !local_def(F, N), def(S, _, _, N), exported(S), !ambiguous(N).
 % `scip_impl` is method-level where an indexer emits it at all; `name_impl` is
 % type-level. Different granularities, both true, so they coexist rather than
 % one masking the other -- which is why the guard compares the PAIR and not S.
@@ -778,9 +787,9 @@ calls_exact(From, S) :- calls_at(From, S, _, _, "exact").
 % No `callers`/`callees`: both were `calls/2` with the variables renamed, and
 % a Datalog goal reads either direction by binding either argument.
 
-% name-taking variants, because a SymId is unwieldy to type by hand
-callers_by_name(C, N) :- calls(C, S), def(S, _, _, N).
-impact_by_name(C, N)  :- def(S, _, _, N), impact_of(S, C).
+% No `callers_by_name`/`impact_by_name` either: both were one join spelled as
+% a rule, and the schema budget is what pays for a rule's name. Write the join
+% -- `calls(C, S), def(S, _, _, "open")` -- and bind the name.
 
 % --- transitive closure, SEEDED ----------------------------------------
 % Always prefer these. The first argument is a seed the engine pushes into
@@ -858,14 +867,14 @@ ref_outside(S, F):- def(S, F, _, _), ref(S, G, _, _, _, _, _), G != F.
 
 entrypoint(S)    :- def(S, _, K, _), callable(K), !calls(_, S).
 
-% Two predicates, not one. The agent eval blamed the single form: three of its
-% four failures were agents reading `long_def(S, N)` as parameterised by N when
-% N was an output and 80 was baked in (docs/plan.md M4). `def_lines` states the
-% length with no threshold; `long_def` is the one opinionated form, so the wrong
-% query is unavailable rather than merely documented.
+% One predicate, stating a length with no threshold. The agent eval blamed the
+% other shape: three of its four failures were agents reading `long_def(S, N)`
+% as parameterised by N when N was an output and 80 was baked in (docs/plan.md
+% M4). `long_def(S)` -- the arity-1 form that replaced it -- was deleted at
+% schema 3 (#42): its own doc line said to use `def_lines`, and a threshold
+% nobody can change is copy in the one output with a size budget. Write
+% `def_lines(S, N), N > 80.`
 def_lines(S, N)  :- def_span(S, A, B, _, _), H = B - A, N = H + 1.
-
-long_def(S)      :- def_lines(S, N), N > 80.
 
 undocumented_export(S) :- exported(S), !def_doc(S, _).
 
@@ -966,11 +975,9 @@ nothing in the cookbook asks for one.
 % Methods on Store, with signatures, ordered by line.
 ?- parent(M, "local src/store.rs Store#"), def(M, _, "method", N), def_sig(M, Sig).
 
-% Functions over 80 lines with no doc comment.
-?- long_def(S), !def_doc(S, _), def(S, F, _, Name), at(S, F, L).
-
-% Same question with your own threshold, which is what `def_lines` is for.
-?- def_lines(S, N), N > 50, !def_doc(S, _), def(S, F, _, Name), at(S, F, L).
+% Functions over 80 lines with no doc comment. The threshold is yours: that is
+% what `def_lines` is for.
+?- def_lines(S, N), N > 80, !def_doc(S, _), def(S, F, _, Name), at(S, F, L).
 
 % Everything implementing a trait, and where.
 ?- implements(S, T, _), def(T, _, "trait", "Handler"), def(S, F, _, N), at(S, F, L).

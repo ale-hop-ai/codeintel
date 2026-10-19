@@ -125,31 +125,40 @@ A hard ceiling, checked in CI (see [docs/plan.md](../docs/plan.md) M4):
   Benchmarking is a test-only harness (`cargo bench`), **not** a sixth verb.
 - **Base relations: ≤ 16.** Currently 16 ([01-facts.md](01-facts.md)). The
   slot was spent on `name_export` (#22); the next relation deletes one.
-- **`codeintel schema` output: ≤ 10,000 characters, with the rule list
+- **`codeintel schema` output: ≤ 6,000 characters, with the rule list
   complete.** Every rule must appear in `schema` with its signature and a
   one-line doc, so the rule list pays for itself in the one currency that
   matters: whether an agent can read the whole vocabulary before it starts
   working. Flags do not cost a verb, but a flag needing a paragraph here spends
   this.
 
-  **This budget was 5,700 and did not bind.** It called itself "the only one
-  that is measured rather than declared", and the measurement was taken against
+  **Measured against a worst-case census, not against a fixture tree.** This
+  budget was 5,700 and did not bind. It called itself "the only one that is
+  measured rather than declared", and the measurement was taken against
   `tests/fixtures/rust` — twelve files of one language. `schema` embeds live
   per-kind and per-language counts, so its length scales with the index it
-  describes: the same binary renders 5,688 characters there and **5,788 on this
-  repository**, over a ceiling CI reported green on every commit. A number
-  measured only on the smallest possible input is declared, not measured, and
-  this one had been wearing the other word. The sixteenth relation,
-  `name_export` (#22), lands inside this headroom with room to spare — it does
-  not need a ceiling move of its own.
+  describes: the same binary rendered 5,688 characters there and 5,788 on this
+  repository, over a ceiling CI reported green on every commit (#42). A number
+  measured only on the smallest possible input is declared, not measured. The
+  10,000 that replaced it was honest about being headroom and bound nothing but
+  a runaway.
 
-  10,000 is therefore **headroom, not a budget**: it catches a change that
-  doubles this text and nothing subtler. Restoring a ceiling that binds means
-  measuring a realistic index and cutting copy until it fits — the copy is what
-  gives, because the rule list must stay complete — and that work is not done
-  here. Until it is, the statement in [05-surface.md](05-surface.md) § `schema`
-  is what binds a human reviewer, and the number below binds nothing but a
-  runaway.
+  `worst_case()` in `crates/codeintel/tests/surface.rs` is the fix: every base
+  relation, every `Kind`, every `Role` and every shipped language at seven-digit
+  counts — the three axes this output grows along — derived from
+  `facts::RELATIONS`, `KINDS`, `ROLES` and `LANGS` rather than listed, so a new
+  relation or a tenth language raises the measured worst case instead of
+  slipping past it. That census renders **5,490 characters**, and 6,000 is the
+  ceiling over it: a real index cannot exceed the worst case, so this binds
+  everywhere rather than on the smallest input.
+
+  Buying the room back cost three rules and the fixed-width padding (#42). The
+  44-wide argument column in RELATIONS existed for `def_span` alone and the
+  other fifteen rows paid for it; the 30-wide head column in RULES was the same
+  trade over forty rows. `callers_by_name`, `impact_by_name` and `long_def` were
+  each one join or one comparison an agent writes itself, and `long_def`'s own
+  doc line already said to use `def_lines`. Together: 6,443 characters on this
+  repository to 5,256.
 
   **There is deliberately no cap on the number of rules.** There was one — 24,
   then 40 — and it was wrong twice, in the same way both times. It shipped at 24

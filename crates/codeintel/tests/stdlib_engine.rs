@@ -476,7 +476,7 @@ fn the_standard_library_answers_over_hand_written_facts() {
     );
 
     // A span question, with arithmetic.
-    let (rows, _) = both_in(store_fixture, "?- long_def(S).");
+    let (rows, _) = both_in(store_fixture, "?- def_lines(S, N), N > 80.");
     assert!(rows.is_empty(), "no definition here is over 80 lines");
 }
 
