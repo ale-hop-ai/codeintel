@@ -348,16 +348,22 @@ to write correctly on the first try. See [specs/03-datalog.md](../specs/03-datal
 ## 5. Storage: own columnar segments
 
 **Decision: per-file fixed-width `u32` segments plus a global append-only string
-dictionary, `mmap`-ed on load.** Rejected SQLite (a C dependency, schema
+dictionary, read into memory on load.** Rejected SQLite (a C dependency, schema
 migrations, and a parse/load cost on a store that is 100% derived and trivially
 rebuildable) and in-memory-only (unusable for a CLI on a large repo).
 
 Why it is small: after interning, every fact is a fixed-width row of `u32`.
 There is nothing to serialize — the on-disk bytes *are* the in-memory
-representation. Loading is `mmap` + concatenate. Incremental reindex is "rewrite
-one file's segment". Corruption recovery is `rm -rf .codeintel && codeintel index`.
+representation. Loading is read + concatenate. Incremental reindex is "rewrite
+one file's segment". Corruption recovery is deleting the index directory and
+re-running `codeintel index`.
 
-`memmap2` 0.9.11 (2026-06-22) is the one dependency this requires.
+This requires no dependency at all. It originally took `memmap2`, dropped in
+#44 once the mapping was shown to buy nothing: `validate` scans every byte on
+open and `by_text` copies every string to the heap, so neither laziness nor
+page sharing survived to the first lookup, and segment data was read with
+`fs::read` throughout anyway. Removing it took the only `unsafe` block in
+`crates/facts` with it.
 
 ---
 
@@ -375,7 +381,6 @@ The whole binary, as specified:
 | 4 grammar crates (below) | grammars | no STACK entry |
 | `scip` | SCIP bindings and the descriptor parser | 0.10.0, 2026-09-03 — **deviation**, see below |
 | `protobuf` | required by `scip`, and by us directly | 3.7 — see below |
-| `memmap2` | segment loading | 0.9.11 — **deviation**, see below |
 | `blake3` | segments are named by a content hash (`04-storage.md`) | STACK default (`sha2`/`blake3`) |
 | `regex` | the `match`/`prefix`/`suffix`/`contains` builtins | STACK default; already transitive via `tree-sitter` |
 | `serde` + `serde_json` | JSON output, manifest | STACK default |
@@ -414,10 +419,14 @@ model backend.
   `regex`, but as a **host builtin injected by `crates/codeintel`** — the engine
   names an interface, not a crate. Hand-rolling a backtracker would buy no
   dependency reduction and would lose linear-time matching.
-- **`memmap2` has no STACK entry.** Trigger: after interning, a fact is a
-  fixed-width row of `u32`, so the on-disk bytes *are* the in-memory
-  representation (§5). Loading is `mmap` plus concatenate; a serialization
-  library would be a parse step over data that needs none.
+- **`memmap2` was taken, then removed (#44).** It was justified as the
+  mechanism behind "the on-disk bytes *are* the in-memory representation"
+  (§5) — but that claim is about the row encoding, not about mapping, and the
+  encoding is unchanged by reading the bytes instead. The mapping's own
+  advantages were forfeited before any lookup: `validate` scans the whole file
+  and `by_text` heap-copies every string. A dependency that turns out to buy
+  nothing measurable is removed rather than kept for the shape of the original
+  argument.
 - **`scip` deviates from STACK.md's `prost`.** Trigger: the protobuf here is
   not a schema we own, it is SCIP, and the `scip` crate is that schema's
   canonical Rust binding. It also carries `parse_symbol`, which is what makes

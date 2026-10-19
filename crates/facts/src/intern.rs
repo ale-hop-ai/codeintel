@@ -13,13 +13,12 @@
 //! ```
 
 use std::collections::HashMap;
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::{Error, Result, Write};
 use std::path::{Path, PathBuf};
 
 use datalog::atom::{Atom, STR_MIN};
 use datalog::symbols::Symbols;
-use memmap2::Mmap;
 
 /// File holding the concatenated UTF-8, with no separators.
 const BIN: &str = "dict.bin";
@@ -31,12 +30,20 @@ const BIN: &str = "dict.bin";
 /// 2.5M-string dictionary, and that is the whole cost.
 const IDX: &str = "dict.idx";
 
-/// A dictionary on disk, mapped for reading.
+/// A dictionary on disk, read into memory.
+///
+/// Read rather than mapped. The mapping bought nothing measurable: `validate`
+/// scans every byte before `open` returns, and `by_text` copies every string
+/// to the heap, so both of an mmap's advantages — paying only for what is
+/// touched, and sharing pages — were forfeited before the first lookup.
+/// `Store::load` already reads the larger and hotter segment data with
+/// `fs::read`; the dictionary was the small path, and the only thing holding
+/// an `unsafe` block and a dependency (#44).
 #[derive(Debug)]
 pub struct Dict {
-    bin: Mmap,
-    /// Bytes of `bin` a reader may trust. The mapping can run past this after
-    /// a torn append; nothing past it is ever read.
+    bin: Vec<u8>,
+    /// Bytes of `bin` a reader may trust. The file can run past this after a
+    /// torn append; nothing past it is ever read.
     bin_len: usize,
     /// Start offsets, `len() + 1` of them; entry `i` spans `starts[i]..starts[i + 1]`.
     starts: Vec<u64>,
@@ -89,8 +96,8 @@ impl Dict {
                 };
             }
         }
-        let bin = map(&bin_path)?;
-        let idx = map(&idx_path)?;
+        let bin = std::fs::read(&bin_path)?;
+        let idx = std::fs::read(&idx_path)?;
         let (bin_len, idx_len) = match extents {
             None => (bin.len(), idx.len()),
             Some((bin_len, idx_len)) => (
@@ -414,20 +421,6 @@ impl Symbols for Interner {
 /// The atom for the `i`th string, or `None` past the end of the atom space.
 fn atom_at(i: usize) -> Option<Atom> {
     u32::try_from(i).ok()?.checked_add(STR_MIN)
-}
-
-fn map(path: &Path) -> Result<Mmap> {
-    let file = File::open(path)?;
-    #[expect(
-        unsafe_code,
-        reason = "mmap is the storage design; see 04-storage.md § Loading"
-    )]
-    // SAFETY: the index directory is ours and is rebuilt rather than edited; the
-    // invariant is that no other process truncates these files while an index
-    // is open. `specs/04-storage.md` states the index is a cache, not a
-    // database, and `codeintel index --rebuild` is the supported repair.
-    let mapped = unsafe { Mmap::map(&file) }?;
-    Ok(mapped)
 }
 
 /// A recorded extent as a length into a file of `len` bytes. A file longer
