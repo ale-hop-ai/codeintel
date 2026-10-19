@@ -212,6 +212,133 @@ fn a_re_export_is_not_attributed_to_the_file_as_a_caller() {
     assert_eq!(rows, vec![String::new()], "{rows:?}");
 }
 
+/// `store_fixture`, plus the three shapes a `scip_ref` target can take at a
+/// position tier A can also answer (#56).
+///
+/// `put` calls `get` at `35:8`. Three more call sites of the same name are
+/// added at `36:8`, `37:8` and `38:8`, each covered by a `scip_ref` whose
+/// target is a different kind of symbol:
+///
+/// * `36:8` — a real definition in this index. Tier B resolved it.
+/// * `37:8` — a third-party package symbol with an `extern` row and no `def`,
+///   the `Map#get()` shape. Tier B resolved it; the target just lives
+///   elsewhere.
+/// * `38:8` — `local src/store.rs 1`, the opaque placeholder scip-typescript
+///   writes when it cannot bind a name. No `def`, no `extern`, nothing in the
+///   index describes it.
+fn dangling_fixture() -> Engine {
+    let mut e = store_fixture();
+    install(
+        &mut e,
+        "name_ref",
+        &[
+            &["get", "src/store.rs", "35", "8", "S#put()."],
+            &["get", "src/store.rs", "36", "8", "S#put()."],
+            &["get", "src/store.rs", "37", "8", "S#put()."],
+            &["get", "src/store.rs", "38", "8", "S#put()."],
+        ],
+    );
+    install(
+        &mut e,
+        "scip_ref",
+        &[
+            &["S#get().", "src/store.rs", "36", "8", "S#put().", "read"],
+            &[
+                "npm map Map#get().",
+                "src/store.rs",
+                "37",
+                "8",
+                "S#put().",
+                "read",
+            ],
+            &[
+                "local src/store.rs 1",
+                "src/store.rs",
+                "38",
+                "8",
+                "S#put().",
+                "read",
+            ],
+        ],
+    );
+    install(
+        &mut e,
+        "extern",
+        &[&["npm map Map#get().", "npm", "map", "1.0.0"]],
+    );
+    e.load_rules(codeintel::query::STDLIB)
+        .expect("stdlib loads");
+    e
+}
+
+/// A `scip_ref` whose target nothing in the index can describe is not a claim
+/// on the position, so tier A still answers there (#56).
+///
+/// Before this, the guard read `!scip_ref(_, F, L, C, _, _)` — *some* row at
+/// the position, whatever it pointed at. scip-typescript writes an opaque
+/// `local <file> <N>` placeholder wherever it cannot bind a name, so a
+/// perfectly ordinary cross-package call was claimed by a symbol with no
+/// definition anywhere, and `calls_at`'s `def(S, _, K, _)` then dropped it:
+/// the position resolved to **nothing** and the callee reported zero callers.
+/// 5.6% of `scip_ref` rows on the reporting corpus had this shape.
+#[test]
+fn a_dangling_scip_ref_does_not_suppress_the_name_tier() {
+    // The placeholder's own position. Tier A resolves `get` here, by name.
+    let (rows, _) = both_in(
+        dangling_fixture,
+        r#"?- ref(S, "src/store.rs", 38, 8, From, Role, Prov)."#,
+    );
+    assert_eq!(
+        rows,
+        vec!["\"S#get().\" \"S#put().\" \"read\" \"name\""],
+        "the placeholder blocked tier A and answered nothing itself: {rows:?}"
+    );
+
+    // ...and the `exact` rule drops it too, so the tiers still partition the
+    // position rather than both claiming it. One row, not two.
+    let (rows, _) = both_in(
+        dangling_fixture,
+        r#"?- ref(S, "src/store.rs", 38, 8, From, Role, "exact")."#,
+    );
+    assert!(
+        rows.is_empty(),
+        "an occurrence naming an undescribable symbol is not a resolution: {rows:?}"
+    );
+}
+
+/// The other half of the same guard: a target that *is* described still
+/// suppresses tier A, whether it is described here or in a package (#56).
+///
+/// Gating on `def` alone — the obvious reading of the issue — frees every
+/// reference into a dependency, because a third-party symbol has no `def`
+/// either. That is the worst place to free: `Map#get()` is exactly the
+/// `this.entries.get(key)` shape whose name guess the guard was introduced to
+/// kill, and on this project's own TypeScript fixture 14 of the 18 def-less
+/// `scip_ref` rows are that shape.
+#[test]
+fn a_resolved_scip_ref_still_suppresses_the_name_tier() {
+    for line in ["36", "37"] {
+        let (rows, _) = both_in(
+            dangling_fixture,
+            &format!(r#"?- ref(S, "src/store.rs", {line}, 8, From, Role, "name")."#),
+        );
+        assert!(
+            rows.is_empty(),
+            "tier A guessed at a position tier B had resolved, line {line}: {rows:?}"
+        );
+        let (rows, _) = both_in(
+            dangling_fixture,
+            &format!(r#"?- ref(S, "src/store.rs", {line}, 8, From, Role, "exact")."#),
+        );
+        assert_eq!(rows.len(), 1, "line {line} lost its exact row: {rows:?}");
+    }
+
+    // The net effect an agent sees: `get` has a caller again, and `put` is not
+    // an entrypoint-by-silence.
+    let (rows, _) = both_in(dangling_fixture, r#"?- calls(C, "S#get().")."#);
+    assert_eq!(rows, vec!["\"S#put().\""], "{rows:?}");
+}
+
 #[test]
 fn the_standard_library_answers_over_hand_written_facts() {
     // The location bridge: a file:line from a stack trace becomes a symbol.

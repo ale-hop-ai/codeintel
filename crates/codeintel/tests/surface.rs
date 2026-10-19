@@ -166,7 +166,13 @@ fn the_rule_list_matches_the_rules() {
             rule.1
         );
     }
-    assert_eq!(advertised.len(), 39, "the rule count moved: {advertised:?}");
+    // 39 -> 40: `scip_claim` (#56). The guard tier A negates had to become a
+    // rule the moment "tier B resolved this position" stopped meaning "a
+    // `scip_ref` row exists here" — a base-relation literal cannot express
+    // "...and its target is a symbol something describes". There is no
+    // count cap any more (`specs/00-overview.md` § Surface budget); the
+    // budget this spends against is the schema's size, asserted above.
+    assert_eq!(advertised.len(), 40, "the rule count moved: {advertised:?}");
 }
 
 #[test]
