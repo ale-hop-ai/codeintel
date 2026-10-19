@@ -832,8 +832,33 @@ hand-written golden fact file.
    re-parses as a definition of the same kind, and `src` at `def_name` equals
    `Name`. Catches off-by-one and encoding bugs, which are otherwise invisible
    until someone applies an edit.
-3. **Anchor coverage.** On a fixture with both tiers, assert ≥ 95% of tier-A
-   definitions get `resolved(S)`. A drop means the anchor join is drifting.
+3. **Anchor coverage.** On a fixture with both tiers, assert the **exact set**
+   of tier-A definitions that do *not* get `resolved(S)`, by `file:Name`. Any
+   other definition failing to anchor is the join drifting, and the assertion
+   names which.
+
+   **A set, not a rate, at this size.** `index` still computes and prints the
+   rate, and ≥ 95% remains the done-when for a language against a real tree
+   ([plan.md](../docs/plan.md) M5). Over a 26-to-63-definition fixture a rate
+   is arithmetic about the fixture: one miss is three to four points, so the
+   gate sat at zero headroom on all three fixtures at once and failed on the
+   next definition anyone added, whatever the join had done — and its failure
+   pointed at regenerating a committed SCIP index, making an installed indexer
+   a prerequisite for adding a fixture (#79). A named set is stable under
+   fixture growth and strictly stronger: a rate tolerates any drift it can
+   round away, where a set tolerates none. Measured: a one-line shift in
+   `tests/fixtures/go/store/store.go` takes the set from 1 member to 10, and
+   names all 10.
+
+   A member is admissible only when the definition cannot anchor for a reason
+   that is not the join's doing — the indexer declares no position encoding and
+   the line is not ASCII before the column (#21), or the committed index holds
+   no occurrence for the definition at all, whether because it has no document
+   for the file or because the definition was appended after it was built.
+   Anything else is a regression, and regenerating the index to make it pass
+   buries it. This is the exemption shape item 4 rejects for *defects*: these
+   are properties of the committed index, not entries on a list of things the
+   join should have managed and did not.
 
    **Modules are exempt, and the exemption is pinned by count.** Tier A places
    module `conn` at the `mod conn;` declaration in `src/db/mod.rs`;
