@@ -782,6 +782,9 @@ reach_of(Seed, C)  :- reach_of(Seed, B), calls(B, C).
 impact_of_exact(Seed, C) :- calls_exact(C, Seed).
 impact_of_exact(Seed, C) :- impact_of_exact(Seed, B), calls_exact(C, B).
 
+reach_of_exact(Seed, C) :- calls_exact(Seed, C).
+reach_of_exact(Seed, C) :- reach_of_exact(Seed, B), calls_exact(B, C).
+
 % --- transitive closure, UNSEEDED --------------------------------------
 % Whole-graph questions only. On a large repo these are O(n^2) and will hit
 % `max_derived_tuples`; that is the honest cost of asking about every pair.
@@ -789,6 +792,10 @@ impact_of_exact(Seed, C) :- impact_of_exact(Seed, B), calls_exact(C, B).
 reaches(A, B) :- calls(A, B).
 reaches(A, C) :- reaches(A, B), calls(B, C).
 recursive(S)  :- reaches(S, S).
+
+reaches_exact(A, B) :- calls_exact(A, B).
+reaches_exact(A, C) :- reaches_exact(A, B), calls_exact(B, C).
+recursive_exact(S)  :- reaches_exact(S, S).
 
 % --- location helpers --------------------------------------------------
 file_of(S, F)  :- def(S, F, _, _).

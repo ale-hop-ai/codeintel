@@ -239,6 +239,10 @@ reach_of(Seed, C) :- reach_of(Seed, B), calls(B, C).
 impact_of_exact(Seed, C) :- calls_exact(C, Seed).
 impact_of_exact(Seed, C) :- impact_of_exact(Seed, B), calls_exact(C, B).
 
+%% reach_of_exact(Seed, C)  reach_of, SCIP-resolved only. SEED THE 1st ARG.
+reach_of_exact(Seed, C) :- calls_exact(Seed, C).
+reach_of_exact(Seed, C) :- reach_of_exact(Seed, B), calls_exact(B, C).
+
 % === transitive closure, UNSEEDED ======================================
 % Whole-graph questions only. On a large repo these are O(n^2) and will hit
 % max_derived_tuples; that is the honest cost of asking about every pair.
@@ -248,6 +252,18 @@ reaches(A, B) :- calls(A, B).
 reaches(A, C) :- reaches(A, B), calls(B, C).
 %% recursive(S)  S is on a call cycle. UNSEEDED.
 recursive(S) :- reaches(S, S).
+
+% Name matching joins `A.run()` against every `B.run` in the repo, so a
+% transitive closure over `calls` closes cycles between unrelated classes and
+% `recursive` answers with whatever name is commonest — `__init__`, `run`,
+% `parse_args` (#53). The closure is where the damage compounds: one invented
+% edge is one wrong row in `calls`, but any invented edge anywhere on a path
+% invents the whole path. These are the forms that can be believed.
+%% reaches_exact(A, B)  reaches, SCIP-resolved only. UNSEEDED. Expensive.
+reaches_exact(A, B) :- calls_exact(A, B).
+reaches_exact(A, C) :- reaches_exact(A, B), calls_exact(B, C).
+%% recursive_exact(S)  recursive, SCIP-resolved only. UNSEEDED.
+recursive_exact(S) :- reaches_exact(S, S).
 
 % === location helpers ==================================================
 %% file_of(S, F)  the file S is defined in.

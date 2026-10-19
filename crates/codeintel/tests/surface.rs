@@ -166,19 +166,22 @@ fn the_rule_list_matches_the_rules() {
             rule.1
         );
     }
-    // 39 -> 41: `scip_claim` (#56) and `trait_sym` (#40). Each had to become a
-    // rule rather than a literal. `scip_claim` because "tier B resolved this
-    // position" stopped meaning "a `scip_ref` row exists here" and a
-    // base-relation literal cannot express "...and its target is a symbol
-    // something describes"; `trait_sym` because the trait side of an `impl`
-    // must resolve to a trait-like `Kind` and that is three clauses, not one.
+    // 39 -> 44, each a deliberate rule that says which one:
+    //   `scip_claim`    (#56) "tier B resolved this position" stopped meaning
+    //                   "a `scip_ref` row exists here", and a base-relation
+    //                   literal cannot express "...and its target is a symbol
+    //                   something describes".
+    //   `trait_sym`     (#40) the trait side of an `impl` must resolve to a
+    //                   trait-like `Kind`, and that is three clauses, not one.
+    //   `reaches_exact`, `recursive_exact`, `reach_of_exact` (#53) the three
+    //                   traversals over `calls` that shipped without the
+    //                   `_exact` sibling this file's own header promises.
     //
     // This is the DRIFT tripwire, not the budget: the rule-count cap was
     // dropped in favour of the byte ceiling asserted by
     // `the_schema_fits_its_size_budget_with_the_rule_list_complete`, and that
-    // ceiling has room. Moving this number is for a deliberate rule, and says
-    // which one.
-    assert_eq!(advertised.len(), 41, "the rule count moved: {advertised:?}");
+    // ceiling has room.
+    assert_eq!(advertised.len(), 44, "the rule count moved: {advertised:?}");
 }
 
 #[test]

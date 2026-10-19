@@ -434,6 +434,31 @@ fn impact_of_exact_drops_what_name_matching_invented() {
     );
 }
 
+#[test]
+fn reach_of_exact_drops_what_name_matching_invented() {
+    // The mirror of `impact_of_exact`, downward. Tier A has `get` calling
+    // itself; seeded on `get`, the tolerant rule walks that invented edge and
+    // the exact one has nothing to walk.
+    let tolerant = raw_rows_in(
+        named_only(),
+        r#"?- def(S, "src/store.rs", _, "get"), reach_of(S, C)."#,
+    );
+    assert!(
+        tolerant.iter().any(|r| r.ends_with("get().")),
+        "the invented self-edge should appear in the tolerant form: {tolerant:?}"
+    );
+    let exact = raw_rows(r#"?- def(S, "src/store.rs", _, "get"), reach_of_exact(S, C)."#);
+    assert!(
+        exact.iter().all(|r| !r.ends_with("get().")),
+        "the exact form must not carry the self-edge: {exact:?}"
+    );
+
+    // And it still answers: `start` calls `open`, SCIP-resolved.
+    let down = rows(r#"?- def(S, _, _, "start"), reach_of_exact(S, C)."#);
+    assert_eq!(down.len(), 1, "{down:?}");
+    assert!(down[0].contains("open src/db/conn.rs"), "{down:?}");
+}
+
 // ---------------------------------------------------------- unseeded traversal
 
 #[test]
@@ -452,6 +477,35 @@ fn reaches_and_recursive_are_the_unseeded_pair() {
     // With a SCIP index the contamination is gone and nothing in the fixture is
     // recursive — the rule unchanged, the input clean.
     assert!(rows("?- recursive(S).").is_empty());
+}
+
+/// #53: the closure over `calls` is where name matching compounds. One invented
+/// edge is one wrong row in `calls`; an invented edge anywhere on a path
+/// invents the whole path, and a cycle closed that way makes `recursive` report
+/// symbols that are not recursive. The `_exact` forms gate on SCIP evidence,
+/// exactly as `impact_of_exact` does for the other direction.
+#[test]
+fn the_exact_closure_refuses_the_cycle_name_matching_invented() {
+    // Tier A alone invents `get` calling itself and so calls `get` recursive
+    // (the assertion above). The exact rule, asked of the same contaminated
+    // tree, has no SCIP evidence to walk and says nothing rather than echoing
+    // it.
+    assert!(
+        rows_in(named_only(), "?- recursive_exact(S).").is_empty(),
+        "the exact form must not inherit tier A's invented cycle"
+    );
+    assert!(
+        rows_in(named_only(), "?- reaches_exact(A, A).").is_empty(),
+        "nor the self-edge the cycle is built from"
+    );
+
+    // And it is not empty by construction: `start` reaches `open`, resolved by
+    // SCIP, under both forms.
+    let reached = rows(r#"?- def(A, _, _, "start"), def(B, _, _, "open"), reaches_exact(A, B)."#);
+    assert!(!reached.is_empty(), "{reached:?}");
+
+    // Nothing in the SCIP-covered fixture is recursive either way.
+    assert!(rows("?- recursive_exact(S).").is_empty());
 }
 
 // --------------------------------------------------------------- location helpers
