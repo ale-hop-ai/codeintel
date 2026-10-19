@@ -74,20 +74,52 @@ impl_sym(F, N, S) :- name_impl(F, _, N, _),
 % To tighten resolution, edit the two `name` rules. To disable tier-A
 % resolution entirely, delete them: `ref` degrades to `exact` only.
 
-%% ref(S, F, L, C, From, Role, Prov)  resolved occurrence. Prov says which tier.
-ref(S, F, L, C, From, Role, "exact") :- scip_ref(S, F, L, C, From, Role).
+% A `scip_ref` row is an occurrence the indexer EMITTED, not necessarily one it
+% RESOLVED. scip-typescript writes an opaque per-document placeholder — `local
+% <file> <N>`, no name, no definition in any document — wherever it cannot bind
+% a name, which is its way of saying "something is here and I could not name
+% it". So the question both tiers ask is not "is there a row here" but "does
+% the row name a symbol anything knows about".
+%
+%% scip_claim(F, L, C)  tier B resolved the occurrence at this position.
+% Two clauses because an index knows a symbol two ways, and BOTH are claims: it
+% has a `def` here, or it names a third-party package and carries an `extern`
+% row. `def` alone un-suppresses tier A at every reference into a dependency,
+% which is the worst place for it: `Map#get()` has no `def`, and freeing that
+% position restores the `Store::get` self-edge the guard exists to kill (#56).
+%
+% Spelled out rather than factored through a `known_sym(S)` relation, which is
+% what this said first. A derived predicate shared between this rule and `ref`
+% keeps `scip_claim` wired into the demand graph even after the rewrite backs
+% it off, so `?- def(S, _, _, N), impact_of(S, C).` fell all the way back to
+% the plain program and computed all-pairs reachability. Over base relations
+% only, backing off leaves rules the rewrite can ignore — which is why
+% `local_def` and `ambiguous` are shaped this way too.
+scip_claim(F, L, C) :- scip_ref(S, F, L, C, _, _), def(S, _, _, _).
+scip_claim(F, L, C) :- scip_ref(S, F, L, C, _, _), extern(S, _, _, _).
 
-% Name matching is a FALLBACK, not a parallel claim: `!scip_ref` restricts it to
-% occurrences tier B never resolved, so the tiers partition the positions
+%% ref(S, F, L, C, From, Role, Prov)  resolved occurrence. Prov says which tier.
+% The same two clauses here, so the partition is a partition: an occurrence
+% whose target nothing can describe yields no row at either tier, instead of an
+% `exact` row naming a symbol that answers no question. Everything downstream
+% already joins through `def` or `extern`, so the dropped rows were inert, and
+% `scip_ref` keeps the unfiltered record of what the indexer emitted.
+ref(S, F, L, C, From, Role, "exact") :-
+    scip_ref(S, F, L, C, From, Role), def(S, _, _, _).
+ref(S, F, L, C, From, Role, "exact") :-
+    scip_ref(S, F, L, C, From, Role), extern(S, _, _, _).
+
+% Name matching is a FALLBACK, not a parallel claim: `!scip_claim` restricts it
+% to occurrences tier B never resolved, so the tiers partition the positions
 % instead of both claiming them (`specs/01-facts.md` § Tier precedence).
 % Vacuous without a SCIP index, so tier-A-only output is unchanged.
 % same file wins
 ref(S, F, L, C, From, "read", "name") :-
-    name_ref(N, F, L, C, From), !scip_ref(_, F, L, C, _, _), def(S, F, _, N).
+    name_ref(N, F, L, C, From), !scip_claim(F, L, C), def(S, F, _, N).
 
 % else a unique exported definition repo-wide
 ref(S, F, L, C, From, "read", "name") :-
-    name_ref(N, F, L, C, From), !scip_ref(_, F, L, C, _, _), !local_def(F, N),
+    name_ref(N, F, L, C, From), !scip_claim(F, L, C), !local_def(F, N),
     def(S, _, _, N), exported(S), !ambiguous(N).
 
 %% local_def(F, N)  the NAME N has a definition in file F. Not a symbol.

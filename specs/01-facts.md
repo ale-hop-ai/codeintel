@@ -524,16 +524,25 @@ exported would make `dead_export` demand documentation for unreachable code.
 % `ref` is DERIVED. Tier B contributes resolved occurrences directly; tier A
 % contributes names that these rules resolve against the whole-repo def set.
 
-ref(S, F, L, C, From, Role, "exact") :- scip_ref(S, F, L, C, From, Role).
+% An occurrence is a resolution only if its target is a symbol the index can
+% describe: it has a definition here, or it names a third-party package. See
+% § Tier precedence below.
+scip_claim(F, L, C) :- scip_ref(S, F, L, C, _, _), def(S, _, _, _).
+scip_claim(F, L, C) :- scip_ref(S, F, L, C, _, _), extern(S, _, _, _).
+
+ref(S, F, L, C, From, Role, "exact") :-
+    scip_ref(S, F, L, C, From, Role), def(S, _, _, _).
+ref(S, F, L, C, From, Role, "exact") :-
+    scip_ref(S, F, L, C, From, Role), extern(S, _, _, _).
 
 % Name matching is a FALLBACK, not a parallel claim: it fires only where tier B
 % never resolved this occurrence. See § Tier precedence below.
 % same file wins
 ref(S, F, L, C, From, "read", "name") :-
-    name_ref(N, F, L, C, From), !scip_ref(_, F, L, C, _, _), def(S, F, _, N).
+    name_ref(N, F, L, C, From), !scip_claim(F, L, C), def(S, F, _, N).
 % else a unique exported definition repo-wide
 ref(S, F, L, C, From, "read", "name") :-
-    name_ref(N, F, L, C, From), !scip_ref(_, F, L, C, _, _), !local_def(F, N),
+    name_ref(N, F, L, C, From), !scip_claim(F, L, C), !local_def(F, N),
     def(S, _, _, N), exported(S), !ambiguous(N).
 
 local_def(F, N) :- def(S, F, _, N).
@@ -556,8 +565,52 @@ ambiguous(N)    :- named(N), C = count{S : def(S, _, _, N)}, C > 1.
 ### Tier precedence
 
 **At an occurrence tier B resolved, tier A does not also guess.** Both `name`
-rules carry `!scip_ref(_, F, L, C, _, _)`, so the tiers partition the
-occurrences rather than both claiming them.
+rules carry `!scip_claim(F, L, C)`, so the tiers partition the occurrences
+rather than both claiming them.
+
+**Resolved means the target is a symbol something knows about.** The guard is
+`scip_claim`, not a bare `!scip_ref(_, F, L, C, _, _)`, because a `scip_ref`
+row is an occurrence SCIP *emitted*, not necessarily one it *resolved*. An
+indexer that cannot bind a name still has to write something down, and what
+scip-typescript writes is an opaque per-document placeholder — `local <file>
+<N>`, no `SymbolInformation`, no definition in any document. That is SCIP
+saying "something is here and I could not name it", and taking it as a claim
+on the position made the position resolve to **nothing**: the placeholder has
+no `def`, so `calls_at`, `depends`, `ref_outside` and `uses_package` all drop
+it, and tier A was forbidden from answering (#56). On a TypeScript monorepo
+36,608 of 649,687 `scip_ref` rows (5.6%) targeted such a symbol, and every one
+of them cost a position tier A could have resolved.
+
+**Two clauses, because an index knows a symbol two ways:** it has a `def` here,
+or it names a third-party package and carries an `extern` row. **Both are
+claims and both suppress tier A.** Gating on `def` alone — the obvious reading
+of #56 — un-suppresses tier A at every reference into a dependency, which is
+the single worst place for it: on this project's own TypeScript fixture 14 of
+the 18 def-less `scip_ref` rows are `Map#get()`, `String#toUpperCase()` and
+friends, and freeing `store.ts:26:24` (`this.entries.get(key)`) is exactly the
+`Store::get` self-edge the guard was introduced to kill. Only the 4 `local
+<file> <N>` placeholders are genuinely unresolved.
+
+The two clauses are spelled out rather than factored through a `known_sym(S)`
+relation, and that is a cost decision, not a style one. `!scip_claim` is a
+ground negation inside the cycle `ref` -> `calls_at` -> `calls` ->
+`impact_of`, so the demand rewrite backs it off exactly as it backs off
+`!ambiguous` (§ `specs/03-datalog.md`). Backing off means running the
+predicate's rules as written — which works only if those rules name base
+relations alone. A shared derived `known_sym` keeps a magic predicate alive in
+the backed-off program, the rewrite finds a negative cycle it can no longer
+break, and `?- def(S, _, _, N), impact_of(S, C).` falls all the way back to the
+plain program and computes all-pairs reachability. `local_def` and `ambiguous`
+are shaped this way for the same reason.
+
+`ref`'s `exact` rule carries the same two clauses, so the partition is a
+partition: an occurrence whose target nothing can describe
+produces no `ref` row at either tier, rather than an `exact` row naming a
+symbol that answers no question. Nothing downstream changes — `calls_at`,
+`depends`, `ref_outside`, `about` and `uses_package` already join through
+`def` or `extern`, so every row this drops was inert. The complete record of
+what the indexer emitted stays in `scip_ref`, which is a base relation and is
+unfiltered.
 
 Without the guard the two tiers made independent claims about the same byte
 position and `ref` was their union, so a name guess the compiler directly

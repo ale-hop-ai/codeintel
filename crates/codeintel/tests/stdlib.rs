@@ -205,6 +205,34 @@ fn ref_carries_both_provenances() {
     assert!(named.is_empty(), "tier A must not guess: {named:?}");
 }
 
+/// The guard tier A's fallback negates, and the one tier B's `exact` rule
+/// requires: a `scip_ref` whose target is a symbol this index can describe
+/// (#56).
+#[test]
+fn scip_claim_is_a_resolved_occurrence_not_merely_an_emitted_one() {
+    // `src/app.rs:9` is the `conn::open(...)` tier B resolved, so the position
+    // is claimed and tier A is held off it (`ref_carries_both_provenances`).
+    assert_eq!(rows(r#"?- scip_claim("src/app.rs", 9, _)."#).len(), 1);
+
+    // A position with no occurrence at all is not claimed, which is what makes
+    // the guard vacuous on a tier-A-only index.
+    assert!(rows(r#"?- scip_claim("src/app.rs", 1, 0)."#).is_empty());
+
+    // The property that matters: every claim names a symbol something knows
+    // about. A `scip_ref` row whose target has neither a `def` nor an `extern`
+    // is the indexer writing down "something is here and I could not name it",
+    // and before #56 it counted as a claim anyway — so the position resolved
+    // to nothing at either tier.
+    let dangling = rows(
+        r"?- scip_ref(S, F, L, C, _, _), scip_claim(F, L, C),
+              !def(S, _, _, _), !extern(S, _, _, _).",
+    );
+    assert!(
+        dangling.is_empty(),
+        "an undescribable target counted as a claim: {dangling:?}"
+    );
+}
+
 #[test]
 fn local_def_is_definition_within_one_file() {
     assert_eq!(rows(r#"?- local_def("src/db/conn.rs", "open")."#).len(), 1);
