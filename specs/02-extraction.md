@@ -671,14 +671,67 @@ SCIP does not say which function a reference sits inside. We compute it with
 **the same span sweep tier A uses for containment**:
 
 1. Collect every definition's span in the file. Tier A supplies it for files it
-   parsed. For files only tier B covers, use the definition occurrence's
-   `typed_enclosing_range` (SCIP's full-definition range).
+   parsed. SCIP's `typed_enclosing_range` (its full-definition range) supplies
+   it for every definition tier A has no span for — which is every definition
+   in a file only tier B covers, and the ones tier A's grammar missed in a file
+   it did parse.
 2. Sort by `(start, -end)`, sweep with a stack, and for each reference position
    take the innermost enclosing definition. No enclosing definition → `From = F`.
 
 Both tiers, one algorithm, one test suite. This is also why `calls` is a Datalog
 rule rather than an extractor output: the extractor emits *where a reference is*,
 and the rule decides what counts as a call.
+
+#### Which span, when both tiers have one
+
+**Tier A's span wins, per definition, keyed on symbol.** A SCIP enclosing range
+is collected only for a definition tier A did not anchor. A symbol the anchor
+join refused as a collision (§ The anchor join) contributes no span at all:
+nothing adopted it and no `def` row is emitted for it, so it is not a
+definition this index knows. The tier-A definition at that position keeps its
+own symbol and its own span, and that span is collected as usual.
+
+**The order is not a preference, it is a freshness argument.** Tier A parsed the
+bytes on disk, this run. A SCIP range is a claim about the bytes the indexer saw,
+which may be older — that is the whole content of `scip-stale`
+([05-surface.md](05-surface.md) § Status taxonomy), and the same ordering the
+project makes everywhere provenance is at stake. Preferring the older claim
+where a fresher one exists would put a reference inside a definition that has
+since moved, and report it as `exact`.
+
+**What this does not say.** It is a rule about *definitions*, not about regions.
+Two spans from the two models may overlap without either being a tier-A and
+SCIP view of the same symbol, and the sweep settles those the way it settles
+every other overlap: innermost wins, and two items with an identical span
+resolve by input order (`crates/extract/src/sweep.rs`). There is no tier column
+in the sweep and there should not be one.
+
+This paragraph was absent until #80, and its absence read as a prohibition.
+Step 1 named the two clean cases — tier A parsed the file, or it did not — and
+said nothing about a SCIP-only definition *inside* a parsed file, which the code
+has always used. The alternative reading was that such a definition should
+contribute no span: one span model per file, and the sweep never compares two
+rulers. It was rejected because it answers a span-*source* question with a
+*file*-granularity switch. A definition tier A missed is a hole in the owner
+map, and SCIP's range is the only thing that can fill it; discarding it in a
+parsed file also discards it where tier A has no competing span at all, and
+there is nothing to reconcile in that case.
+
+**The evidence for that choice is thin, and saying so is part of the spec.**
+It was measured on `tests/fixtures/typescript/` — one fixture, one indexer. There
+the only SCIP-only definition in a tier-A-parsed file that contributes an owner
+span is the document's own module symbol; every other SCIP definition carrying an
+enclosing range is tier-A anchored, and parameters and locals carry none. So the
+two readings differ there by exactly the symbol #75 removed from `calls`, and the
+rejected reading would have cost nothing measurable. That is not a general result.
+`scip-clang` and `scip-java` cover languages tier A does not parse at all.
+
+**The measurement that would settle it**, for whoever has a quiet host and the
+four indexers installed: per language, how many SCIP definitions in a
+tier-A-*parsed* file carry a `typed_enclosing_range` and have no tier-A span.
+Near zero everywhere and this is a paragraph about nothing, and step 1 can be
+tightened to the simpler rule. Substantial in any language, and the gap-fill is
+load-bearing and belongs in the done-when list for that language.
 
 ### Parent precedence
 
