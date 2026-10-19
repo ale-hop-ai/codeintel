@@ -519,7 +519,31 @@ pub fn kind_of(info: &SymbolInformation) -> &'static str {
     KIND_MAP
         .iter()
         .find_map(|(from, to)| (*from == name).then_some(*to))
-        .unwrap_or("unknown")
+        .unwrap_or_else(|| descriptor_kind(&info.symbol))
+}
+
+/// The kind a symbol string states about itself: `module` for a namespace
+/// descriptor, `unknown` for everything else.
+///
+/// Read, not guessed. The descriptor grammar is mandatory and `/` has exactly
+/// one meaning in it, which is the same argument that licenses
+/// [`descriptor_name`]. No other suffix is read: `.` is a field, a variable
+/// and a constant at once, and the suffix does not say which
+/// (`specs/02-extraction.md` § A namespace descriptor is a `module`).
+///
+/// This is the fallback for an indexer that writes no `kind` — `scip-typescript`
+/// 0.4.0 writes none at all — and for a definition occurrence with no
+/// `SymbolInformation` behind it. Without it a document's own module symbol is
+/// typed `unknown`, and `calls_at`'s refusal of a module caller cannot see the
+/// one definition it exists to exclude (#75).
+#[must_use]
+pub fn descriptor_kind(symbol: &str) -> &'static str {
+    let namespace = scip::symbol::parse_symbol(symbol).is_ok_and(|parsed| {
+        parsed.descriptors.last().is_some_and(|d| {
+            d.suffix.enum_value_or_default() == scip::types::descriptor::Suffix::Namespace
+        })
+    });
+    if namespace { "module" } else { "unknown" }
 }
 
 /// `display_name`, else the name of the symbol's final descriptor.
@@ -864,6 +888,31 @@ mod tests {
         // A kind we have no word for is `unknown`, not a guess.
         info.kind = Kind::Quasiquoter.into();
         assert_eq!(kind_of(&info), "unknown");
+        // ...unless the symbol states one. An indexer that writes no `kind`
+        // still writes the descriptor, and `/` has one meaning.
+        info.kind = Kind::UnspecifiedKind.into();
+        info.symbol = "scip-typescript npm p 1.0 `kinds.ts`/".to_string();
+        assert_eq!(kind_of(&info), "module");
+    }
+
+    #[test]
+    fn a_namespace_descriptor_is_a_module_and_no_other_suffix_is_read() {
+        let p = "scip-typescript npm p 1.0 ";
+        assert_eq!(descriptor_kind(&format!("{p}`kinds.ts`/")), "module");
+        assert_eq!(descriptor_kind(&format!("{p}`kinds.ts`/Limits/")), "module");
+        // `.` is a field, a variable and a constant at once, and `#`, `()`
+        // and the rest are already covered by `SymbolInformation.kind` where
+        // an indexer writes one. Reading them here would be a guess.
+        for symbol in [
+            format!("{p}`kinds.ts`/retries."),
+            format!("{p}`kinds.ts`/outer()."),
+            format!("{p}`kinds.ts`/Config#"),
+            format!("{p}`kinds.ts`/parse().(input)"),
+            "local src/a.rs 4".to_string(),
+            "nonsense".to_string(),
+        ] {
+            assert_eq!(descriptor_kind(&symbol), "unknown", "{symbol}");
+        }
     }
 
     #[test]

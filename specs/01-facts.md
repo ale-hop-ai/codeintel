@@ -779,10 +779,15 @@ callable("function"). callable("method"). callable("constructor"). callable("mac
 % --- calls: a reference to a callable, attributed to its enclosing def --
 calls_at(From, S, F, L, Prov) :-
     ref(S, F, L, _, From, Role, Prov), Role != "def",
-    def(From, _, _, _),
+    def(From, _, FromKind, _), FromKind != "module",
     def(S, _, K, _), callable(K).
 calls(From, S) :- calls_at(From, S, _, _, _).
 calls_exact(From, S) :- calls_at(From, S, _, _, "exact").
+
+% A module is not a caller. `From` is the innermost definition enclosing the
+% reference, and for a module-scope reference that is the document's own module
+% symbol -- which is the file, spelled as a symbol. The file was already not a
+% caller; the module reached `calls` only because it is also a `def` (#75).
 
 % No `callers`/`callees`: both were `calls/2` with the variables renamed, and
 % a Datalog goal reads either direction by binding either argument.

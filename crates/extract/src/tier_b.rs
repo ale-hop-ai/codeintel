@@ -155,9 +155,12 @@ pub fn emit(
         counts.resolved += 1;
         push(seg, "resolved", &[resolved]);
         let info = ingest.symbols.get(&def.symbol);
-        let kind = info.map_or("unknown", |i| i.kind);
         // No `SymbolInformation` at all is still a symbol string with a
-        // descriptor in it (`specs/02-extraction.md` § Ingest).
+        // descriptor in it (`specs/02-extraction.md` § Ingest). The kind is
+        // read from it only for a namespace suffix, which has one meaning;
+        // the name is read from it always (§ A namespace descriptor is a
+        // `module`).
+        let kind = info.map_or_else(|| crate::scip::descriptor_kind(&def.symbol), |i| i.kind);
         let name = info.map_or_else(
             || crate::scip::descriptor_name(&def.symbol),
             |i| i.name.clone(),

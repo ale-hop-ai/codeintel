@@ -480,7 +480,7 @@ From `scip.proto` (field names verbatim):
 | `Document.relative_path`, `.language` | `file(F, Lang)` — `Lang` lowercased from the `Language` enum |
 | `Occurrence` with `symbol_roles & Definition` | a definition site; `symbol` → `SymId` |
 | `SymbolInformation.kind` | `Kind`, via the mapping table below |
-| `SymbolInformation.display_name`, else the name of the symbol's final descriptor | `Name`. `scip-python` writes no `display_name` for a parameter, an attribute or a module; the descriptor grammar is mandatory and the name is written in it, so reading it is not a guess. A definition occurrence with no `SymbolInformation` at all is named the same way, from its own symbol string; it is never `""` (#47). The kind is not read the same way: a `.` descriptor is a field, a variable or a constant, and the suffix does not say which |
+| `SymbolInformation.display_name`, else the name of the symbol's final descriptor | `Name`. `scip-python` writes no `display_name` for a parameter, an attribute or a module; the descriptor grammar is mandatory and the name is written in it, so reading it is not a guess. A definition occurrence with no `SymbolInformation` at all is named the same way, from its own symbol string; it is never `""` (#47). The kind is read from the descriptor only for the **namespace** suffix, `/`, which the grammar gives exactly one meaning — see § A namespace descriptor is a `module`. No other suffix is read, and `.` is why: it is a field, a variable or a constant, and the suffix does not say which |
 | symbol-string descriptor prefix, else `SymbolInformation.enclosing_symbol` | `parent(S, Owner)` — replaces tier A's row, see § Parent precedence |
 | `SymbolInformation.documentation[]` | `def_doc` (if tier A did not supply one), **minus every element that is wholly one fenced code block** — see § Hover blocks are not doc comments |
 | `SymbolInformation.signature_documentation.text` | `def_sig` (if tier A did not supply one) |
@@ -521,6 +521,25 @@ made a Rust `union` and a Rust `enum` produce identical rows — a smaller versi
 of the upstream `tags.scm` defect that `docs/plan.md` M2's kind-fidelity test
 exists to catch, and the same class of extractor guess invariant 1 forbids. Both
 tiers map it the same way so the anchor join never has to reconcile a kind.
+
+### A namespace descriptor is a `module`
+
+`SymbolInformation.kind` is the first source for `Kind`, and when it is
+unspecified — `scip-typescript` 0.4.0 writes no `kind` at all — the fallback is
+`unknown`, not a guess. One suffix is the exception: a symbol whose **final
+descriptor is a namespace**, written `/`, is a `module`.
+
+This is the same argument that licenses reading `Name` from the descriptor. The
+descriptor grammar is mandatory, every indexer writes it, and `/` has one
+meaning in it. The carve-out above — "the suffix does not say which" — is about
+`.`, which covers a field, a variable and a constant at once. It was never an
+argument against `/`, and treating it as one left every document's own module
+symbol wearing `unknown`.
+
+That mattered because of what reads `Kind`. `calls_at` refuses a caller whose
+kind is `module` ([01-facts.md](01-facts.md) § Derived relations), and with the
+document symbol typed `unknown` the refusal could not see the one definition it
+exists to exclude (#75).
 
 ### Hover blocks are not doc comments
 
