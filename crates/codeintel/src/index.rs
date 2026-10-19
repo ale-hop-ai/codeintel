@@ -242,32 +242,51 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
             .collect();
     }
 
-    // Only a run that re-extracted everything the fingerprint covers may
-    // record it. A `--lang` run or one a deadline stopped leaves files built
-    // by the old extractor; writing the new fingerprint over them would make
-    // the next full run trust them (specs/04-storage.md § Manifest).
-    if plan.langs.is_empty() && report.stale.is_empty() {
+    record(store, plan, scip, fingerprint, started_at, &before, &report)?;
+    report.elapsed_ms = started.elapsed().as_millis();
+    Ok(report)
+}
+
+/// Write what this run learned onto the manifest, and commit if it moved.
+///
+/// # Errors
+/// I/O failure writing the dictionary or the manifest.
+fn record(
+    store: &mut Store,
+    plan: &Plan,
+    scip: ScipPlan,
+    fingerprint: String,
+    started_at: u64,
+    before: &facts::Manifest,
+    report: &Report,
+) -> Result<()> {
+    // One rule, asked twice before and now named once: did this run
+    // re-extract everything the fingerprint and the timestamp are claims
+    // about? A `--lang` run, or one a deadline stopped, leaves files built by
+    // the old extractor — and writing either stamp over them would make the
+    // next full run trust them (`specs/04-storage.md` § Manifest).
+    let complete = plan.langs.is_empty() && report.stale.is_empty();
+    if complete {
         store.manifest_mut().extractor_fingerprint = fingerprint;
     }
     store.manifest_mut().scip = scip.inputs;
     store.manifest_mut().scip_collisions = scip.scip_collisions;
     store.manifest_mut().scip_matched = report.scip_matched;
     // A refresh that changed nothing writes nothing. `query` refreshes before
-    // every answer, and committing the same manifest again is an fsync per read.
-    // Every write this run made lands in the manifest, so equality is the whole
-    // test. A store with no index yet commits regardless, so indexing an empty
-    // tree still leaves an index (`specs/04-storage.md` § Incremental reindex).
-    if !store.has_index() || *store.manifest() != before {
-        // Only a run that looked at every file may say when it looked, like the
-        // fingerprint above; and only one committing anyway, so a read that
-        // changed nothing still writes nothing (specs/04-storage.md § Manifest).
-        if plan.langs.is_empty() && report.stale.is_empty() {
+    // every answer, and committing the same manifest again is an fsync per
+    // read. Every write this run made lands in the manifest, so equality is
+    // the whole test. A store with no index yet commits regardless, so
+    // indexing an empty tree still leaves an index
+    // (`specs/04-storage.md` § Incremental reindex).
+    if !store.has_index() || *store.manifest() != *before {
+        // Inside the commit test, not before it: a read that changed nothing
+        // must not start writing a new timestamp.
+        if complete {
             store.manifest_mut().indexed_at = started_at;
         }
         store.commit().context("committing the index")?;
     }
-    report.elapsed_ms = started.elapsed().as_millis();
-    Ok(report)
+    Ok(())
 }
 
 /// Throw the index away, keeping only the dictionary generation counter.
