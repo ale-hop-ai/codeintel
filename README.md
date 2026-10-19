@@ -225,20 +225,18 @@ are import-complete, which is all conformance needs.
 M0–M5 shipped: the Datalog engine, the fact store, the tree-sitter tier, the
 SCIP tier and the anchor join, all five verbs and the MCP tool. **Rust, Go,
 Python and TypeScript** (with TSX) index today, each with a committed fixture
-index. Anchor rates on those fixtures, as `codeintel index` reports them:
+index. Anchor rates on those fixtures — of the definitions tree-sitter found,
+how many adopted a SCIP identity. `index` and `status` print this same line:
 
 | fixture | anchored | what the misses are |
 |---|---:|---|
 | Rust | 36/45 (80.0%) | all 9 are its modules, which are exempt ([02-extraction.md](specs/02-extraction.md) § Validation 3) |
 | Go | 25/26 (96.2%) | `Drain`, appended after `index.scip` was built so no earlier position would move |
-| Python | 29/30 (96.7%) | `AFTER_WIDE`, an occurrence whose column #21 refuses to guess |
-| TypeScript | 60/63 (95.2%) | the same `AFTER_WIDE` case, plus `clamp` and `listen` in `sig.ts`, a file the committed `index.scip` predates |
+| Python | 32/33 (97.0%) | `AFTER_WIDE`, an occurrence whose column #21 refuses to guess |
+| TypeScript | 58/61 (95.1%) | the same `AFTER_WIDE` case, plus `clamp` and `listen` in `sig.ts`, a file the committed `index.scip` predates |
 
 Each miss is a fixture that grew after its indexer last ran, or the one column
-question #21 names — not a join that drifted. `codeintel status` reports an
-anchor rate too, over a different denominator: it counts `resolved` rows against
-*all* `def` rows, tier-B-only definitions included, so its percentage is the
-higher one.
+question #21 names — not a join that drifted.
 
 Not built yet: M6's performance work, beyond the bench harness and counter
 goldens that were pulled forward.

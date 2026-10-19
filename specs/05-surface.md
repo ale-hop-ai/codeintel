@@ -152,6 +152,21 @@ This is invariant 5 at the only place it can be caught. "SCIP present, nothing
 matched" and "no SCIP at all" are different repairs, and a silent `anchored:
 0/2523 defs (0.0%)` names neither (#60).
 
+**The anchor rate counts tier-A definitions, and says so in the line.** It is
+`anchored: N/M tier-A defs (P%)`: of the definitions tree-sitter found, how
+many adopted a SCIP identity — the figure
+[02-extraction.md](02-extraction.md) § Validation 3 sets a floor under, and the
+one that goes to zero when document paths do not match. The denominator is
+**not** `def` rows: those include the definitions only SCIP knows, each of
+which carries `resolved` by construction, so dividing by them measures how much
+of the store came from SCIP rather than how well the join worked. Both counts
+are per distinct symbol, not per declaration, so an overload set or a
+getter/setter pair counts once on each side, matching the single `def` row it
+produces (§ One symbol, several declarations in
+[01-facts.md](01-facts.md)). `status` prints the same line for the same store,
+which it did not before: it divided `resolved` rows by `def` rows and read
+several points high under the same label (#77).
+
 **There is no `ignored` count.** For the *walk*: the `ignore` crate does not
 report the entries its matchers drop, so the number costs a second full
 traversal with the matchers off — which on a repo with a populated `target/` is
@@ -633,7 +648,11 @@ staleness/ambiguous columns, anchor rate, unsupported languages, fact counts per
 SCIP coverage is reported the same way `index` reports it: documents matched
 against indexed files, with the zero-match line and its `--scip-root`
 suggestion, because the state a bug report has to carry is the one `index`
-printed an hour ago and nobody kept.
+printed an hour ago and nobody kept. The anchor rate is the same line too,
+counted the same way (§ `index`). The figures still differ in *scope* — every
+count `index` prints is the run it just did, every count `status` prints is the
+whole store — so after an incremental reindex the two describe different sets
+of files. They never describe the same set two ways.
 
 The verdict uses the checks `query` uses, in this order: `no-index` when there
 is nothing here; `stale` when the index was written for another

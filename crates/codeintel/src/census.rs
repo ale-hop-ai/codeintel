@@ -63,6 +63,17 @@ pub struct Census {
     /// not in it. Filling this costs one walk, which is why it happens in
     /// `status` and not on every query.
     pub unsupported: BTreeMap<String, usize>,
+    /// Definitions tree-sitter found: distinct symbols carrying a `def_name`.
+    ///
+    /// The denominator of the anchor rate. **Not** `def` rows: those include
+    /// the definitions only SCIP knows, which carry a `resolved` row by
+    /// construction and would inflate both sides of the ratio. Distinct
+    /// symbols and not `def_name` rows, because one symbol declared twice in a
+    /// file — a TypeScript overload set, a getter/setter pair — has a row per
+    /// declaration (`specs/01-facts.md` § One symbol, several declarations).
+    pub tier_a_defs: usize,
+    /// Of those, the ones that adopted a SCIP identity. The numerator.
+    pub anchored: usize,
 }
 
 impl Census {
@@ -131,6 +142,22 @@ impl Census {
                 }
             }
         }
+        // The anchor rate's two counts. Symbols rather than rows on both
+        // sides: `def_name` carries one row per declaration, so an overload
+        // set would otherwise count several times.
+        let symbols = |name: &str| -> BTreeSet<Atom> {
+            relations
+                .get(name)
+                .into_iter()
+                .flat_map(Relation::iter)
+                .filter_map(|row| row.first().copied())
+                .collect()
+        };
+        let tier_a = symbols("def_name");
+        let resolved = symbols("resolved");
+        census.anchored = tier_a.intersection(&resolved).count();
+        census.tier_a_defs = tier_a.len();
+
         // scip_ref(S, F, Line, Col, From, Role)
         if let Some(refs) = relations.get("scip_ref") {
             for row in refs.iter() {
@@ -178,19 +205,25 @@ impl Census {
         self.langs.values().map(|c| c.files).sum()
     }
 
-    /// Share of definitions the anchor join reached, as a percentage, or
-    /// `None` when there are no definitions to divide by.
+    /// Share of the tree-sitter tier's definitions the anchor join reached, as
+    /// a percentage, or `None` when there are none to divide by.
+    ///
+    /// The same measure `index` prints, over the whole store rather than over
+    /// one run. It used to be `resolved` rows over `def` rows, which is a
+    /// different statistic wearing the same name: `def` counts the tier-B-only
+    /// definitions too, each of which is `resolved` by construction, so the
+    /// figure ran several points above the join quality everything else means
+    /// by "anchor rate" (`specs/02-extraction.md` § Validation 3, #77).
     #[must_use]
     pub fn anchor_rate(&self) -> Option<f64> {
-        let defs = self.rows("def");
-        if defs == 0 {
+        if self.tier_a_defs == 0 {
             return None;
         }
         #[expect(
             clippy::cast_precision_loss,
             reason = "a percentage printed to one decimal"
         )]
-        let rate = self.rows("resolved") as f64 * 100.0 / defs as f64;
+        let rate = self.anchored as f64 * 100.0 / self.tier_a_defs as f64;
         Some(rate)
     }
 }
@@ -385,9 +418,8 @@ impl fmt::Display for Report<'_> {
             if let Some(rate) = census.anchor_rate() {
                 writeln!(
                     f,
-                    "anchored: {}/{} defs ({rate:.1}%)",
-                    census.rows("resolved"),
-                    census.rows("def")
+                    "anchored: {}/{} tier-A defs ({rate:.1}%)",
+                    census.anchored, census.tier_a_defs
                 )?;
             }
             let collisions = manifest.scip_collisions;
@@ -491,6 +523,8 @@ impl Report<'_> {
         })).collect::<Vec<_>>(),
         "scip_collisions": manifest.scip_collisions,
         "anchor_rate": census.anchor_rate(),
+        "anchored": census.anchored,
+        "tier_a_defs": census.tier_a_defs,
         })
     }
 }

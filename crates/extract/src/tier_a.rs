@@ -221,7 +221,14 @@ impl Extractor {
         let items = inherit_visibility(items, &parents, self.lang);
         let mut symbols = symbols_of(path, &items, &parents);
         let synthesized = symbols.clone();
-        let mut anchored = 0;
+        // Distinct symbols, not declarations: a symbol declared twice in one
+        // file — a TypeScript overload set, a getter/setter pair — is one
+        // definition in `def` (`specs/01-facts.md` § One symbol, several
+        // declarations), so counting it twice here put the anchor rate's two
+        // sides above the store's own count of them (#77). Keyed on the SCIP
+        // symbol, because two declarations that anchor to *different* symbols
+        // really are two definitions once anchored.
+        let mut anchored_syms: BTreeSet<&str> = BTreeSet::new();
         // What each anchored definition was called before it took its SCIP
         // identity. `symbols_of` gives a Rust `impl` block the same symbol as
         // the type it implements, and only the *type* carries a name token for
@@ -242,8 +249,8 @@ impl Extractor {
                 && let Some(slot) = symbols.get_mut(i)
                 && slot.is_some()
             {
+                anchored_syms.insert(anchor.symbol.as_str());
                 *slot = Some(anchor.symbol.clone());
-                anchored += 1;
             }
         }
         for (i, before) in synthesized.iter().enumerate() {
@@ -303,6 +310,7 @@ impl Extractor {
             .filter_map(|(i, _)| symbols.get(i)?.as_deref())
             .collect();
 
+        let mut def_syms: BTreeSet<&str> = BTreeSet::new();
         for (i, item) in items.iter().enumerate() {
             if !item.is_def {
                 continue;
@@ -313,7 +321,11 @@ impl Extractor {
             let s = atom(interner, sym)?;
             let anchor = anchors.at(item.name_at.0, item.name_at.1);
             defs.push((item.node, sym.clone()));
-            counts.defs += 1;
+            // One per symbol, matching the `def` rows this emits rather than
+            // the declarations it walks. See `anchored_syms` above (#77).
+            if def_syms.insert(sym.as_str()) {
+                counts.defs += 1;
+            }
             push(
                 &mut seg,
                 "def",
@@ -438,7 +450,7 @@ impl Extractor {
             segment: seg,
             counts,
             defs,
-            anchored,
+            anchored: anchored_syms.len(),
         })
     }
 

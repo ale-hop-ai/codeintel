@@ -574,7 +574,7 @@ fn report_scip(report: &index::Report) {
     report_scip_coverage(report);
     if let Some(rate) = report.anchor_rate() {
         eprintln!(
-            "  anchored: {}/{} defs ({rate:.1}%)",
+            "  anchored: {}/{} tier-A defs ({rate:.1}%)",
             report.anchored, report.counts.defs
         );
     }
