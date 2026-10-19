@@ -160,9 +160,9 @@ impl Census {
         if !self.indexed {
             return self;
         }
-        let (found, skips) = extract::walk::walk(root);
-        self.unsupported = skips.unsupported;
-        self.changed = changed_files(root, manifest, &found);
+        let walked = extract::walk::walk(root);
+        self.unsupported = walked.skips.unsupported;
+        self.changed = changed_files(root, manifest, &walked.files);
         self
     }
 
@@ -208,6 +208,11 @@ pub struct Report<'a> {
     pub manifest: &'a Manifest,
     /// Where it lives (`specs/04-storage.md` § Location).
     pub index_dir: &'a std::path::Path,
+    /// The store directory the caller named, if they named one. Discovery is
+    /// off when they did: every candidate root resolves to that one directory,
+    /// so the probe would answer "yes" for all of them
+    /// (`specs/04-storage.md` § Discovery).
+    pub pinned: Option<&'a std::path::Path>,
 }
 
 impl Report<'_> {
@@ -250,7 +255,17 @@ impl Report<'_> {
             .map_or_else(|| ".".to_string(), Clone::clone);
         match self.status() {
             Status::Ok => None,
-            Status::NoIndex => Some(format!("run: codeintel index {root}")),
+            // `status` reports on the directory it was given and never
+            // adopts another, but it does say what is nearby — the reader is
+            // then one copy-paste from the right command either way
+            // (`specs/05-surface.md` § The nearest index).
+            Status::NoIndex => {
+                let here = std::path::Path::new(&root);
+                Some(crate::discover::no_index_hint(
+                    here,
+                    &crate::discover::around(here, self.pinned),
+                ))
+            }
             Status::Stale => Some(
                 crate::query::stale_schema(self.manifest, std::path::Path::new(&root))
                     .unwrap_or_else(|| {
@@ -349,6 +364,23 @@ impl fmt::Display for Report<'_> {
                     },
                     input.documents
                 )?;
+            }
+            // What `index` printed, kept where a bug report can find it: the
+            // run that said it was an hour ago and nobody saved the output
+            // (`specs/05-surface.md` § `status`).
+            if let Some(matched) = manifest.scip_matched {
+                let documents: u64 = manifest.scip.iter().map(|i| i.documents).sum();
+                writeln!(
+                    f,
+                    "scip coverage: {matched} of {documents} document(s) matched an indexed file"
+                )?;
+                if matched == 0 && documents > 0 {
+                    writeln!(
+                        f,
+                        "      none of it landed: the index's paths are relative to some other \
+                         directory. re-run `codeintel index` for the --scip-root to pass"
+                    )?;
+                }
             }
             if let Some(rate) = census.anchor_rate() {
                 writeln!(

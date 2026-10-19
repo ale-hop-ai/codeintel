@@ -496,15 +496,21 @@ fn index_reports_what_it_ingested_and_how_well_it_joined() {
 
 #[test]
 fn removing_the_scip_index_drops_the_files_only_it_covered() {
-    // A file the walk never reaches — gitignored here, an unsupported language
-    // in the field — has a segment made of SCIP facts and nothing else. When
-    // `index.scip` goes, so must it: the alternative is `no-scip` beside rows
-    // still marked `exact`.
+    // A file tier A will not parse — over the size cap here, an unsupported
+    // language in the field — has a segment made of SCIP facts and nothing
+    // else. When `index.scip` goes, so must it: the alternative is `no-scip`
+    // beside rows still marked `exact`.
+    //
+    // Over the cap, not gitignored: an ignored path is outside the tree for
+    // *both* tiers (`specs/02-extraction.md` § Budget), so it has no segment
+    // to drop. Padding is appended, so every SCIP position still lands on the
+    // byte it named.
     let dir = tree();
-    let ignore = dir.path().join(".gitignore");
-    let mut rules = std::fs::read_to_string(&ignore).unwrap_or_default();
-    rules.push_str("\nsrc/app.rs\n");
-    std::fs::write(&ignore, rules).expect("writes");
+    let app = dir.path().join("src/app.rs");
+    let mut src = std::fs::read_to_string(&app).expect("reads");
+    src.push_str(&"\n".repeat(usize::try_from(extract::walk::MAX_BYTES).unwrap_or(0) + 1));
+    std::fs::write(&app, src).expect("writes");
+    set_mtime(&app, SOURCE_MTIME);
     index(dir.path());
     assert!(
         !rows(
@@ -801,4 +807,169 @@ fn anchoring_does_not_shrink_exported() {
         orphans.is_empty(),
         "a trait-impl method's parent is its type, not the file: {orphans:?}"
     );
+}
+
+/// #54: `.gitignore` bounds the whole index, not just tier A.
+///
+/// `scip-typescript` indexes a monorepo's generated `packages/*/build/**.d.ts`
+/// even though `.gitignore` excludes them, and tier B used to ingest every
+/// document that merely existed on disk — so each generated declaration came
+/// back as a second `def` for an export already indexed from its source. The
+/// walk is the only statement about which paths belong to the tree; tier B is
+/// held to it, and says which documents it refused.
+#[test]
+fn a_gitignored_path_is_not_re_admitted_through_tier_b() {
+    let dir = tree();
+    index(dir.path());
+    assert!(
+        !rows(dir.path(), r#"?- file("src/app.rs", L)."#).is_empty(),
+        "the fixture indexes src/app.rs before it is ignored"
+    );
+
+    // A wildcard directory segment, exactly as `packages/*/build` is one.
+    let ignore = dir.path().join(".gitignore");
+    let mut rules = std::fs::read_to_string(&ignore).unwrap_or_default();
+    rules.push_str("\n*/app.rs\n");
+    std::fs::write(&ignore, rules).expect("writes");
+    // `--rebuild`: the refusal is reported by the run that reads the SCIP
+    // index, and an incremental run over an unchanged `index.scip` does not
+    // read one. Both runs must drop the file; only this one can name why.
+    let out = run(dir.path(), &["index", ".", "--rebuild"]);
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "{stderr}");
+
+    assert!(
+        rows(dir.path(), r#"?- file("src/app.rs", L)."#).is_empty(),
+        "an ignored path produces zero facts, not even a file row"
+    );
+    assert!(rows(dir.path(), r#"?- def(S, "src/app.rs", K, N)."#).is_empty());
+    assert!(
+        rows(dir.path(), r#"?- scip_ref(S, "src/app.rs", L, C, X, R)."#).is_empty(),
+        "tier B emits nothing for a path outside the tree"
+    );
+    assert!(
+        stderr.contains("src/app.rs: ignored"),
+        "the refusal is named, never silent: {stderr}"
+    );
+}
+
+/// The fixture moved into `<root>/<where>/`, with `index.scip` left at the top
+/// and its document paths therefore relative to the subdirectory — exactly
+/// what `rust-analyzer scip .` run from a crate in a monorepo produces (#60).
+fn subtree(wheres: &[&str]) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("tempdir");
+    for sub in wheres {
+        let into = dir.path().join(sub);
+        copy(&fixture(), &into);
+        drop(std::fs::remove_file(into.join("expected.facts")));
+        std::fs::remove_file(into.join("index.scip")).expect("the index moves to the top");
+    }
+    std::fs::copy(fixture().join("index.scip"), dir.path().join("index.scip")).expect("copy");
+    backdate(dir.path(), SOURCE_MTIME);
+    set_mtime(&dir.path().join("index.scip"), SOURCE_MTIME + 60);
+    dir
+}
+
+/// Invariant 5. The silent half of #60: every document missed every file, the
+/// summary said `anchored: 0/2523 defs (0.0%)`, and nothing said why.
+#[test]
+fn a_scip_index_that_matches_nothing_says_so_and_names_the_root() {
+    let dir = subtree(&["daemon"]);
+    let stderr = index(dir.path());
+
+    assert!(
+        stderr.contains("0 of") && stderr.contains("document(s) matched an indexed file"),
+        "the zero-match line is missing: {stderr}"
+    );
+    assert!(
+        stderr.contains("--scip-root daemon"),
+        "the suggestion is missing or wrong: {stderr}"
+    );
+
+    // And a query over a SCIP-only relation must not answer `ok` with zero
+    // rows: the relations are as empty as they are with no index at all.
+    let (rows, status) = query(dir.path(), "?- scip_ref(S, F, L, C, From, R).");
+    assert!(rows.is_empty(), "{rows:?}");
+    assert!(status.contains("status=no-scip"), "{status}");
+    assert!(status.contains("0 of"), "the hint must say why: {status}");
+}
+
+/// The explicit half. `--scip-root` is a declaration, so the re-based path is
+/// still a SCIP field plus something the user said — never a guess
+/// (`specs/02-extraction.md` § Document paths, and `--scip-root`).
+#[test]
+fn scip_root_rebases_and_the_facts_land() {
+    let dir = subtree(&["daemon"]);
+    let out = run(dir.path(), &["index", ".", "--scip-root", "daemon"]);
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "{stderr}");
+
+    assert!(
+        !stderr.contains("0 of"),
+        "documents should have matched: {stderr}"
+    );
+    let resolved = rows(dir.path(), "?- resolved(S).");
+    assert!(resolved.len() > 20, "nothing anchored: {}", resolved.len());
+    let refs = rows(dir.path(), "?- scip_ref(S, F, L, C, From, R).");
+    assert!(!refs.is_empty(), "no tier-B references");
+    assert!(
+        refs.iter().all(|row| row.contains("daemon/")),
+        "a fact escaped the re-based root: {refs:?}"
+    );
+}
+
+/// Two subtrees re-base every document equally well, so the evidence picks
+/// nothing and the report must say that rather than choose
+/// (`specs/02-extraction.md` § Detection suggests; it never re-bases).
+#[test]
+fn two_candidate_roots_suggest_neither() {
+    let dir = subtree(&["daemon", "agent"]);
+    let stderr = index(dir.path());
+
+    assert!(stderr.contains("0 of"), "{stderr}");
+    assert!(
+        stderr.contains("2 directories would re-base all of them"),
+        "ambiguity must be reported, not resolved: {stderr}"
+    );
+    assert!(
+        !stderr.contains("re-run with"),
+        "nothing may be suggested: {stderr}"
+    );
+}
+
+/// A root is part of the identity of an ingest and `stat` cannot see it.
+#[test]
+fn changing_scip_root_reingests() {
+    let dir = subtree(&["daemon"]);
+    index(dir.path());
+    let out = run(dir.path(), &["index", ".", "--scip-root", "daemon"]);
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "{stderr}");
+    assert!(
+        !stderr.contains("0 of"),
+        "the re-base was not re-ingested: {stderr}"
+    );
+}
+
+/// A mis-paired root would re-base a whole index onto the wrong subtree and
+/// still report a plausible anchor rate.
+#[test]
+fn a_mispaired_scip_root_is_an_error() {
+    let dir = subtree(&["daemon"]);
+    let out = run(
+        dir.path(),
+        &[
+            "index",
+            ".",
+            "--scip",
+            "index.scip",
+            "--scip-root",
+            "daemon",
+            "--scip-root",
+            "agent",
+        ],
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(!out.status.success(), "{stderr}");
+    assert!(stderr.contains("--scip-root given 2"), "{stderr}");
 }

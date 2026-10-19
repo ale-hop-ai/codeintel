@@ -10,6 +10,7 @@
 //! fifth and last verb.
 
 pub mod census;
+pub mod discover;
 pub mod index;
 pub mod load;
 pub mod mcp;
@@ -21,6 +22,7 @@ pub mod schema;
 pub mod status;
 pub mod wire;
 
+pub use discover::Nearby;
 pub use index::{Plan, Report};
 pub use load::load_facts;
 pub use query::{Answer, Options, Warm};

@@ -63,6 +63,11 @@ enum Command {
         /// one is there.
         #[arg(long = "scip")]
         scip: Vec<PathBuf>,
+        /// The repo-relative directory a SCIP index's document paths are
+        /// relative to, for an indexer run from a subdirectory. Repeatable:
+        /// none, one for every `--scip`, or one each in the same order.
+        #[arg(long = "scip-root", value_name = "DIR")]
+        scip_roots: Vec<String>,
         #[command(flatten)]
         location: Location,
     },
@@ -191,8 +196,16 @@ fn run() -> Result<ExitCode> {
             rebuild,
             langs,
             scip,
+            scip_roots,
             location,
-        } => index_cmd(&path, location.explicit().as_deref(), rebuild, langs, scip),
+        } => index_cmd(
+            &path,
+            location.explicit().as_deref(),
+            rebuild,
+            langs,
+            scip,
+            scip_roots,
+        ),
         Command::Query {
             program,
             path,
@@ -263,13 +276,13 @@ fn schema_cmd(
             // stdout is the catalog the size budget measures; the status goes
             // where `query` puts it.
             out(&schema.to_string())?;
-            let (status, hint) = wire::schema_status(&census, &root);
+            let (status, hint) = wire::schema_status(&census, &root, index_dir);
             eprintln!("status={status}");
             if let Some(hint) = hint {
                 eprintln!("hint: {hint}");
             }
         }
-        Format::Json => outln(&wire::schema_json(&schema, &census, &root).to_string())?,
+        Format::Json => outln(&wire::schema_json(&schema, &census, &root, index_dir).to_string())?,
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -303,6 +316,7 @@ fn status_cmd(
         census: &census,
         manifest: store.manifest(),
         index_dir: &dir,
+        pinned: index_dir,
     };
     match format {
         Format::Text => out(&report.to_string())?,
@@ -354,6 +368,7 @@ fn index_cmd(
     rebuild: bool,
     langs: Vec<String>,
     scip: Vec<PathBuf>,
+    scip_roots: Vec<String>,
 ) -> Result<ExitCode> {
     let root = path
         .canonicalize()
@@ -399,6 +414,18 @@ fn index_cmd(
     } else {
         scip
     };
+    // Pairing is checked here and nowhere later: a root silently reused for a
+    // second input would re-base a whole index onto the wrong subtree and
+    // still report a plausible anchor rate (specs/02-extraction.md § Document
+    // paths, and `--scip-root`).
+    if !scip_roots.is_empty() && scip_roots.len() != 1 && scip_roots.len() != scip.len() {
+        anyhow::bail!(
+            "--scip-root given {} time(s) for {} --scip input(s): pass none, one for all, or \
+             one each in the same order",
+            scip_roots.len(),
+            scip.len()
+        );
+    }
     let report = index::refresh(
         &mut store,
         &Plan {
@@ -406,6 +433,7 @@ fn index_cmd(
             langs,
             deadline: None,
             scip,
+            scip_roots,
         },
     )?;
     drop(held);
@@ -439,6 +467,52 @@ fn index_cmd(
     }
     report_scip(&report);
     Ok(ExitCode::SUCCESS)
+}
+
+/// How many ingested documents named a file this index holds, and — when none
+/// did — what that looks like and how to fix it.
+///
+/// `0 of 2523` with nothing beside it was the whole of #60: the user saw
+/// `anchored: 0/2523 defs (0.0%)` and had to work out from first principles
+/// that the paths were relative to a subdirectory. "SCIP present, nothing
+/// matched" and "no SCIP at all" are different repairs and the summary now
+/// says which one it is (`specs/05-surface.md` § `index`).
+fn report_scip_coverage(report: &index::Report) {
+    let documents: u64 = report.scip.iter().map(|i| i.documents).sum();
+    let Some(matched) = report.scip_matched else {
+        return;
+    };
+    if matched > 0 || documents == 0 {
+        eprintln!("  scip coverage: {matched} of {documents} document(s) matched an indexed file");
+        return;
+    }
+    // Not `status=`: the taxonomy is closed and enumerated in
+    // `specs/05-surface.md` § Status taxonomy, and a query over this index
+    // gets `no-scip`, which is exactly what it is. This is the diagnosis, not
+    // a new status.
+    eprintln!(
+        "  scip coverage: 0 of {documents} document(s) matched an indexed file — every \
+         tier-B fact was dropped and no definition anchored"
+    );
+    for path in report.scip_unmatched.iter().take(3) {
+        eprintln!("    {path}");
+    }
+    match report.scip_root_suggestions.as_slice() {
+        [] => eprintln!(
+            "    no single directory re-bases all of them onto indexed files; check that the \
+             index was built from this tree"
+        ),
+        [one] => eprintln!(
+            "    paths look relative to a subdirectory; re-run with: codeintel index . \
+             --scip-root {one}"
+        ),
+        many => eprintln!(
+            "    {} directories would re-base all of them ({}); pass the right one with \
+             --scip-root",
+            many.len(),
+            many.join(", ")
+        ),
+    }
 }
 
 /// The tier-B half of the summary: what was ingested, how well it joined, and
@@ -497,6 +571,7 @@ fn report_scip(report: &index::Report) {
              encoding and the line is not ASCII before the column"
         );
     }
+    report_scip_coverage(report);
     if let Some(rate) = report.anchor_rate() {
         eprintln!(
             "  anchored: {}/{} defs ({rate:.1}%)",

@@ -66,6 +66,10 @@ pub fn json(answer: &Answer) -> serde_json::Value {
     map.insert("truncated".into(), answer.truncated.into());
     map.insert("cap".into(), serde_json::json!(answer.cap));
     map.insert("hint".into(), serde_json::json!(answer.hint));
+    // Always present, `null` for "the root you named". An absent key reads as
+    // "not measured"; `null` reads as "nothing moved"
+    // (`specs/05-surface.md` § Response contract).
+    map.insert("root".into(), serde_json::json!(answer.root));
     map.insert(
         "stats".into(),
         // No `elapsed_ms`. It is the one field that cannot be a function of the
@@ -97,6 +101,14 @@ pub fn text(answer: &Answer, raw: bool) -> String {
     out.push_str("status=");
     out.push_str(answer.status.as_str());
     out.push('\n');
+    // Only on a redirect. A line saying the root is the root on every answer
+    // is noise, and no redirect is what the caller already assumed
+    // (`specs/05-surface.md` § Response contract).
+    if let Some(root) = &answer.root {
+        out.push_str("root=");
+        out.push_str(root);
+        out.push('\n');
+    }
     if let Some(hint) = &answer.hint {
         out.push_str("hint: ");
         out.push_str(hint);
@@ -138,8 +150,9 @@ pub fn schema_json(
     catalog: &crate::schema::Schema<'_>,
     census: &crate::census::Census,
     root: &std::path::Path,
+    index_dir: Option<&std::path::Path>,
 ) -> serde_json::Value {
-    let (status, hint) = schema_status(census, root);
+    let (status, hint) = schema_status(census, root, index_dir);
     serde_json::json!({
         "status": status.as_str(),
         "hint": hint,
@@ -168,13 +181,20 @@ pub fn schema_json(
 pub fn schema_status(
     census: &crate::census::Census,
     root: &std::path::Path,
+    index_dir: Option<&std::path::Path>,
 ) -> (crate::status::Status, Option<String>) {
     if census.indexed {
         (crate::status::Status::Ok, None)
     } else {
+        // `schema` reports on the directory it was given and never adopts
+        // another (`specs/05-surface.md` § The nearest index), but its hint is
+        // the one `query` gives: the complete chain, and whatever is nearby.
         (
             crate::status::Status::NoIndex,
-            Some(format!("run: codeintel index {}", root.display())),
+            Some(crate::discover::no_index_hint(
+                root,
+                &crate::discover::around(root, index_dir),
+            )),
         )
     }
 }

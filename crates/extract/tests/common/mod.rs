@@ -38,9 +38,10 @@ pub(crate) fn extract_tree(root: &Path) -> Extracted {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut interner = Interner::open(dir.path()).expect("dictionary");
     let mut segments = BTreeMap::new();
-    let (found, skips) = walk(root);
+    let walked = walk(root);
+    let skips = &walked.skips;
     assert!(skips.unreadable.is_empty(), "{:?}", skips.unreadable);
-    for candidate in found {
+    for candidate in walked.files {
         let src = std::fs::read_to_string(&candidate.abs).expect("source is UTF-8");
         let mut extractor = Extractor::new(candidate.lang).expect("extractor");
         let out = extractor
@@ -265,7 +266,7 @@ pub(crate) fn assert_kinds_present(extracted: &Extracted, kinds: &[&str]) {
 pub(crate) fn assert_captures_disjoint(root: &Path) {
     use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator};
 
-    let (found, _) = walk(root);
+    let found = walk(root).files;
     assert!(!found.is_empty(), "the fixture has no source files");
     for lang in extract::LANGS {
         let language = (lang.language)();
@@ -325,6 +326,27 @@ pub(crate) fn assert_facts_are_local(extracted: &Extracted) {
             render_with(&interner, &one),
             render_with(&extracted.interner, &same),
             "{path} is not local"
+        );
+    }
+}
+
+/// Module spelling: an `import` row's `Module` carries no source delimiters.
+///
+/// The one guard about agreement *between* languages. `specs/01-facts.md`
+/// § `import` says the column is the specifier's content, so Go's
+/// `import "fmt"` is `fmt` and not `"fmt"`; a language that kept its quotes
+/// would make `?- import(F, "fmt", _).` answer zero rows on that language
+/// alone, which is the silent-miss class this project exists to prevent (#70).
+pub(crate) fn assert_modules_undelimited(extracted: &Extracted) {
+    for row in extracted.rows("import") {
+        let module = row.get(1).expect("an import row has a Module");
+        let delimited = ['"', '\'', '`']
+            .iter()
+            .any(|d| module.starts_with(*d) || module.ends_with(*d));
+        assert!(
+            !delimited,
+            "import module {module:?} keeps a source delimiter \
+             (specs/01-facts.md § `import`)"
         );
     }
 }

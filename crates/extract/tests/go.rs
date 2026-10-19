@@ -1,6 +1,6 @@
 //! Tier A against `tests/fixtures/go/`.
 //!
-//! The six shared guards of `specs/02-extraction.md` § Validation are in
+//! The shared guards of `specs/02-extraction.md` § Validation are in
 //! [`common`]. What is here is what only Go can claim: that the four type
 //! forms upstream folds into one `@definition.type` stay four, and that a
 //! method finds its owner through a receiver that does not enclose it —
@@ -88,6 +88,11 @@ fn no_node_takes_two_definition_captures() {
 #[test]
 fn facts_are_a_function_of_their_own_file() {
     common::assert_facts_are_local(&extracted());
+}
+
+#[test]
+fn an_import_module_has_no_quotes() {
+    common::assert_modules_undelimited(&extracted());
 }
 
 #[test]

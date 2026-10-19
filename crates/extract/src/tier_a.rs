@@ -704,7 +704,7 @@ impl Extractor {
             for capture in m.captures() {
                 match self.imports.capture_names().get(capture.index as usize) {
                     Some(&"module") => {
-                        module = capture.node.utf8_text(src.as_bytes()).ok();
+                        module = literal_content(capture.node, src);
                     }
                     Some(&"alias") => {
                         alias = capture.node.utf8_text(src.as_bytes()).unwrap_or_default();
@@ -732,6 +732,45 @@ impl Extractor {
             count += 1;
         }
         Ok(count)
+    }
+}
+
+/// The delimiters a language may wrap a module specifier in.
+///
+/// Three characters, no language branch: this is the set of string quotes the
+/// registered grammars tokenize, not a per-language rule
+/// (`specs/02-extraction.md` § Language support).
+const DELIMITERS: &[&str] = &["\"", "'", "`"];
+
+/// A module specifier's **content**: the span between a string literal's
+/// delimiters, or the node's own text when it has none.
+///
+/// `specs/01-facts.md` § `import` says the `Module` column carries the
+/// specifier's content in every language, so Go's `import "fmt"` is `fmt` and
+/// not `"fmt"` — the spelling TypeScript already used, and the one
+/// `?- import(F, "fmt", _).` asks for (#70).
+///
+/// The delimiters are the literal's own first and last tokens, so the content
+/// is a byte range the grammar hands us. It is read from the tree rather than
+/// matched off the text, which would eat the quotes of a TypeScript
+/// `from "'...'"`, and the range is taken whole rather than per content child,
+/// which would split `"net\x2fhttp"` into two rows at its escape. A node with
+/// no delimiter tokens — a Rust path, a Python dotted name, a TypeScript
+/// `string_fragment` — is already its own content.
+fn literal_content<'a>(node: Node<'_>, src: &'a str) -> Option<&'a str> {
+    let delimited = node
+        .child_count()
+        .checked_sub(1)
+        .and_then(|last| Some((node.child(0)?, node.child(last)?)))
+        .filter(|(open, close)| {
+            !open.is_named()
+                && open.kind() == close.kind()
+                && DELIMITERS.contains(&open.kind())
+                && open.end_byte() <= close.start_byte()
+        });
+    match delimited {
+        Some((open, close)) => src.get(open.end_byte()..close.start_byte()),
+        None => node.utf8_text(src.as_bytes()).ok(),
     }
 }
 
@@ -900,12 +939,13 @@ fn signature(src: &str, start: usize, end: usize, stops: &[char]) -> String {
     let text = src.get(start..end).unwrap_or("");
     // A stop character nested inside a bracket group is part of the header, not
     // the end of it: `struct S<T = u32>` cut at the `=` used to report
-    // `struct S<T`. `->` cannot underflow the depth because the subtraction
-    // saturates.
+    // `struct S<T`.
+    let bytes = text.as_bytes();
     let mut depth = 0_u32;
     let mut cut = text.len();
     for (i, c) in text.char_indices() {
         match c {
+            '<' | '>' if is_operator_angle(bytes, i) => {}
             '<' | '(' | '[' => depth = depth.saturating_add(1),
             '>' | ')' | ']' => depth = depth.saturating_sub(1),
             '\n' => {
@@ -920,6 +960,26 @@ fn signature(src: &str, start: usize, end: usize, stops: &[char]) -> String {
         }
     }
     collapse(text.get(..cut).unwrap_or(text), SIG_CAP)
+}
+
+/// Whether the `<` or `>` at `at` is half of an operator rather than a bracket.
+///
+/// The depth scan is lexical, so every `<` and `>` used to move it: Go's
+/// `func f(c <-chan int)` never came back to depth 0 and the header ran to the
+/// end of the line, while TypeScript's `(cb: (x: number) => void, o: {a: 1})`
+/// hit depth 0 at the `=>` and the header was cut at `o:`. A `<` or `>` with
+/// `-` or `=` immediately beside it is `<-`, `->`, `=>`, `<=` or `>=`, none of
+/// which open or close anything.
+///
+/// Byte adjacency is enough: `<`, `>`, `-` and `=` are all ASCII, so a
+/// neighbouring byte that is part of a multi-byte character cannot equal one
+/// of them.
+fn is_operator_angle(bytes: &[u8], at: usize) -> bool {
+    let beside = |i: Option<usize>| i.and_then(|i| bytes.get(i)).copied();
+    [beside(at.checked_sub(1)), beside(at.checked_add(1))]
+        .into_iter()
+        .flatten()
+        .any(|b| b == b'-' || b == b'=')
 }
 
 /// Whitespace-collapsed, trimmed, and cut at a character boundary.
@@ -1014,6 +1074,52 @@ mod tests {
         for (src, want) in cases {
             assert_eq!(signature(src, 0, src.len(), RUST), want, "{src}");
         }
+    }
+
+    /// The stop characters Go and TypeScript declare (`lang.rs`).
+    const GO: &[char] = &['{', '='];
+    const TS: &[char] = &['{', ';'];
+
+    #[test]
+    fn an_angle_bracket_in_an_operator_does_not_move_the_depth() {
+        // #43. Go's `<-` never came back to depth 0, so the header ran to the
+        // end of the line and took the `{` with it; TypeScript's `=>` dropped
+        // the depth to 0 mid-parameters, so the header was cut at `options:`.
+        let cases = [
+            (
+                "func Drain(in <-chan Key, limit int) bool {",
+                GO,
+                "func Drain(in <-chan Key, limit int) bool",
+            ),
+            (
+                "func Feed(out chan<- Key) {",
+                GO,
+                "func Feed(out chan<- Key)",
+            ),
+            (
+                "export function listen(on: (key: string) => void, options: { once: boolean }): void {",
+                TS,
+                "export function listen(on: (key: string) => void, options: { once: boolean }): void",
+            ),
+            (
+                "fn f(g: fn() -> u32, h: [u8; 2]) -> bool {",
+                RUST,
+                "fn f(g: fn() -> u32, h: [u8; 2]) -> bool",
+            ),
+        ];
+        for (src, stops, want) in cases {
+            assert_eq!(signature(src, 0, src.len(), stops), want, "{src}");
+        }
+    }
+
+    #[test]
+    fn a_real_angle_bracket_still_moves_the_depth() {
+        // The adjacency test must not disarm generics: the `=` in
+        // `<T = u32>` is not beside either angle bracket.
+        assert_eq!(
+            signature("function f<T = Mode>(x: T, o: { a: 1 }) {", 0, 40, TS),
+            "function f<T = Mode>(x: T, o: { a: 1 })"
+        );
     }
 
     #[test]

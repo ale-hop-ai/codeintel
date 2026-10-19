@@ -51,6 +51,13 @@ pub struct Manifest {
     /// (`specs/04-storage.md` § Manifest). Zero until the inputs are parsed.
     #[serde(default)]
     pub scip_collisions: u64,
+    /// How many SCIP documents, across the merge, named a file this index
+    /// actually holds. `None` in a manifest written before the field existed,
+    /// which is not the same claim as zero: zero is "an index was read and not
+    /// one of its documents landed", and that is a degradation to report
+    /// (`specs/05-surface.md` § Status taxonomy).
+    #[serde(default)]
+    pub scip_matched: Option<u64>,
     /// Indexed files, keyed by repo-relative path with `/` separators.
     pub files: BTreeMap<String, FileEntry>,
 }
@@ -64,6 +71,13 @@ pub struct ScipInput {
     /// until the index is actually parsed, which a refresh that changes
     /// nothing never does.
     pub tool: String,
+    /// The repo-relative directory its document paths are relative to —
+    /// `--scip-root`, empty for the repository root itself
+    /// (`specs/02-extraction.md` § Document paths, and `--scip-root`). Part of
+    /// the identity of the ingest, not of the file: the same bytes read under
+    /// a different root are different facts.
+    #[serde(default)]
+    pub root: String,
     /// Its mtime in seconds since the epoch.
     pub mtime: u64,
     /// Its length in bytes. With `mtime`, this is what decides whether the
@@ -87,9 +101,19 @@ impl ScipInput {
     /// known after the index is parsed, and a refresh that changes nothing
     /// never parses it. Comparing them would make every refresh look like a
     /// changed SCIP input and re-extract the whole tree.
+    ///
+    /// `root` **is** compared, despite not being a property of the bytes. A
+    /// re-base is a different reading of the same file and `stat` cannot see
+    /// it, so without this a run that added or dropped `--scip-root` would
+    /// keep every fact keyed the old way and report the new root in the
+    /// manifest (`specs/02-extraction.md` § Document paths, and
+    /// `--scip-root`).
     #[must_use]
     pub fn same_bytes(&self, other: &Self) -> bool {
-        self.path == other.path && self.mtime == other.mtime && self.size == other.size
+        self.path == other.path
+            && self.root == other.root
+            && self.mtime == other.mtime
+            && self.size == other.size
     }
 }
 
@@ -276,6 +300,7 @@ impl Manifest {
             indexed_at: 0,
             scip: Vec::new(),
             scip_collisions: 0,
+            scip_matched: None,
             files: BTreeMap::new(),
         }
     }

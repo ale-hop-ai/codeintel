@@ -255,6 +255,17 @@ Per file, one parse, then:
 3. `def_sig` = the definition's source text from `start_byte` up to the first
    body delimiter (`{`, `:` + newline, `=`, or end of line), whitespace-collapsed,
    capped at 512 bytes. Crude and honest — it is a display string, not a parse.
+   The delimiter counts only at bracket depth zero, so `struct S<T = u32>` is
+   not cut at its `=`. Depth is lexical, with one exception: a `<` or `>` with
+   `-` or `=` immediately beside it is half of `<-`, `->`, `=>`, `<=` or `>=`
+   and moves nothing. Without it Go's `func f(c <-chan int) error {` never
+   returned to depth zero and the header ran to end of line, and TypeScript's
+   `(cb: (x: number) => void, o: {a: 1})` reached depth zero at the `=>` and
+   was cut mid-parameters. A shift (`<<`, `>>`) and a bare comparison
+   (`a < b`) still move it, so a default argument containing one still reports
+   a wrong header — known, not fixed here, and adjacency does not reach them: a
+   shift is two angle brackets that balance each other, and a bare `<` is
+   indistinguishable from a generic without a parse (#74).
 4. `def_doc` = contiguous comment lines immediately preceding `def_span.start`,
    marker prefixes stripped. Emitted only if non-empty. A language whose
    documentation lives inside the definition captures it with `@doc` instead
@@ -269,7 +280,11 @@ Per file, one parse, then:
    be inferring, which is invariant 1. `@scope.*` items define nothing and get
    no row.
 6. Run `imports.scm` → `import` rows. The module specifier is captured **as
-   written**; no resolution. The same query's `@export` captures →
+   written**; no resolution. Where a language writes that specifier as a string
+   literal, the row carries the literal's **content** — the span between the
+   delimiter tokens the grammar already gives us, read from the tree and not
+   matched out of the text ([01-facts.md](01-facts.md) § `import`). The same
+   query's `@export` captures →
    `name_export(F, Name)` rows, one per local name an `export { }`,
    `export default` or `export =` clause names
    ([01-facts.md](01-facts.md) § `name_export`). The two live in one query
@@ -318,6 +333,19 @@ Skip a file if: binary, > 2 MB, matched by `.gitignore`/`.ignore` (via the
 `ignore` crate), or its grammar is unregistered. Skipped files produce **zero**
 facts — not a `file` row — so `!file(F, _)` means "not indexed", which is
 different from "indexed and empty".
+
+**The ignore rules bound the whole index, not just tier A.** The walk is this
+tool's only statement about which paths belong to the tree, so a SCIP document
+naming a path the walk does not reach — ignored, hidden, or behind a symlink the
+walk does not follow — is skipped exactly as an ignored source file is: no
+`file` row, no tier-B-only `def`, no `scip_ref`. Enforcing the budget in tier A
+alone re-admitted, through tier B, every generated artifact the indexer happened
+to cover: on a `yarn` monorepo whose `.gitignore` holds `packages/*/build`,
+`scip-typescript` covers the generated `build/**/*.d.ts` and each one came back
+as a second `def` for an export already indexed from its source (#54). The
+budget is per *path*, and the walk is what decides it. Each such document is
+counted and named with the other skipped documents in the `index` summary
+([05-surface.md](05-surface.md) § `index`); it is never silent.
 
 ---
 
@@ -380,6 +408,68 @@ by any document" is a statement about the whole merge: a symbol `a.scip`
 only references and `b.scip` defines is a definition, and reading it as
 `extern` because `a.scip` alone could not see its definition made one symbol
 both `def` and `extern` (#47).
+
+#### Document paths, and `--scip-root`
+
+`Document.relative_path` is specified as relative to the project root, and
+every fact this tool emits is keyed by a repo-relative path. The two are the
+same string only when the indexer was run from the root this index covers.
+
+They routinely are not. In a monorepo whose Rust crate lives in `daemon/` with
+no workspace manifest at the top, `rust-analyzer scip .` has to be run from
+`daemon/`, and it writes `src/lib.rs` where the walk has `daemon/src/lib.rs`.
+Every document then misses every indexed file, and the result is zero anchors,
+zero `scip_ref`, zero `resolved` — a tier-A-only index wearing a SCIP input
+(#60).
+
+**`--scip-root <DIR>`** declares, repo-relative, the directory an input's
+document paths are relative to: `daemon` + `src/lib.rs` = `daemon/src/lib.rs`.
+The re-based path is what § Position normalization reads source from, what the
+anchor join keys on, and what every emitted fact carries. `escapes_root` is
+checked **after** re-basing, so a root that climbs out of the repository is
+refused like any other unusable document rather than producing a path no reader
+can open.
+
+It is repeatable and positional against `--scip`: zero roots means every input
+is relative to the repository root, one root applies to every input, and N
+roots pair with N inputs in the order given. Any other count is an error, never
+a silent reuse of the last one — a mis-paired root would re-base a whole index
+to the wrong subtree and still report a plausible anchor rate.
+
+The root is recorded per input in the manifest and a change to it re-ingests,
+exactly as a changed input does. A re-base is a different reading of the same
+bytes, and mtime and size cannot see it.
+
+#### Detection suggests; it never re-bases
+
+When no document matched an indexed file, ingest looks for a prefix `P` such
+that **every** document path `D` has `P/D` indexed, and names it in the report.
+It does not apply it. Two reasons, and the first is binding.
+
+- **Invariant 1: facts are extracted, never inferred.** A re-based path is a
+  SCIP field plus a declaration. With no declaration it is a SCIP field plus a
+  guess that happened to typecheck against the tree we walked today. Add a
+  vendored copy, delete a crate, and the same index re-bases somewhere else —
+  and every fact would move with it, with nothing in `Prov` able to say that a
+  path was chosen rather than read. `Prov` has two values and neither of them
+  means "inferred location".
+
+- **The evidence is weakest exactly where it is needed.** Uniqueness is checked
+  against the current walk, not against the tree the indexer actually saw. A
+  monorepo with `daemon/src/lib.rs` and `agent/src/lib.rs` and a one-document
+  index has two valid prefixes and no way to choose between them; a monorepo
+  with one crate has exactly one valid prefix and still no way to know it is the
+  one the indexer meant. "Provably unambiguous" is only ever provable about the
+  wrong tree.
+
+**Per-document suffix matching is worse, and is refused outright.** Letting each
+document find its own unique match makes the tool decide which file a document
+means, one document at a time, with no uniform rule to state afterwards. That is
+the guess invariant 1 forbids, written once per document instead of once.
+
+What detection buys is one line of report. The user reads it, re-runs with
+`--scip-root daemon`, and the re-base is then a fact they declared. That is the
+whole fix in practice, and it costs the facts nothing.
 
 ### Ingest
 
@@ -722,3 +812,14 @@ hand-written golden fact file.
 8. **Incremental equivalence.** Index the fixture; mutate one file; reindex
    incrementally. The resulting fact set must equal a full cold reindex, byte
    for byte. This is the test that would have caught the bug `name_ref` fixes.
+9. **Module spelling.** No `import` row's `Module` may start or end with a
+   source delimiter, in any language. The only guard about agreement *between*
+   languages: a language that kept its quotes would answer
+   `?- import(F, "fmt", _).` with zero rows on that language alone, and a
+   per-language golden cannot see a disagreement it is not party to (#70).
+10. **Coverage is reported, never inferred.** A fixture whose SCIP documents are
+    relative to a subdirectory is indexed twice: once without `--scip-root`,
+    asserting zero matched documents, a report that says so, and a suggestion
+    naming the prefix; once with it, asserting the facts land. A case with two
+    candidate prefixes asserts that nothing is suggested. The first case passing
+    silently is the bug this validates against (#60).

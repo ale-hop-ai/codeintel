@@ -35,6 +35,20 @@ pub struct Plan {
     /// and every file is re-extracted (`specs/04-storage.md`
     /// § Incremental reindex).
     pub scip: Vec<PathBuf>,
+    /// The repo-relative directory each input's document paths are relative
+    /// to. Empty means every input is relative to the repository root; one
+    /// entry applies to every input; otherwise one per input, in the order
+    /// `scip` gives them. Validated by the caller
+    /// (`specs/02-extraction.md` § Document paths, and `--scip-root`).
+    pub scip_roots: Vec<String>,
+}
+
+impl Plan {
+    /// The root for the `i`th SCIP input: none, one for all, or one each.
+    fn root_for(&self, i: usize) -> &str {
+        let i = if self.scip_roots.len() == 1 { 0 } else { i };
+        self.scip_roots.get(i).map_or("", String::as_str)
+    }
 }
 
 /// What happened.
@@ -66,6 +80,19 @@ pub struct Report {
     pub scip_collisions: u64,
     /// SCIP documents dropped, with the reason.
     pub scip_skipped: Vec<(String, &'static str)>,
+    /// How many ingested documents named a file this index holds. `None` when
+    /// nothing was re-ingested and the manifest recorded no count.
+    pub scip_matched: Option<u64>,
+    /// Ingested documents that named no indexed file, in path order. Only
+    /// collected when **none** matched, which is the case worth a report: a
+    /// per-document miss is ordinary (a generated file, an excluded dir) and
+    /// listing every one of them on a healthy index is noise.
+    pub scip_unmatched: Vec<String>,
+    /// Repo-relative prefixes that would re-base every unmatched document onto
+    /// an indexed file. Reported, never applied (`specs/02-extraction.md`
+    /// § Detection suggests; it never re-bases). More than one means the
+    /// evidence does not pick a root and the report says so.
+    pub scip_root_suggestions: Vec<String>,
     /// Indexed files modified after the newest SCIP input was built. Their
     /// `name_ref` rows are fresh and their `scip_ref` rows are not.
     pub scip_stale: Vec<String>,
@@ -114,10 +141,12 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
     let started_at = facts::manifest::now();
 
     store.sweep().context("sweeping what a crashed run left")?;
-    let (found, skips) = walk(&root);
-    report.skips = skips;
+    let walked = walk(&root);
+    report.skips = walked.skips;
+    let visible = walked.visible;
 
-    let wanted: Vec<Candidate> = found
+    let wanted: Vec<Candidate> = walked
+        .files
         .into_iter()
         .filter(|c| plan.langs.is_empty() || plan.langs.iter().any(|l| l == c.lang.name))
         .collect();
@@ -282,53 +311,25 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
         seen.extend(kept);
     }
 
-    // Files only tier B covers: an unsupported language, or one the walk does
-    // not reach. They get an ordinary per-file segment rather than the single
-    // `_scip.bin` blob in specs/04-storage.md § Layout — see the note there.
-    for (path, doc) in &ingest.docs {
-        if seen.contains(path) || plan.deadline.is_some_and(|d| Instant::now() >= d) {
-            continue;
-        }
-        let Ok(meta) = std::fs::metadata(root.join(path)) else {
-            // SCIP names a file that is not here. Emitting facts about it would
-            // answer questions about source nobody can open.
-            continue;
-        };
-        seen.insert(path.clone());
-        let mut segment = facts::Segment::new();
-        let file = store.intern(path).context("the dictionary is full")?;
-        let lang = store.intern(&doc.lang).context("the dictionary is full")?;
-        segment.push("file", &[file, lang]);
-        let scip_counts = tier_b::emit(
-            &mut segment,
-            &ingest,
-            path,
-            std::fs::read_to_string(root.join(path)).ok().as_deref(),
-            &[],
-            store.interner_mut(),
-        )
-        .with_context(|| format!("ingesting SCIP facts for {path}"))?;
-        add(&mut report.scip_counts, scip_counts);
-        store
-            .put(
-                path,
-                &mut segment,
-                NewEntry {
-                    mtime: walk::mtime_of(&meta),
-                    size: meta.len(),
-                    hash: String::new(),
-                    lang: doc.lang.clone(),
-                    tiers: vec!["scip".to_string()],
-                    // Nothing walks it, so nothing edits it as far as this
-                    // index can tell: never stale.
-                    scip_hash: Some(String::new()),
-                },
-            )
-            .with_context(|| format!("writing the segment for {path}"))?;
-        report.indexed += 1;
-    }
+    tier_b_only(
+        store,
+        plan,
+        &root,
+        &ingest,
+        &visible,
+        &mut seen,
+        &mut report,
+    )?;
 
     forget_vanished(store, plan, &seen, &mut report);
+
+    measure_coverage(
+        &ingest,
+        &seen,
+        reingest,
+        store.manifest().scip_matched,
+        &mut report,
+    );
 
     // The same rule `query` acts on, read from the manifest this run built
     // (`FileEntry::scip_stale`).
@@ -351,6 +352,7 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
     }
     store.manifest_mut().scip = inputs;
     store.manifest_mut().scip_collisions = scip_collisions;
+    store.manifest_mut().scip_matched = report.scip_matched;
     // A refresh that changed nothing writes nothing. `query` refreshes before
     // every answer, and committing the same manifest again is an fsync per read.
     // Every write this run made lands in the manifest, so equality is the whole
@@ -446,6 +448,82 @@ struct ScipPlan {
     scip_collisions: u64,
 }
 
+/// Index the files only tier B covers: a language no grammar handles, or one
+/// the `--lang` filter dropped. They get an ordinary per-file segment rather
+/// than the single `_scip.bin` blob in specs/04-storage.md § Layout — see the
+/// note there.
+///
+/// `visible` is the walk's membership list, and a document naming a path that
+/// is not in it is refused, not indexed (`specs/02-extraction.md` § Budget).
+///
+/// # Errors
+/// An exhausted dictionary, or a failure to write a segment.
+fn tier_b_only(
+    store: &mut Store,
+    plan: &Plan,
+    root: &Path,
+    ingest: &Ingest,
+    visible: &BTreeSet<String>,
+    seen: &mut BTreeSet<String>,
+    report: &mut Report,
+) -> Result<()> {
+    for (path, doc) in &ingest.docs {
+        if seen.contains(path) || plan.deadline.is_some_and(|d| Instant::now() >= d) {
+            continue;
+        }
+        if !visible.contains(path) {
+            // The walk is the only statement about which paths belong to this
+            // tree, and it did not reach this one: `.gitignore` excluded it,
+            // it is hidden, or it sits behind a symlink the walk does not
+            // follow. Indexing it here would re-admit through tier B exactly
+            // what tier A was told to skip — on a monorepo ignoring
+            // `packages/*/build`, every generated `.d.ts` the indexer covered,
+            // one duplicate `def` per already-indexed export (#54,
+            // `specs/02-extraction.md` § Budget).
+            report.scip_skipped.push((path.clone(), "ignored"));
+            continue;
+        }
+        let Ok(meta) = std::fs::metadata(root.join(path)) else {
+            // SCIP names a file that is not here. Emitting facts about it would
+            // answer questions about source nobody can open.
+            continue;
+        };
+        seen.insert(path.clone());
+        let mut segment = facts::Segment::new();
+        let file = store.intern(path).context("the dictionary is full")?;
+        let lang = store.intern(&doc.lang).context("the dictionary is full")?;
+        segment.push("file", &[file, lang]);
+        let scip_counts = tier_b::emit(
+            &mut segment,
+            ingest,
+            path,
+            std::fs::read_to_string(root.join(path)).ok().as_deref(),
+            &[],
+            store.interner_mut(),
+        )
+        .with_context(|| format!("ingesting SCIP facts for {path}"))?;
+        add(&mut report.scip_counts, scip_counts);
+        store
+            .put(
+                path,
+                &mut segment,
+                NewEntry {
+                    mtime: walk::mtime_of(&meta),
+                    size: meta.len(),
+                    hash: String::new(),
+                    lang: doc.lang.clone(),
+                    tiers: vec!["scip".to_string()],
+                    // Nothing walks it, so nothing edits it as far as this
+                    // index can tell: never stale.
+                    scip_hash: Some(String::new()),
+                },
+            )
+            .with_context(|| format!("writing the segment for {path}"))?;
+        report.indexed += 1;
+    }
+    Ok(())
+}
+
 /// Stat the SCIP inputs, decide whether they must be re-read, and re-read them
 /// if so, recording what they saw on `report`.
 ///
@@ -464,7 +542,7 @@ fn plan_scip(
     // from a document leaves no evidence anywhere else, so there is nothing to
     // drive its removal per-document. A changed input re-extracts everything
     // (specs/04-storage.md § Incremental reindex).
-    let mut inputs = stat_scip(root, &plan.scip);
+    let mut inputs = stat_scip(root, plan);
     let known_scip = &store.manifest().scip;
     let scip_changed = known_scip.len() != inputs.len()
         || !known_scip.iter().zip(&inputs).all(|(a, b)| a.same_bytes(b));
@@ -502,7 +580,7 @@ fn plan_scip(
     });
     let reingest = !inputs.is_empty() && (plan.rebuild || invalidated || stale_file);
     let (ingest, own) = if reingest {
-        read_scip(root, &plan.scip)?
+        read_scip(root, plan)?
     } else {
         (Ingest::default(), BTreeMap::new())
     };
@@ -529,13 +607,46 @@ fn plan_scip(
     })
 }
 
-fn stat_scip(root: &Path, paths: &[PathBuf]) -> Vec<ScipInput> {
-    let mut inputs: Vec<ScipInput> = paths
+/// How many ingested documents named a file this index holds, and — when none
+/// did — which ones and what root would have landed them.
+///
+/// Measured once `seen` holds every path this index knows. A document that
+/// named no indexed file produced nothing, and an index of which *none* did is
+/// a tier-A index wearing a SCIP input: invariant 5's silent degradation, and
+/// the whole of #60. Carried forward when nothing was re-ingested, like the
+/// collision count, so a refresh that read no protobuf does not blank what the
+/// last one measured.
+fn measure_coverage(
+    ingest: &Ingest,
+    seen: &BTreeSet<String>,
+    reingest: bool,
+    known: Option<u64>,
+    report: &mut Report,
+) {
+    if !reingest {
+        report.scip_matched = known;
+        return;
+    }
+    let matched = ingest.docs.keys().filter(|p| seen.contains(*p)).count() as u64;
+    report.scip_matched = Some(matched);
+    if matched > 0 || ingest.docs.is_empty() {
+        return;
+    }
+    let docs: BTreeSet<String> = ingest.docs.keys().cloned().collect();
+    report.scip_root_suggestions = extract::scip::suggest_roots(&docs, seen);
+    report.scip_unmatched = docs.into_iter().collect();
+}
+
+fn stat_scip(root: &Path, plan: &Plan) -> Vec<ScipInput> {
+    let mut inputs: Vec<ScipInput> = plan
+        .scip
         .iter()
-        .filter_map(|path| {
+        .enumerate()
+        .filter_map(|(i, path)| {
             let meta = std::fs::metadata(absolute(root, path)).ok()?;
             Some(ScipInput {
                 path: path.display().to_string().replace('\\', "/"),
+                root: plan.root_for(i).to_string(),
                 tool: String::new(),
                 mtime: walk::mtime_of(&meta),
                 size: meta.len(),
@@ -564,19 +675,26 @@ fn stat_scip(root: &Path, paths: &[PathBuf]) -> Vec<ScipInput> {
 /// [`stat_scip`] keys the input. A per-input number cannot be recovered from
 /// the merge, and storing the merged one on every input counts it once per
 /// input (specs/04-storage.md § Manifest).
-fn read_scip(root: &Path, paths: &[PathBuf]) -> Result<(Ingest, BTreeMap<String, Own>)> {
-    let mut paths: Vec<&PathBuf> = paths.iter().collect();
+fn read_scip(root: &Path, plan: &Plan) -> Result<(Ingest, BTreeMap<String, Own>)> {
     let key = |p: &PathBuf| p.display().to_string().replace('\\', "/");
-    paths.sort_by_key(|p| key(p));
-    paths.dedup_by_key(|p| key(p));
+    // Each input carries its own `--scip-root`, so the sort that makes the
+    // merge order-independent has to move the pairs, not the paths.
+    let mut paths: Vec<(&PathBuf, &str)> = plan
+        .scip
+        .iter()
+        .enumerate()
+        .map(|(i, path)| (path, plan.root_for(i)))
+        .collect();
+    paths.sort_by_key(|(p, _)| key(p));
+    paths.dedup_by_key(|(p, _)| key(p));
     let mut merged = Ingest::default();
     let mut own = BTreeMap::new();
-    for path in paths {
+    for (path, under) in paths {
         let absolute = absolute(root, path);
         if !absolute.exists() {
             continue;
         }
-        let one = Ingest::read(&absolute, root)
+        let one = Ingest::read(&absolute, root, under)
             .with_context(|| format!("reading {}", absolute.display()))?;
         own.insert(
             key(path),
