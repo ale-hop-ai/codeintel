@@ -116,6 +116,35 @@ fn an_unreadable_load_average_does_not_block_the_harness() {
 }
 
 #[test]
+fn an_unreadable_load_average_still_refuses_to_commit_a_baseline() {
+    // The asymmetry that keeps a parser bug from becoming a committed number:
+    // unknown conditions are good enough to report numbers under and not good
+    // enough to write a baseline from. This harness shipped with a load parser
+    // that returned nothing on macOS, and nothing read as unknown, and unknown
+    // read as fine — so every baseline would have been approved by a gate that
+    // looked like it was working.
+    let unknown = Conditions {
+        load1: None,
+        cores: 8,
+    };
+    assert!(unknown.trustworthy(), "reporting is still allowed");
+    assert!(!unknown.safe_to_commit(), "writing a baseline is not");
+
+    // And the two agree whenever the reading is real, in both directions, so
+    // the asymmetry is confined to the unknown case.
+    let idle = Conditions {
+        load1: Some(1.0),
+        cores: 8,
+    };
+    let busy = Conditions {
+        load1: Some(12.0),
+        cores: 8,
+    };
+    assert!(idle.trustworthy() && idle.safe_to_commit());
+    assert!(!busy.trustworthy() && !busy.safe_to_commit());
+}
+
+#[test]
 fn the_boundary_is_inclusive() {
     let exactly = Conditions {
         load1: Some(MAX_LOAD_PER_CORE * 8.0),

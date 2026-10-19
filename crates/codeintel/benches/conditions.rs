@@ -118,6 +118,24 @@ impl Conditions {
         self.per_core().is_none_or(|per| per <= MAX_LOAD_PER_CORE)
     }
 
+    /// Whether a reading is good enough to **commit** a baseline.
+    ///
+    /// Stricter than [`Self::trustworthy`] in exactly one case: an unreadable
+    /// load average refuses here and permits there. Writing a baseline is the
+    /// one action a re-run does not undo — the committed file then gates every
+    /// later comparison — so the unknown case has to fall the other way.
+    ///
+    /// The reason is not hypothetical. This harness shipped with a load parser
+    /// that stopped at `sysctl`'s leading brace and returned nothing, and
+    /// "nothing" read as unknown, and unknown read as fine: on macOS the gate
+    /// would have approved every baseline while looking like it worked. A
+    /// platform whose load cannot be read is a guess about the future; a
+    /// parser that returns nothing is a thing that already happened.
+    #[must_use]
+    pub(crate) fn safe_to_commit(self) -> bool {
+        self.per_core().is_some_and(|per| per <= MAX_LOAD_PER_CORE)
+    }
+
     /// One line a human can act on: what was read, and what it means.
     #[must_use]
     pub(crate) fn describe(self) -> String {

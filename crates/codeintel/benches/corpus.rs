@@ -76,19 +76,25 @@ fn run() -> Result<Verdict> {
     let started_under = Conditions::now();
     let updating = std::env::var_os("UPDATE_BASELINE").is_some();
     println!("host conditions: {}", started_under.describe());
+    // Two different questions, so two different predicates. Writing a
+    // baseline refuses on an unreadable load average as well as on a busy
+    // one (`Conditions::safe_to_commit`); merely reporting numbers only warns
+    // when the host is known to be busy, because "unknown" is not "busy" and
+    // saying so would be its own false claim.
+    //
+    // Checked here rather than after the measurements: deno takes the best
+    // part of an hour, and refusing at the end of it would be a refusal nobody
+    // waits around for.
+    if updating && !started_under.safe_to_commit() {
+        println!(
+            "REFUSED: not writing a baseline. {}.\nA baseline measured on a busy machine is too \
+             slow, so the +20% gate passes everything afterwards — it fails open, and quietly. \
+             Re-run UPDATE_BASELINE=1 when the machine is idle.",
+            started_under.describe()
+        );
+        return Ok(Verdict::Fail);
+    }
     if !started_under.trustworthy() {
-        // Checked here rather than after the measurements: deno takes the best
-        // part of an hour, and refusing at the end of it would be a refusal
-        // nobody waits around for.
-        if updating {
-            println!(
-                "REFUSED: not writing a baseline. {}.\nA baseline measured on a busy machine is \
-                 too slow, so the +20% gate passes everything afterwards — it fails open, and \
-                 quietly. Re-run UPDATE_BASELINE=1 when the machine is idle.",
-                started_under.describe()
-            );
-            return Ok(Verdict::Fail);
-        }
         println!(
             "WARNING: this host is too busy for the wall clock to mean much. The run still \
              reports numbers; it will not write a baseline from them, and a comparison against \
