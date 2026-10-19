@@ -137,7 +137,9 @@ pub struct Info {
     pub kind: &'static str,
     /// `display_name`.
     pub name: String,
-    /// `documentation`, joined.
+    /// `documentation`, joined, minus any section that is wholly a fenced
+    /// code block (`specs/02-extraction.md` § Hover blocks are not doc
+    /// comments).
     pub doc: Option<String>,
     /// `signature_documentation.text`.
     pub sig: Option<String>,
@@ -482,11 +484,37 @@ pub fn descriptor_name(symbol: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Is `section` wholly one fenced code block?
+///
+/// `scip.proto` makes `documentation` a list of Markdown sections, and an
+/// indexer that writes no `signature_documentation` renders the signature into
+/// one of those sections instead — `scip-typescript` 0.4.0 and `scip-python`
+/// 0.6.6 both do, for every symbol, documented or not. Such a section is a
+/// signature, not a doc comment, and ingesting it as one made `def_doc` hold
+/// for almost everything (`specs/02-extraction.md` § Hover blocks are not doc
+/// comments, #55).
+///
+/// Asked per section, never over the joined list, so a doc comment that merely
+/// *contains* an example keeps it: the closing fence has to be the last thing
+/// in the section and the only one in it.
+fn is_fenced_block(section: &str) -> bool {
+    let section = section.trim();
+    let Some(after_open) = section.strip_prefix("```") else {
+        return false;
+    };
+    // The info string (the `ts` of ```` ```ts ````) runs to the first newline.
+    let Some((_, body)) = after_open.split_once('\n') else {
+        return false;
+    };
+    matches!(body.trim_end().strip_suffix("```"), Some(inner) if !inner.contains("```"))
+}
+
 fn info_of(info: &SymbolInformation, path: &str) -> Info {
     let doc = info
         .documentation
         .iter()
         .map(String::as_str)
+        .filter(|section| !is_fenced_block(section))
         .collect::<Vec<_>>()
         .join("\n");
     let enclosing = rewrite_local(&info.enclosing_symbol, path);
@@ -1011,6 +1039,51 @@ mod tests {
         assert_eq!(symbol.kind, "method");
         assert_eq!(symbol.name, "get");
         assert_eq!(symbol.doc.as_deref(), Some("Fetch one."));
+    }
+
+    /// `specs/02-extraction.md` § Hover blocks are not doc comments.
+    ///
+    /// `scip-typescript` 0.4.0 and `scip-python` 0.6.6 write no
+    /// `signature_documentation` and render the signature into
+    /// `documentation[0]` as a fence instead, for every symbol. Taking that as
+    /// the doc comment made `def_doc` hold for almost everything and
+    /// `undocumented_export` return nothing (#55).
+    #[test]
+    fn a_fenced_hover_block_is_not_a_doc_comment() {
+        fn doc_of(sections: &[&str]) -> Option<String> {
+            let mut info = SymbolInformation::new();
+            info.symbol = "scip-typescript npm p 1.0 `s.ts`/get().".to_string();
+            info.documentation = sections.iter().map(|s| (*s).to_string()).collect();
+            info_of(&info, "s.ts").doc
+        }
+
+        // Undocumented: the hover block is all there is, so there is no row.
+        assert_eq!(doc_of(&["```ts\n(method) get(): string\n```"]), None);
+        assert_eq!(
+            doc_of(&["```python\ndef get(\n  self\n) -> str:\n```"]),
+            None
+        );
+
+        // Documented: the comment survives, without the fence glued to it.
+        assert_eq!(
+            doc_of(&["```ts\n(method) get(): string\n```", "Read one entry."]),
+            Some("Read one entry.".to_string())
+        );
+
+        // Prose is prose. `scip-go` and `rust-analyzer` put it here unfenced
+        // and keep the signature in `signature_documentation`.
+        assert_eq!(doc_of(&["Fetch one."]), Some("Fetch one.".to_string()));
+
+        // The question is asked per section and start-to-end, so a comment
+        // that merely contains an example keeps it.
+        let with_example = "Use it:\n\n```ts\nget()\n```";
+        assert_eq!(doc_of(&[with_example]), Some(with_example.to_string()));
+        let two_blocks = "```ts\nget()\n```\n```ts\nput()\n```";
+        assert_eq!(doc_of(&[two_blocks]), Some(two_blocks.to_string()));
+
+        // Not a fence at all.
+        assert!(!is_fenced_block("``inline``"));
+        assert!(!is_fenced_block("```ts no newline, so no block```"));
     }
 
     #[test]

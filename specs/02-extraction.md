@@ -392,7 +392,7 @@ From `scip.proto` (field names verbatim):
 | `SymbolInformation.kind` | `Kind`, via the mapping table below |
 | `SymbolInformation.display_name`, else the name of the symbol's final descriptor | `Name`. `scip-python` writes no `display_name` for a parameter, an attribute or a module; the descriptor grammar is mandatory and the name is written in it, so reading it is not a guess. A definition occurrence with no `SymbolInformation` at all is named the same way, from its own symbol string; it is never `""` (#47). The kind is not read the same way: a `.` descriptor is a field, a variable or a constant, and the suffix does not say which |
 | symbol-string descriptor prefix, else `SymbolInformation.enclosing_symbol` | `parent(S, Owner)` — replaces tier A's row, see § Parent precedence |
-| `SymbolInformation.documentation[]` | `def_doc` (if tier A did not supply one) |
+| `SymbolInformation.documentation[]` | `def_doc` (if tier A did not supply one), **minus every element that is wholly one fenced code block** — see § Hover blocks are not doc comments |
 | `SymbolInformation.signature_documentation.text` | `def_sig` (if tier A did not supply one) |
 | `Occurrence` without `Definition` role | `scip_ref(S, F, L, C, From, Role)` |
 | `symbol_roles` bits | `Role`: `WriteAccess`→`write`, `ReadAccess`→`read`, `Import`→`import`, `Test`→`test`, `Generated`→`generated`, `ForwardDefinition`→`forward`, `Definition`→`def`, empty bitset (`UnspecifiedSymbolRole`)→`unknown` |
@@ -431,6 +431,48 @@ made a Rust `union` and a Rust `enum` produce identical rows — a smaller versi
 of the upstream `tags.scm` defect that `docs/plan.md` M2's kind-fidelity test
 exists to catch, and the same class of extractor guess invariant 1 forbids. Both
 tiers map it the same way so the anchor join never has to reconcile a kind.
+
+### Hover blocks are not doc comments
+
+`scip.proto` says `documentation` is a list of **Markdown** sections, and the
+indexers do not agree on what goes in them:
+
+| Indexer | `documentation[]` | `signature_documentation` |
+|---|---|---|
+| `scip-go` 0.2.7 | the doc comment, as prose | present |
+| `rust-analyzer` 1.98.1 | the doc comment, as prose | present |
+| `scip-python` 0.6.6 | `[0]` is a ```` ```python ```` hover block; `[1..]` the docstring, when there is one | **absent** |
+| `scip-typescript` 0.4.0 | `[0]` is a ```` ```ts ```` hover block; `[1..]` the JSDoc, when there is one | **absent** |
+
+An indexer that writes no `signature_documentation` renders the signature into
+`documentation` instead, as a fenced code block. It does this for **every**
+symbol, documented or not. Joining the whole list into `def_doc` therefore made
+`def_doc` hold for almost everything, and `specs/01-facts.md`'s contract —
+absent means undocumented — stopped being true the moment a SCIP index was
+present. `undocumented_export(S) :- exported(S), !def_doc(S, _).` returned
+nothing on a whole TypeScript package (#55). Where a real comment did exist, the
+fence was glued to the front of it.
+
+So: **an element of `documentation[]` that is wholly one fenced code block is a
+signature, and is dropped.** The remaining elements join as before; if none
+remain there is no `def_doc` row.
+
+This is read, not guessed. "Is this element one fenced block, start to end" is a
+question about its bytes, asked per element — the list is never flattened first,
+so a doc comment that merely *contains* an example keeps it. The rule is uniform
+across languages, which is the point: no `if lang == "typescript"` lives in the
+ingest, and an indexer that later starts writing `signature_documentation` needs
+no change here.
+
+What it costs: a doc comment whose entire body is one code block and nothing
+else is dropped. Such a comment is byte-identical to a rendered hover, so the
+extractor cannot tell them apart, and invariant 1 says emit nothing rather than
+guess. The fenced text is **not** rerouted — not into `def_sig`, whose contract
+in `specs/01-facts.md` is a one-line declaration header (a `scip-python` hover
+block is several lines and a `scip-typescript` one is prefixed `(method)`, so
+reflowing either would be the transformation invariant 1 forbids), and not into
+a relation of its own, which the surface budget in
+`crates/codeintel/tests/surface.rs` has no room for (#42).
 
 ### Position normalization
 
