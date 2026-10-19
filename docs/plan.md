@@ -1247,6 +1247,31 @@ M6 item 3, measured at last. `benches/warm_phases.rs` breaks a warm no-change
 call into its phases on a corpus that has not changed since it was indexed,
 which is the case the contract puts every call in. p50 / p95 in ms:
 
+> **Two columns of this table are not what they are labelled, and it is left
+> standing with the defect named rather than quietly deleted.** Found
+> 2026-10-19 while re-baselining.
+>
+> * The **deno** column was written at 22:08 by a binary that *already had the
+>   parallel walk*, so its `walk`, `refresh` and `warm_total` rows are the
+>   parallel figures presented as the serial baseline. The serial walk measured
+>   on a quiet host is 368.11 / 407.27, not 160.965 / 586.559.
+> * The **tokio** column came from a 21:35 run of a harness version whose phase
+>   decomposition was wrong — sequential blocks, `open` double-counted — taken
+>   at load 18.
+>
+> The cause is mechanical and is being fixed rather than remembered:
+> `target/bench/<name>.json` is one path per corpus that every run overwrites,
+> and nothing in it recorded which build or which host conditions produced it.
+> Provenance — rev, dirty flag, load average, core count — is being stamped into
+> every result, and `UPDATE_BASELINE` refused on a host too loaded to trust.
+>
+> **The conclusion below survives both defects**, which is why the table stays:
+> `walk` dominates `refresh` under either set of deno numbers — 161 of 168 ms
+> parallel, 368 of a larger total serial — and the ordering of phases is
+> unchanged. The *magnitudes* in the deno and tokio columns are not evidence
+> and must not be quoted. Re-measure on a quiet host before this table is cited
+> for anything.
+
 | phase | fd (~7k) | tokio (~183k) | deno (~831k) |
 |---|---|---|---|
 | `locate` | 0.001 / 0.002 | 0.000 / 0.000 | 0.002 / 0.003 |
