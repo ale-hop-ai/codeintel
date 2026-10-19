@@ -21,9 +21,6 @@ use crate::status::Status;
 use crate::wire::Wire;
 use crate::{Regexes, render, schema};
 
-/// The shipped rule library, compiled in.
-pub const STDLIB: &str = include_str!("../../../rules/stdlib.dl");
-
 /// How long auto-refresh may take before the answer is `stale`.
 pub const MAX_REFRESH_MS: u64 = 2_000;
 
@@ -379,7 +376,7 @@ impl Loaded {
             );
         }
         engine
-            .load_rules(STDLIB)
+            .load_rules(crate::STDLIB)
             .map_err(|d| anyhow::anyhow!("rules/stdlib.dl does not load: {}", d.message))?;
         // A repository's own conformance rules. Additive: a predicate is the
         // union of its clauses, so a file defining `is_test` widens it. Only a

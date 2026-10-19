@@ -158,7 +158,7 @@ pub fn schema_json(
         "hint": hint,
         "text": catalog.to_string(),
         "indexed": census.indexed,
-        "rules": crate::schema::rules(crate::schema::STDLIB)
+        "rules": crate::schema::rules(crate::STDLIB)
             .iter()
             .map(|r| serde_json::json!({ "head": r.head, "doc": r.doc }))
             .collect::<Vec<_>>(),

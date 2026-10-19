@@ -15,9 +15,6 @@ use std::fmt;
 
 use crate::census::Census;
 
-/// The shipped rule library, for the generated rule list.
-pub const STDLIB: &str = include_str!("../../../rules/stdlib.dl");
-
 /// One advertised rule: its head as written, and its doc.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rule {
@@ -133,7 +130,7 @@ impl fmt::Display for Schema<'_> {
         }
 
         f.write_str("\n\nRULES  derived. A new question is a rule, not a verb.\n")?;
-        for rule in rules(STDLIB) {
+        for rule in rules(crate::STDLIB) {
             writeln!(f, "  {}  {}", rule.head, rule.doc)?;
         }
 

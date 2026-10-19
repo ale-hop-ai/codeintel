@@ -151,7 +151,7 @@ fn the_schema_fits_its_size_budget_with_the_rule_list_complete() {
         text.len()
     );
 
-    for rule in schema::rules(schema::STDLIB) {
+    for rule in schema::rules(codeintel::STDLIB) {
         assert!(text.contains(&rule.head), "{} is not advertised", rule.head);
     }
 }
@@ -180,7 +180,7 @@ fn the_rule_list_matches_the_rules() {
     // it. Every advertised head must name a real predicate at its real arity,
     // and every predicate in the file must be advertised — otherwise `schema`
     // is a catalogue of a stdlib that no longer exists.
-    let advertised: Vec<(String, usize)> = schema::rules(schema::STDLIB)
+    let advertised: Vec<(String, usize)> = schema::rules(codeintel::STDLIB)
         .iter()
         .map(|r| {
             let (name, arity) =
@@ -190,7 +190,7 @@ fn the_rule_list_matches_the_rules() {
         .collect();
 
     let mut defined: Vec<(String, usize)> = Vec::new();
-    for line in schema::STDLIB.lines() {
+    for line in codeintel::STDLIB.lines() {
         let head = line.split_once(":-").map_or(line, |(h, _)| h);
         let Some((name, args)) = head.split_once('(') else {
             continue;
@@ -383,7 +383,7 @@ fn a_wrapped_rule_doc_is_joined_not_dropped() {
     // trip, and its `Rel` vocabulary does not fit on one line. A parser that
     // demanded a signature on every `%%` line dropped the continuation, so an
     // agent learned five of the ten values and would never ask for the rest.
-    let about = schema::rules(schema::STDLIB)
+    let about = schema::rules(codeintel::STDLIB)
         .into_iter()
         .find(|r| r.head.starts_with("about("))
         .expect("about is advertised");
@@ -851,7 +851,7 @@ fn schema_json_carries_the_counts_structurally() {
 
     // Rules come through with their signatures, not just names.
     let rules = json["rules"].as_array().expect("rules");
-    assert_eq!(rules.len(), schema::rules(schema::STDLIB).len());
+    assert_eq!(rules.len(), schema::rules(codeintel::STDLIB).len());
     assert!(
         rules
             .iter()
@@ -1221,7 +1221,7 @@ fn an_argument_the_tool_does_not_have_is_refused() {
 #[test]
 fn uses_package_advertises_whose_package_name_it_reports() {
     for name in ["uses_package", "uses_package_exact"] {
-        let rule = schema::rules(schema::STDLIB)
+        let rule = schema::rules(codeintel::STDLIB)
             .into_iter()
             .find(|r| schema::split_head(&r.head).is_some_and(|(n, _)| n == name))
             .unwrap_or_else(|| panic!("`{name}` is not advertised"));
@@ -1233,7 +1233,7 @@ fn uses_package_advertises_whose_package_name_it_reports() {
         );
     }
 
-    let uses_package = schema::rules(schema::STDLIB)
+    let uses_package = schema::rules(codeintel::STDLIB)
         .into_iter()
         .find(|r| schema::split_head(&r.head).is_some_and(|(n, _)| n == "uses_package"))
         .expect("advertised");
