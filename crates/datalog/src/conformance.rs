@@ -379,7 +379,7 @@ fn max_result_rows_truncates_and_names_the_cap() {
     let result = e.query("?- reaches(X, Y).", &limits).expect("answers");
     assert_eq!(result.rows.len(), 3);
     assert!(result.truncated);
-    assert_eq!(result.cap, Some("max_result_rows"));
+    assert_eq!(result.cap, Some(crate::Cap::Rows));
 }
 
 #[test]
@@ -405,7 +405,7 @@ fn max_result_bytes_truncates_at_a_row_boundary() {
     let mut e = engine(GRAPH);
     let result = e.query("?- reaches(X, Y).", &limits).expect("answers");
     assert!(result.truncated);
-    assert_eq!(result.cap, Some("max_result_bytes"));
+    assert_eq!(result.cap, Some(crate::Cap::Bytes));
     assert!(
         !result.rows.is_empty(),
         "a byte cap that fits nothing is a different defect"

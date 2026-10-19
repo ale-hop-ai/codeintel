@@ -14,7 +14,7 @@ use crate::atom::{Atom, Term, is_int};
 use crate::check::{Schema, check};
 use crate::db::Db;
 use crate::diag::{Diagnostic, Result, Status};
-use crate::limits::{Limits, Stats};
+use crate::limits::{Cap, Limits, Stats};
 use crate::matcher::{Matcher, Regexes};
 use crate::parse::parse;
 use crate::relation::Relation;
@@ -38,8 +38,8 @@ pub struct QueryResult {
     pub rows: Vec<Vec<Atom>>,
     /// True when a cap dropped rows.
     pub truncated: bool,
-    /// Which cap fired, by name.
-    pub cap: Option<&'static str>,
+    /// Which cap fired.
+    pub cap: Option<Cap>,
     /// What the evaluation cost.
     pub stats: Stats,
 }
@@ -598,13 +598,13 @@ impl Engine {
         for row in rows.iter() {
             if out.len() >= limits.max_result_rows {
                 truncated = true;
-                cap = Some("max_result_rows");
+                cap = Some(Cap::Rows);
                 break;
             }
             let width = if ground { 1 } else { self.row_bytes(row) };
             if bytes + width > limits.max_result_bytes {
                 truncated = true;
-                cap = Some("max_result_bytes");
+                cap = Some(Cap::Bytes);
                 break;
             }
             bytes += width;

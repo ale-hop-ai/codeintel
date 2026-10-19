@@ -42,14 +42,46 @@ impl Default for Limits {
     }
 }
 
-impl Limits {
-    /// The names a `cap` field can carry, for a consumer that wants to switch
-    /// on them rather than parse prose.
-    /// Only the two truncating limits are here. `max_derived_tuples` and
-    /// `max_time_ms` abort the query with a diagnostic rather than trim an
-    /// answer, so they never appear in `cap`, and listing them told a consumer
-    /// to switch on a value it would never see.
-    pub const CAPS: [&'static str; 2] = ["max_result_rows", "max_result_bytes"];
+/// The cap that trimmed an answer.
+///
+/// Two values, because only two limits trim. `max_derived_tuples` and
+/// `max_time_ms` abort the query with a diagnostic rather than cut an answer
+/// short, so they never appear here — an earlier list of cap *names* included
+/// them and told a consumer to switch on values it would never see.
+///
+/// An enum and not a `&'static str`. The host branches on which cap fired to
+/// decide what advice to give — `--limit` moves `max_result_rows` and nothing
+/// else, so offering it against a byte cap is advice that changes nothing
+/// (#27) — and it did that by matching on a string literal, where a typo
+/// falls through to the general arm and silently gives the wrong advice. The
+/// wire form is unchanged: [`Cap::as_str`] is what is serialized.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cap {
+    /// `max_result_rows` fired: the engine stopped adding rows.
+    Rows,
+    /// `max_result_bytes` fired: the rendered answer reached its budget.
+    Bytes,
+}
+
+impl Cap {
+    /// Both of them, for a consumer enumerating what it may be told.
+    pub const ALL: [Self; 2] = [Self::Rows, Self::Bytes];
+
+    /// Its wire name — the limit field it corresponds to, spelled exactly as
+    /// [`Limits`] spells it, so a consumer can look the number up.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Rows => "max_result_rows",
+            Self::Bytes => "max_result_bytes",
+        }
+    }
+}
+
+impl std::fmt::Display for Cap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 /// What one evaluation cost. Not part of the answer, so timings here do not

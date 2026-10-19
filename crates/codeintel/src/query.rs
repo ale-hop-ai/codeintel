@@ -119,7 +119,7 @@ pub struct Answer {
     /// True when a cap dropped rows.
     pub truncated: bool,
     /// Which cap fired.
-    pub cap: Option<&'static str>,
+    pub cap: Option<datalog::Cap>,
     /// Non-null whenever `status != ok`, and always actionable.
     pub hint: Option<String>,
     /// The root that actually answered, when it is **not** the one the caller
@@ -570,7 +570,7 @@ fn evaluate(
         // so it is the one reported. Naming the engine's row cap there advised
         // `--limit`, which returns the same rows every time (#27).
         let cap = if byte_cut {
-            Some("max_result_bytes")
+            Some(datalog::Cap::Bytes)
         } else {
             result.cap
         };
@@ -579,14 +579,18 @@ fn evaluate(
         if truncated {
             // `--limit` moves `max_result_rows` and nothing else, so offering
             // it against a byte cap is advice that changes nothing.
+            // Exhaustive over `Cap`, so a third cap could not be added
+            // upstream and land silently in the general arm with the wrong
+            // advice attached (#48).
             let cut = match cap {
-                Some("max_result_rows") => format!(
-                    "max_result_rows fired at {}; raise it with --limit or narrow the query",
+                Some(datalog::Cap::Rows) => format!(
+                    "{} fired at {}; raise it with --limit or narrow the query",
+                    datalog::Cap::Rows,
                     options.limit
                 ),
                 // The engine's cap and the host's are different numbers, and
                 // quoting the wrong one is invariant 5 with extra steps.
-                Some(fired) => {
+                Some(fired @ datalog::Cap::Bytes) => {
                     let at = if byte_cut {
                         budget
                     } else {

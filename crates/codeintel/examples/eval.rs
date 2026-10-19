@@ -45,7 +45,10 @@ fn main() -> ExitCode {
             }
             println!("rows\t{}", result.rows.len());
             if result.truncated {
-                println!("truncated\t{}", result.cap.unwrap_or("?"));
+                println!(
+                    "truncated\t{}",
+                    result.cap.map_or("?", datalog::Cap::as_str)
+                );
             }
             ExitCode::SUCCESS
         }
