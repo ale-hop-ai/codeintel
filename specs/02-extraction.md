@@ -347,6 +347,25 @@ budget is per *path*, and the walk is what decides it. Each such document is
 counted and named with the other skipped documents in the `index` summary
 ([05-surface.md](05-surface.md) § `index`); it is never silent.
 
+**The walk runs on four threads, and that is why its outputs are ordered.**
+Traversal and ignore-matching are the dominant cost of a warm call —
+[plan.md](../docs/plan.md) § #28 measured the walk at 161 of the 168 ms
+`refresh` spends on a ~831k-LOC tree, against a per-file stale check of 2.8 ms —
+and they parallelize without touching what the walk decides. Each thread applies
+the same per-entry policy and accumulates privately; the shares merge once per
+thread, not once per file.
+
+Determinism is preserved by construction, not by luck: `files` and the
+unreadable list are sorted after the merge, and every other output is
+order-independent by type — a set of paths and a map of counts per extension.
+That is the same requirement [plan.md](../docs/plan.md) M2 already imposed, that
+shuffling the file order changes nothing, so parallelism asks for no new
+property. A test walks a wide tree twenty-one times and compares every field.
+
+Four and not one per core: the walk is bound by directory reads rather than by
+CPU, so beyond a handful of threads they contend and the time goes back up. Four
+was the best of 2, 3, 4, 6 and 8 on all three pinned corpora.
+
 ---
 
 ## Tier B — SCIP
