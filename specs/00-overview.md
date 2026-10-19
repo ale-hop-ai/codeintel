@@ -93,7 +93,7 @@ These hold at every commit. A change that breaks one is a spec change first.
 4. **The fact schema is the ABI.** Adding a relation is cheap. Changing or
    removing one is a breaking change with a version bump and a migration note in
    [01-facts.md](01-facts.md).
-5. **The index is 100% derived.** `rm -rf .codeintel` is always a valid repair.
+5. **The index is 100% derived.** Deleting the index directory ([04-storage.md](04-storage.md) § Location) is always a valid repair.
    Nothing user-authored is ever stored there.
 6. **Degradation is a status, never an error and never a silent empty.** One
    of the statuses in [05-surface.md](05-surface.md) § Status taxonomy is

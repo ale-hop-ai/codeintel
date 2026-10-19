@@ -8,7 +8,7 @@ fact store, and exposes them through a Datalog query engine. One index, one
 query language, no inference, no ranking, no magic.
 
 ```sh
-codeintel index .
+codeintel index .          # the index goes to ~/.cache/codeintel/, not into the repo
 
 # architecture conformance: no module under ui/ may import from db/.
 # works on a fresh index, no build, no language server, every language.
@@ -27,6 +27,12 @@ With a SCIP index present, the same store answers reachability:
 codeintel query '?- innermost_at("src/store.rs", 142, S), impact_of(S, C),
                     def(C, F, _, N), at(C, F, L), !is_test(F).'
 ```
+
+The index lives outside the repository: `${XDG_CACHE_HOME:-~/.cache}/codeintel/<key>/`,
+one per repo. `--index-dir <PATH>` or `CODEINTEL_INDEX_DIR` moves it; an
+existing `<repo>/.codeintel/` from an older version keeps being used. Nothing is
+ever written into the tree, and `.gitignore` is never touched.
+`codeintel status` prints where it is.
 
 ## Install
 
@@ -97,7 +103,7 @@ Two extraction tiers feed one fact store:
                   │ scip-* / rust-analyzer output    │ references, implements
                   └──────────────┬───────────────────┘
                                  ▼
-                     .codeintel/  interned u32 facts, per-file segments
+                     index dir    interned u32 facts, per-file segments
                                  ▼
                      Datalog engine — semi-naive, stratified negation
                                  ▼

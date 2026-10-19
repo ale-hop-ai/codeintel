@@ -91,6 +91,7 @@ fn run(root: &Path, args: &[&str]) -> Output {
     Command::new(binary())
         .args(args)
         .current_dir(root)
+        .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
         .output()
         .expect("the binary runs")
 }
@@ -483,7 +484,7 @@ fn a_lang_restricted_refresh_carries_the_other_language_forward() {
         drop(std::fs::remove_file(dir.path().join(stale)));
     }
     let indexed = |root: &Path| -> Vec<String> {
-        let store = facts::Store::open(root, "").expect("opens");
+        let store = facts::Store::open(root, root.join(".codeintel"), "").expect("opens");
         store.manifest().files.keys().cloned().collect()
     };
     index(dir.path());

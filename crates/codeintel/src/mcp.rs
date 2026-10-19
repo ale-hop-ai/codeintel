@@ -56,7 +56,12 @@ pub const MAX_LINE_BYTES: usize = 1 << 20;
 /// A read or write that fails. A malformed *message* — not UTF-8, not JSON,
 /// a batch, too long — is answered with a JSON-RPC error, not propagated: one
 /// bad line must not end the session (`specs/05-surface.md` § MCP).
-pub fn serve(root: &Path, mut input: impl BufRead, mut output: impl Write) -> Result<()> {
+pub fn serve(
+    root: &Path,
+    index_dir: Option<&Path>,
+    mut input: impl BufRead,
+    mut output: impl Write,
+) -> Result<()> {
     // One loaded index for the life of the session, rebuilt when a refresh
     // moves the manifest (`specs/05-surface.md` § MCP).
     let mut warm = Warm::default();
@@ -72,7 +77,7 @@ pub fn serve(root: &Path, mut input: impl BufRead, mut output: impl Write) -> Re
             return Ok(());
         }
         let response = if line.last() == Some(&b'\n') || read < MAX_LINE_BYTES {
-            respond(root, &mut warm, &line)
+            respond(root, index_dir, &mut warm, &line)
         } else {
             // The cap stopped the read mid-line. Skip the rest without holding
             // it: bounding the buffer is the point.
@@ -92,7 +97,12 @@ pub fn serve(root: &Path, mut input: impl BufRead, mut output: impl Write) -> Re
 }
 
 /// One line in, at most one message out.
-fn respond(root: &Path, warm: &mut Warm, line: &[u8]) -> Option<serde_json::Value> {
+fn respond(
+    root: &Path,
+    index_dir: Option<&Path>,
+    warm: &mut Warm,
+    line: &[u8],
+) -> Option<serde_json::Value> {
     // No id can be read out of these, so the error goes to `id: null` — the
     // client that sent them is still waiting for something.
     let Ok(line) = std::str::from_utf8(line) else {
@@ -142,7 +152,7 @@ fn respond(root: &Path, warm: &mut Warm, line: &[u8]) -> Option<serde_json::Valu
     Some(match method {
         "initialize" => ok(&id, &initialize()),
         "tools/list" => ok(&id, &serde_json::json!({ "tools": [tool()] })),
-        "tools/call" => match call(root, warm, &params) {
+        "tools/call" => match call(root, index_dir, warm, &params) {
             Ok(result) => ok(&id, &result),
             Err((code, message)) => error(&id, code, &message),
         },
@@ -224,6 +234,7 @@ const ARGUMENTS: [&str; 5] = ["query", "schema", "limit", "format", "raw"];
 /// hint, because that is what the taxonomy is for.
 fn call(
     root: &Path,
+    index_dir: Option<&Path>,
     warm: &mut Warm,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value, (i64, String)> {
@@ -289,7 +300,7 @@ fn call(
 
     let json = arguments.get("format").and_then(serde_json::Value::as_str) == Some("json");
     if wants_schema {
-        return schema(root, json);
+        return schema(root, index_dir, json);
     }
 
     let options = Options {
@@ -309,6 +320,7 @@ fn call(
         // agent choosing one over the wire is a capability this tool does not
         // need. `codeintel query --rules` is where that lives.
         rules: Vec::new(),
+        index_dir: index_dir.map(Path::to_path_buf),
         // `max_result_bytes` is measured on the result this call returns.
         wire: if json { Wire::McpJson } else { Wire::McpText },
     };
@@ -323,8 +335,13 @@ fn call(
 }
 
 /// The catalog, which needs no query and works with no index.
-fn schema(root: &Path, json: bool) -> Result<serde_json::Value, (i64, String)> {
-    let census = match facts::Store::open(root, &extract::fingerprint())
+fn schema(
+    root: &Path,
+    index_dir: Option<&Path>,
+    json: bool,
+) -> Result<serde_json::Value, (i64, String)> {
+    let census = match facts::store::locate(root, index_dir)
+        .and_then(|dir| facts::Store::open(root, dir, &extract::fingerprint()))
         .and_then(|store| Census::of(&store))
     {
         Ok(census) => census,

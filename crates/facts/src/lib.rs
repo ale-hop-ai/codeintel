@@ -70,7 +70,7 @@ pub fn segment_name(bytes: &[u8]) -> SegName {
 }
 
 /// The repair a `corrupt` refusal names.
-pub const REPAIR: &str = "rm -rf .codeintel && codeintel index .";
+pub const REPAIR: &str = "codeintel index . --rebuild";
 
 /// What this crate refused, as opposed to an I/O failure.
 ///

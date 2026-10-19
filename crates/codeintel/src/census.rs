@@ -206,6 +206,8 @@ pub struct Report<'a> {
     pub census: &'a Census,
     /// What wrote it.
     pub manifest: &'a Manifest,
+    /// Where it lives (`specs/04-storage.md` § Location).
+    pub index_dir: &'a std::path::Path,
 }
 
 impl Report<'_> {
@@ -272,9 +274,7 @@ impl Report<'_> {
             // Every other verdict reaches `status` through `verdict()`, which
             // carries the store's own message. Naming them rather than a
             // catch-all so a new status has to decide what it tells the reader.
-            other => Some(format!(
-                "{other}: run: codeintel index {root} --rebuild, or rm -rf .codeintel and reindex"
-            )),
+            other => Some(format!("{other}: run: codeintel index {root} --rebuild")),
         }
     }
 }
@@ -290,6 +290,7 @@ impl fmt::Display for Report<'_> {
         }
         writeln!(f, "status: {}", self.status())?;
         writeln!(f, "root: {}", manifest.roots.join(", "))?;
+        writeln!(f, "index: {}", self.index_dir.display())?;
         writeln!(
             f,
             "written by: {} (schema {}, dict generation {})",
@@ -428,6 +429,7 @@ impl Report<'_> {
         "hint": self.hint(),
         "indexed": census.indexed,
         "roots": manifest.roots,
+        "index_dir": self.index_dir.display().to_string(),
         "writer_version": manifest.writer_version,
         "schema_version": manifest.schema_version,
         "extractor_fingerprint": manifest.extractor_fingerprint,

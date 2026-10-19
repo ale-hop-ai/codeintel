@@ -49,6 +49,7 @@ fn run(root: &Path, args: &[&str]) -> Output {
     Command::new(binary())
         .args(args)
         .current_dir(root)
+        .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
         .output()
         .expect("the binary runs")
 }
@@ -415,6 +416,7 @@ fn rpc(root: &Path, requests: &[serde_json::Value]) -> Vec<serde_json::Value> {
     let mut child = Command::new(binary())
         .args(["mcp"])
         .current_dir(root)
+        .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -609,6 +611,7 @@ fn rpc_bytes(root: &Path, input: &[u8]) -> Vec<serde_json::Value> {
     let mut child = Command::new(binary())
         .args(["mcp"])
         .current_dir(root)
+        .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

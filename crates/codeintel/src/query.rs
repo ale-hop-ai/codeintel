@@ -75,6 +75,10 @@ pub struct Options {
     /// [`Answer::shadowed`]. A repository that means to replace a stdlib rule
     /// puts it in the program, not in a rule file.
     pub rules: Vec<PathBuf>,
+    /// The index directory, if the caller named one (`--index-dir`, or
+    /// `CODEINTEL_INDEX_DIR`). `None` takes the default
+    /// (`specs/04-storage.md` § Location).
+    pub index_dir: Option<PathBuf>,
     /// Where the answer is sent. `max_result_bytes` is measured on it
     /// (`specs/05-surface.md` § Symbol rendering).
     pub wire: Wire,
@@ -87,6 +91,7 @@ impl Default for Options {
             no_refresh: false,
             raw: false,
             rules: Vec::new(),
+            index_dir: None,
             wire: Wire::Text,
         }
     }
@@ -208,7 +213,9 @@ impl Warm {
     }
 
     fn answer(&mut self, root: &Path, program: &str, options: &Options) -> Result<Answer> {
-        let mut store = match open(root)? {
+        let dir = facts::store::locate(root, options.index_dir.as_deref())
+            .context("locating the index")?;
+        let mut store = match open(root, &dir)? {
             Ok(store) => store,
             Err(answer) => {
                 self.loaded = None;
@@ -386,9 +393,10 @@ pub fn stale_schema(manifest: &facts::Manifest, root: &Path) -> Option<String> {
 /// Base relations by name, as a store loads them.
 type Relations = BTreeMap<&'static str, Relation>;
 
-/// Open the store under `root`, or the answer a refused one deserves.
-fn open(root: &Path) -> Result<Result<Store, Answer>> {
-    match Store::open(root, &extract::fingerprint()) {
+/// Open the store for `root` held in `dir`, or the answer a refused one
+/// deserves.
+fn open(root: &Path, dir: &Path) -> Result<Result<Store, Answer>> {
+    match Store::open(root, dir, &extract::fingerprint()) {
         Ok(store) => Ok(Ok(store)),
         Err(error) => refused(error, "opening the index").map(Err),
     }
@@ -422,7 +430,7 @@ fn load(mut store: Store, root: &Path) -> Result<Result<(Store, Relations), Answ
         if error.kind() != std::io::ErrorKind::NotFound {
             return refused(error, "loading the index").map(Err);
         }
-        let reopened = match open(root)? {
+        let reopened = match open(root, store.dir())? {
             Ok(reopened) => reopened,
             Err(answer) => return Ok(Err(answer)),
         };
@@ -1066,7 +1074,7 @@ fn refresh(
         Err(e) => return refused(e, "re-reading the manifest").map(|a| (a.status, a.hint, 0)),
     };
     if current.as_ref() != Some(store.manifest()) {
-        *store = match open(root)? {
+        *store = match open(root, store.dir())? {
             Ok(reopened) => reopened,
             Err(answer) => return Ok((answer.status, answer.hint, 0)),
         };
@@ -1144,7 +1152,7 @@ mod tests {
     }
 
     fn opened(root: &Path) -> Store {
-        Store::open(root, &extract::fingerprint()).expect("opens")
+        Store::open(root, root.join(facts::store::DIR), &extract::fingerprint()).expect("opens")
     }
 
     fn indexed(source: &str) -> tempfile::TempDir {

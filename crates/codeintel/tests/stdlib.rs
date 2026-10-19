@@ -35,6 +35,7 @@ fn indexed() -> &'static Path {
         let out = Command::new(binary())
             .args(["index", ".", "--scip", "index.scip"])
             .current_dir(dir.path())
+            .env("CODEINTEL_INDEX_DIR", dir.path().join(".codeintel"))
             .output()
             .expect("the binary runs");
         assert!(
@@ -95,6 +96,7 @@ fn rows(goal: &str) -> Vec<String> {
     let out = Command::new(binary())
         .args(["query", goal, "--no-refresh"])
         .current_dir(indexed())
+        .env("CODEINTEL_INDEX_DIR", indexed().join(".codeintel"))
         .output()
         .expect("the binary runs");
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -114,6 +116,7 @@ fn raw_rows(goal: &str) -> Vec<String> {
     let out = Command::new(binary())
         .args(["query", goal, "--no-refresh", "--raw"])
         .current_dir(indexed())
+        .env("CODEINTEL_INDEX_DIR", indexed().join(".codeintel"))
         .output()
         .expect("the binary runs");
     String::from_utf8_lossy(&out.stdout)
@@ -142,6 +145,7 @@ fn named_only() -> &'static Path {
         let out = Command::new(binary())
             .args(["index", "."])
             .current_dir(dir.path())
+            .env("CODEINTEL_INDEX_DIR", dir.path().join(".codeintel"))
             .output()
             .expect("the binary runs");
         assert!(
@@ -159,6 +163,7 @@ fn rows_in(root: &Path, goal: &str) -> Vec<String> {
     let out = Command::new(binary())
         .args(["query", goal, "--no-refresh"])
         .current_dir(root)
+        .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
         .output()
         .expect("the binary runs");
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -177,6 +182,7 @@ fn raw_rows_in(root: &Path, goal: &str) -> Vec<String> {
     let out = Command::new(binary())
         .args(["query", goal, "--no-refresh", "--raw"])
         .current_dir(root)
+        .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
         .output()
         .expect("the binary runs");
     String::from_utf8_lossy(&out.stdout)

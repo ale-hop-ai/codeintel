@@ -172,7 +172,7 @@ fn index_cold(root: &Path) -> Result<(f64, usize, usize)> {
     for _ in 0..INDEX_RUNS {
         index::discard(root)?;
         let started = Instant::now();
-        let mut store = Store::open(root, &extract::fingerprint())?;
+        let mut store = Store::open(root, root.join(".codeintel"), &extract::fingerprint())?;
         let report = index::refresh(&mut store, &Plan::default())?;
         runs.push(ms(started));
         (files, defs) = (report.indexed, report.counts.defs);
@@ -186,7 +186,7 @@ fn load_warm(root: &Path) -> Result<f64> {
     let mut runs = Vec::new();
     for i in 0..=LOAD_RUNS {
         let started = Instant::now();
-        let store = Store::open(root, &fingerprint)?;
+        let store = Store::open(root, root.join(".codeintel"), &fingerprint)?;
         let relations = store.load()?;
         let elapsed = ms(started);
         drop(relations);
@@ -207,7 +207,7 @@ fn reindex_one(root: &Path, file: &str) -> Result<f64> {
         writeln!(text, "// bench edit {i}")?;
         std::fs::write(&path, text)?;
         let started = Instant::now();
-        let mut store = Store::open(root, &extract::fingerprint())?;
+        let mut store = Store::open(root, root.join(".codeintel"), &extract::fingerprint())?;
         let report = index::refresh(&mut store, &Plan::default())?;
         runs.push(ms(started));
         if report.indexed != 1 {
@@ -283,6 +283,7 @@ fn measure_query(root: &Path, id: &str, goal: &str) -> Result<Measured> {
         let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
             .args(["query", goal, "--no-refresh"])
             .current_dir(root)
+            .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
             .output()
             .context("the binary runs")?;
         let elapsed = ms(started);
@@ -338,7 +339,7 @@ fn measure_mcp(root: &Path, set: &[(String, String)]) -> Result<Mcp> {
 
     let mut stamps = Stamps::default();
     let started = Instant::now();
-    codeintel::mcp::serve(root, input.as_bytes(), &mut stamps)?;
+    codeintel::mcp::serve(root, None, input.as_bytes(), &mut stamps)?;
     if stamps.at.len() != calls {
         bail!("mcp: {} responses to {calls} calls", stamps.at.len());
     }

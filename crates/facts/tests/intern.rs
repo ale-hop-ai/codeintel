@@ -147,7 +147,7 @@ fn a_truncated_dictionary_is_reported_not_read_through() {
     let message = error.to_string();
     assert!(message.contains("corrupt"), "{message}");
     assert!(
-        message.contains("rm -rf .codeintel"),
+        message.contains("--rebuild"),
         "the message names the repair: {message}"
     );
 }
