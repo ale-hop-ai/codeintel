@@ -882,9 +882,37 @@ ref_outside_exact(S, F) :- def(S, F, _, _),
 ```
 
 That distinction is the entire point of the `Prov` column. **Every rule that
-reads `calls` or `ref` is contaminated by it, and every one of them ships in
-both forms** — `dead_export`, `entrypoint`, `depends`, `uses_package`, and
-`about`'s `caller`/`callee`/`test` rows:
+reads `calls` or `ref` is contaminated by it.** The roster of `_exact` twins is
+exhaustive and is stated here rather than implied, because an earlier draft
+claimed every contaminated rule shipped in both forms while shipping only
+`dead_export` that way, and a later one named `about` among them while stdlib
+had no `about_exact`:
+
+| contaminated rule | `_exact` twin | `rules/stdlib.dl` |
+|---|---|---|
+| `calls/2` | `calls_exact/2` | 215 |
+| `impact_of/2` | `impact_of_exact/2` | 239 |
+| `reach_of/2` | `reach_of_exact/2` | 243 |
+| `reaches/2` | `reaches_exact/2` | 263 |
+| `recursive/1` | `recursive_exact/1` | 266 |
+| `dead_export/1` | `dead_export_exact/1` | 360 |
+| `entrypoint/1` | `entrypoint_exact/1` | 366 |
+| `depends/2` | `depends_exact/2` | 369 |
+| `uses_package/2` | `uses_package_exact/2` | 372 |
+| `about/5` | **none, deliberately** | 300-309 |
+
+`about` is the one exclusion and it is a decision, not an omission. It is an
+orientation relation: ten clauses that answer "everything about `S`" in one
+round trip, of which three (`caller`, `callee`, `test`) read `calls` and one
+(`implements`) discards a `Prov` column it already has. An `about_exact` would
+be ten more clauses and ten more lines of schema to buy what `calls_exact`
+already answers directly, and the schema has a fixed character budget
+(`specs/05-surface.md` § `schema`) that ten clauses would spend for nothing.
+**When provenance matters, do not reach for
+`about` — ask `calls_exact`, `impact_of_exact` or `reach_of_exact`.** `about`
+is for orienting, and orienting tolerates a `name`-tier row.
+
+The three twins whose shape is not obvious from their contaminated form:
 
 ```prolog
 entrypoint_exact(S)    :- def(S, _, K, _), callable(K), resolved(S),
@@ -896,9 +924,8 @@ uses_package_exact(F,P):- ref(S, F, _, _, _, _, "exact"), extern(S, _, P, _).
 `entrypoint` is the sharpest case and the reason this list is exhaustive rather
 than illustrative. Over a `name`-provenance graph it does not degrade, it
 **inverts**: an unresolved call is an invisible call, so almost every function
-in the repo reports as an entrypoint. An earlier draft claimed every
-contaminated rule shipped in both forms while shipping only `dead_export` that
-way.
+in the repo reports as an entrypoint. That is why it carries a twin even though
+nothing in the cookbook asks for one.
 
 ---
 

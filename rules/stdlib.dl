@@ -8,9 +8,13 @@
 %   * Seeded traversals take the seed FIRST (impact_of, reach_of). The engine
 %     pushes that binding into the recursion, so evaluation grows outward from
 %     the seed instead of computing all-pairs reachability.
-%   * Anything reading `calls` or `ref` is contaminated by resolution quality,
-%     so it ships in both forms: the `name`-tolerant one and the `_exact` one
-%     that gates on SCIP evidence.
+%   * Anything reading `calls` or `ref` is contaminated by resolution quality.
+%     Nine such rules ship in both forms: the `name`-tolerant one and the
+%     `_exact` one that gates on SCIP evidence. `about` is the one deliberate
+%     exclusion — it orients, it does not adjudicate, and when provenance
+%     matters you ask `calls_exact` instead. The roster is exhaustive and is
+%     written down in specs/01-facts.md § Tier precedence; do not grow it here
+%     without growing it there.
 
 % === visibility ========================================================
 % `exported` is DERIVED. The extractor records what a definition SAYS about
