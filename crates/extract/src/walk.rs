@@ -76,6 +76,64 @@ pub struct Walked {
     pub skips: Skips,
 }
 
+/// The one walk policy: hidden entries skipped, `.gitignore` honoured whether
+/// or not this is a git checkout, a legacy in-tree store never descended into.
+///
+/// Shared rather than written twice. Anything that asks "what is in this tree"
+/// has to agree with what `index` actually indexes, or it reports on a
+/// different tree than the one the index describes.
+fn walker(root: &Path, depth: Option<usize>) -> ignore::WalkBuilder {
+    let mut walker = ignore::WalkBuilder::new(root);
+    walker
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        // Honour `.gitignore` in a tree that is not a git checkout — a worktree,
+        // an export, a vendored copy. The default refuses to, and the effect is
+        // that `target/` silently becomes 40,000 indexed files.
+        .require_git(false)
+        .max_depth(depth);
+    // The store is derived and may still live under the root; indexing it would
+    // be indexing ourselves.
+    walker.filter_entry(|e| e.file_name() != std::ffi::OsStr::new(".codeintel"));
+    walker
+}
+
+/// Directories under `root`, at most `depth` levels down and at most `cap` of
+/// them, each with its depth. `root` itself is not one.
+///
+/// Returned sorted, and with a flag that is true when either bound stopped the
+/// walk short — a cap that may have hidden the answer is reported, never
+/// silent (`specs/00-overview.md` invariant 5).
+///
+/// This is what index discovery probes (`specs/04-storage.md` § Discovery).
+/// It is here and not in the caller so that the set of directories considered
+/// is the set `walk` would descend into, by construction.
+#[must_use]
+pub fn dirs(root: &Path, depth: usize, cap: usize) -> (Vec<(usize, PathBuf)>, bool) {
+    let mut out = Vec::new();
+    let mut bounded = false;
+    // One level past the cap, so a tree that goes deeper is *known* to, rather
+    // than assumed either way.
+    for entry in walker(root, Some(depth + 1)).build().flatten() {
+        if entry.depth() == 0 || !entry.file_type().is_some_and(|t| t.is_dir()) {
+            continue;
+        }
+        if entry.depth() > depth {
+            bounded = true;
+            continue;
+        }
+        if out.len() == cap {
+            bounded = true;
+            break;
+        }
+        out.push((entry.depth(), entry.path().to_path_buf()));
+    }
+    out.sort();
+    (out, bounded)
+}
+
 /// Walk `root` and return the indexable files, sorted by path.
 ///
 /// Sorted because `docs/plan.md` M2 requires that shuffling the file order
@@ -86,21 +144,7 @@ pub fn walk(root: &Path) -> Walked {
     let mut out = Vec::new();
     let mut visible = BTreeSet::new();
     let mut skips = Skips::default();
-    let mut walker = ignore::WalkBuilder::new(root);
-    walker
-        .hidden(true)
-        .git_ignore(true)
-        .git_global(true)
-        .git_exclude(true)
-        // Honour `.gitignore` in a tree that is not a git checkout — a worktree,
-        // an export, a vendored copy. The default refuses to, and the effect is
-        // that `target/` silently becomes 40,000 indexed files.
-        .require_git(false);
-    // The store is derived and lives under the root; indexing it would be
-    // indexing ourselves.
-    walker.filter_entry(|e| e.file_name() != std::ffi::OsStr::new(".codeintel"));
-
-    for entry in walker.build() {
+    for entry in walker(root, None).build() {
         let entry = match entry {
             Ok(e) => e,
             Err(e) => {

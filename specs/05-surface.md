@@ -24,9 +24,9 @@ guessing what an empty result means.
 
 | status | Meaning | Hint returned |
 |---|---|---|
-| `ok` | query ran, results are complete | — |
+| `ok` | query ran, results are complete | — , unless `root` differs from the root asked about (§ The nearest index) |
 | `truncated` | query ran, a cap fired | which cap (`max_result_rows` / `max_result_bytes`), and its value |
-| `no-index` | no index for this root | `run: codeintel index .` |
+| `no-index` | no index for this root, and none was adopted | one line that indexes it, tier B included (§ The no-index hint); plus any index found nearby (§ The nearest index) |
 | `stale` | sources changed and auto-refresh was skipped, exceeded `max_refresh_ms`, or `schema_version` mismatched | `run: codeintel index .` — names the N files |
 | `no-scip` | the goal's **relation-dependency closure** reaches a relation only SCIP populates, and none was ingested — **or** an index was ingested and not one of its documents matched an indexed file, which leaves those relations just as empty | which relations, and the indexer command for the languages present. When documents were ingested and none matched, the hint says so, with the count and the `--scip-root` that would fix it |
 | `scip-stale` | an indexed file holds bytes `index.scip` did not see ([04-storage.md](04-storage.md) § Manifest, `scip_hash`) | which files, and the indexer command |
@@ -393,6 +393,108 @@ the consumer to raise `--limit`, which returns the same 2,757 rows every time.
 A consumer that follows the hint loops, and invariant 7 is not satisfied by a
 cap that fired but did not decide the answer.
 
+### The nearest index
+
+An agent does not choose the root. `codeintel mcp` is registered once and
+launched with the client's working directory, so the root is whatever directory
+the session was opened in. An index built one level down — which is where a
+SCIP indexer has to run when the build lives in a subdirectory — answered
+`codeintel query` run from that subdirectory and `no-index` to every MCP call,
+forever, with no way for the agent to say otherwise (#61). A tool whose only
+answer is "wrong directory" and whose caller cannot change directory is a tool
+the agent stops using.
+
+So **when the requested root has no index, `query` looks for the nearest one**,
+by the bounded probe in [04-storage.md](04-storage.md) § Discovery, and adopts
+it when the choice is unambiguous:
+
+1. **Nearest ancestor wins.** An index at an ancestor of `R` covers every file
+   under `R` and more — a superset, the monorepo-root case, and the common one.
+2. **Otherwise one descendant, and only if there is exactly one.** "One
+   unambiguous child" is the whole rule. Two sibling indexes are a choice this
+   tool is not entitled to make on the caller's behalf, and picking the
+   lexicographically first would be a guess — invariant 1.
+3. **Otherwise nothing is adopted**, and the answer is `no-index` with every
+   index found named in the hint.
+
+**Adoption is never silent, and it is reported structurally, not in prose.**
+The response carries `root`: the root that actually answered. It is `null` when
+that is the root the caller asked about, and the path otherwise. An agent
+branching on `root != null` learns the scope moved without reading English,
+which is invariant 6 — and it matters most in the descendant case, where
+`status: ok` with zero rows means "not true of `daemon/`" rather than "not true
+of your repository".
+
+**`root` carries the redirect; `status` keeps carrying the index's own
+condition.** The adopted index can be `stale`, `no-scip` or `scip-stale`, and
+those are facts about the answer that are nowhere else in the response. A
+dedicated `redirected` status would have overwritten exactly one of them, for
+the same reason truncation composes rather than overwrites (§ Status taxonomy).
+`ok` therefore carries a hint in this one case, naming the adopted root and the
+command that indexes the requested one instead.
+
+**`index`, `status` and `schema` do not adopt.** They are statements *about a
+named directory*; `query` is a question *about some code*. A `status` that
+quietly reported on a different directory than the one on its command line
+would be useless for the thing `status` exists for. They do report what the
+probe found, in their `no-index` hint, so the reader is one copy-paste from the
+right command either way.
+
+Discovery runs **only** on `no-index` — never when there is an index to
+answer from, so it costs nothing on the hot path — and not at all when
+`--index-dir` or `CODEINTEL_INDEX_DIR` pinned the store
+([04-storage.md](04-storage.md) § Discovery).
+
+### The no-index hint
+
+`run: codeintel index <root>` was the whole hint, and it was not enough (#59).
+An agent that gets it runs the one command, asks again, and is told `no-scip`
+on the next question that needs tier B — a second round trip, and the one place
+measured where agents gave up and fell back to `grep`.
+
+**The `no-index` hint is one complete line that leaves nothing to look up.** It
+chains, in order: the tier-A index, the SCIP indexer for every language
+actually present in the tree, and the re-index that ingests their output.
+
+```
+no index for /repo. run: cd /repo && codeintel index . && rust-analyzer scip . && codeintel index .
+```
+
+- The languages come from the same `.gitignore`-aware walk `index` performs and
+  the same `Lang.indexer` string `index` prints, so the hint and the summary
+  can never disagree about which indexer a tree needs. No project-marker
+  sniffing, no guessing: a language is in the chain when a file of it is in the
+  tree (invariant 1).
+- A tree whose languages have no SCIP indexer gets the first command alone. The
+  chain never names a command that does not exist.
+- The trailing `codeintel index .` is not redundant. `index` reads
+  `./index.scip` when it is there and the indexer has only just written it, so
+  without the second run the SCIP output is produced and never ingested.
+- `cd <root> &&` leads, because every SCIP indexer resolves its own project
+  relative to the working directory.
+- When discovery found indexes that were not adopted, the hint names them
+  first: `no index for /repo; found one at /repo/daemon`. The found path is the
+  **root**, not its store directory — that is what the caller passes to
+  `--path`, and under [04-storage.md](04-storage.md) § Location the store
+  directory is not somewhere the caller ever types.
+- The hint is cut to fit `max_result_bytes` like any other (§ Symbol
+  rendering), so a chain over a polyglot tree degrades by truncation with its
+  marker, never by a silent cap.
+
+**The server still does not index.** The rule stands: **no indexer ever runs on
+the query path.** `index` builds; `query` and `mcp` refresh tier A from files
+already in the manifest and nothing else (§ `query`). A structural question
+must never block on `cargo`, `tsc` or `go build`, and an answer served from a
+half-built index is the confidently-wrong answer this whole taxonomy exists to
+prevent.
+
+So #59's Option A — the MCP server building the tier-A index itself on
+`no-index` and answering — is **not adopted here.** It would put a build behind
+a query, hand out rows from an index that is still filling, and make the first
+answer of a session depend on how far the walk got. That is a decision with
+blast radius and it is the user's to make, not this spec's. Option B is what is
+built: the hint above, complete in one line.
+
 ### `schema`
 
 Prints the relation catalog, atom vocabularies, and stdlib rule signatures.
@@ -548,6 +650,11 @@ counts, because there are none it could read.
 Both formats name the resolved index directory (`index:` in text, `index_dir`
 in JSON) — where [04-storage.md](04-storage.md) § Location put it, which a
 reader repairing a `corrupt` index cannot otherwise work out.
+
+`status` **never adopts a nearby index** (§ The nearest index) — it reports on
+the directory named on its command line and nothing else — but its `no-index`
+hint is the same one `query` gives: the complete index chain, and any index
+discovery found above or below, named by root.
 
 The unsupported-extension count costs a full walk, which is why it lives here
 and not on every query. It is printed biggest-first, because the number that
@@ -719,11 +826,22 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
   "rows": [["handle_read", "src/api/handler.rs", 42]],
   "truncated": false,
   "hint": null,
+  "root": null,
   "stats": { "derived": 18422, "refreshed": 0, "transformed": ["impact_of"],
              "demand": "applied", "depends": ["def", "name_ref", "scip_ref"],
              "shadowed": [], "widened": [] }
 }
 ```
+
+- **`root` is the root that answered**, and it is `null` exactly when that is
+  the root the caller asked about. A path there means the nearest index was
+  adopted and the scope of every row moved with it (§ The nearest index). The
+  key is always present and `null` is written out, because an absent key reads
+  as "not measured" where `null` reads as "the root you named" — the same
+  reason `status` reports relations at zero. In text format the line
+  `root=<path>` is printed **only** when it is non-null: a redundant line on
+  every answer is noise, and the absence of a redirect is what the caller
+  already assumed.
 
 - **`hint` is non-null whenever `status != "ok"` OR the result is empty.** On an
   empty result it names the first body literal that matched nothing:
@@ -775,8 +893,9 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
   The query is well-formed and the answer — no rows — is true. Promoting it to
   an error would make the taxonomy claim a malformed program where there is
   only an empty one, and the taxonomy's whole job is keeping those apart.
-- Everything else carries a command the agent can run. `no-index` returns `run: codeintel index .`, not "index not
-  found".
+- Everything else carries a command the agent can run. `no-index` returns the
+  complete chain of § The no-index hint, not "index not found" and not a
+  fragment that needs a second lookup.
 - On `invalid-query`, `hint` contains the corrected shape where it can be
   inferred — an arity mismatch reports the expected arity. An agent should be
   able to self-correct in one retry.

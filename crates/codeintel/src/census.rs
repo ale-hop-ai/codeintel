@@ -208,6 +208,11 @@ pub struct Report<'a> {
     pub manifest: &'a Manifest,
     /// Where it lives (`specs/04-storage.md` § Location).
     pub index_dir: &'a std::path::Path,
+    /// The store directory the caller named, if they named one. Discovery is
+    /// off when they did: every candidate root resolves to that one directory,
+    /// so the probe would answer "yes" for all of them
+    /// (`specs/04-storage.md` § Discovery).
+    pub pinned: Option<&'a std::path::Path>,
 }
 
 impl Report<'_> {
@@ -250,7 +255,17 @@ impl Report<'_> {
             .map_or_else(|| ".".to_string(), Clone::clone);
         match self.status() {
             Status::Ok => None,
-            Status::NoIndex => Some(format!("run: codeintel index {root}")),
+            // `status` reports on the directory it was given and never
+            // adopts another, but it does say what is nearby — the reader is
+            // then one copy-paste from the right command either way
+            // (`specs/05-surface.md` § The nearest index).
+            Status::NoIndex => {
+                let here = std::path::Path::new(&root);
+                Some(crate::discover::no_index_hint(
+                    here,
+                    &crate::discover::around(here, self.pinned),
+                ))
+            }
             Status::Stale => Some(
                 crate::query::stale_schema(self.manifest, std::path::Path::new(&root))
                     .unwrap_or_else(|| {

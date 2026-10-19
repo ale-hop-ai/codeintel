@@ -276,13 +276,13 @@ fn schema_cmd(
             // stdout is the catalog the size budget measures; the status goes
             // where `query` puts it.
             out(&schema.to_string())?;
-            let (status, hint) = wire::schema_status(&census, &root);
+            let (status, hint) = wire::schema_status(&census, &root, index_dir);
             eprintln!("status={status}");
             if let Some(hint) = hint {
                 eprintln!("hint: {hint}");
             }
         }
-        Format::Json => outln(&wire::schema_json(&schema, &census, &root).to_string())?,
+        Format::Json => outln(&wire::schema_json(&schema, &census, &root, index_dir).to_string())?,
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -316,6 +316,7 @@ fn status_cmd(
         census: &census,
         manifest: store.manifest(),
         index_dir: &dir,
+        pinned: index_dir,
     };
     match format {
         Format::Text => out(&report.to_string())?,

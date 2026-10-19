@@ -13,6 +13,7 @@ use anyhow::{Context, Result};
 use datalog::{Engine, Limits, Relation};
 use facts::{Lock, Store};
 
+use crate::discover::{self, Nearby};
 use crate::index::{self, Plan};
 use crate::overlay::{Literals, Overlay};
 use crate::render::{Row, Sites};
@@ -113,6 +114,15 @@ pub struct Answer {
     pub cap: Option<&'static str>,
     /// Non-null whenever `status != ok`, and always actionable.
     pub hint: Option<String>,
+    /// The root that actually answered, when it is **not** the one the caller
+    /// asked about.
+    ///
+    /// `None` means "the root you named". A path means the requested root had
+    /// no index, the nearest one was adopted, and the scope of every row moved
+    /// with it (`specs/05-surface.md` § The nearest index). A consumer
+    /// branching on this learns the scope moved without reading English, which
+    /// is what keeps adoption from being a silent degradation (invariant 6).
+    pub root: Option<String>,
     /// Tuples derived.
     pub derived: u64,
     /// Milliseconds spent evaluating.
@@ -154,6 +164,7 @@ impl Answer {
             truncated: false,
             cap: None,
             hint: Some(hint.into()),
+            root: None,
             derived: 0,
             elapsed_ms: 0,
             refreshed: 0,
@@ -202,7 +213,7 @@ impl Warm {
     /// # Errors
     /// As [`run`].
     pub fn run(&mut self, root: &Path, program: &str, options: &Options) -> Result<Answer> {
-        let mut answer = self.answer(root, program, options)?;
+        let mut answer = self.answer(root, program, options, true)?;
         // Every answer, a diagnostic and `no-index` included: the budget bounds
         // what is sent, not only its rows (`specs/05-surface.md` § Symbol
         // rendering).
@@ -212,7 +223,15 @@ impl Warm {
         Ok(answer)
     }
 
-    fn answer(&mut self, root: &Path, program: &str, options: &Options) -> Result<Answer> {
+    /// `adopt` is false on the one recursive call this makes, so the nearest
+    /// index is looked for once and never from the root that was adopted.
+    fn answer(
+        &mut self,
+        root: &Path,
+        program: &str,
+        options: &Options,
+        adopt: bool,
+    ) -> Result<Answer> {
         let dir = facts::store::locate(root, options.index_dir.as_deref())
             .context("locating the index")?;
         let mut store = match open(root, &dir)? {
@@ -224,9 +243,22 @@ impl Warm {
         };
         if !store.has_index() {
             self.loaded = None;
+            // The caller does not choose the root — `codeintel mcp` is launched
+            // with whatever directory the session opened in — so "wrong
+            // directory" is not an answer they can act on (#61).
+            let here = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+            let nearby = if adopt {
+                discover::around(&here, options.index_dir.as_deref())
+            } else {
+                Nearby::none()
+            };
+            if let Some(adopted) = nearby.adopt() {
+                let adopted = adopted.to_path_buf();
+                return self.adopted(&here, &adopted, program, options);
+            }
             return Ok(Answer::of(
                 Status::NoIndex,
-                format!("run: codeintel index {}", root.display()),
+                discover::no_index_hint(&here, &nearby),
             ));
         }
         if let Some(hint) = stale_schema(store.manifest(), root) {
@@ -264,6 +296,30 @@ impl Warm {
         // the ids a freshly loaded engine would give it.
         loaded.literals.discard();
         self.loaded = Some(loaded);
+        Ok(answer)
+    }
+
+    /// Answer from `adopted` instead of `requested`, and say so.
+    ///
+    /// The status stays the adopted index's own condition — it can be `stale`,
+    /// `no-scip` or `scip-stale`, and those are facts nowhere else in the
+    /// response. The redirect rides in `root`, structurally, for the same
+    /// reason truncation composes rather than overwrites
+    /// (`specs/05-surface.md` § The nearest index).
+    fn adopted(
+        &mut self,
+        requested: &Path,
+        adopted: &Path,
+        program: &str,
+        options: &Options,
+    ) -> Result<Answer> {
+        let mut answer = self.answer(adopted, program, options, false)?;
+        answer.root = Some(adopted.display().to_string());
+        let note = discover::adopted_hint(requested, adopted);
+        answer.hint = Some(match answer.hint.take() {
+            Some(existing) => format!("{note} also: {existing}"),
+            None => note,
+        });
         Ok(answer)
     }
 }
@@ -571,6 +627,9 @@ fn evaluate(
             truncated,
             cap,
             hint,
+            // Stamped by the caller that adopted a root, not here: this
+            // function does not know which root it was handed.
+            root: None,
             derived: result.stats.derived,
             elapsed_ms: result.stats.elapsed_ms,
             refreshed,
