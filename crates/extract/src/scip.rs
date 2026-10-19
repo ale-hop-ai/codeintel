@@ -384,18 +384,6 @@ impl Ingest {
     }
 }
 
-/// Record a symbol that names a package, which is how SCIP says where a thing
-/// came from (`specs/01-facts.md` § `extern`).
-///
-/// A SCIP symbol carries its own package — `<scheme> <manager> <name>
-/// <version> <descriptor>` — so this works on any symbol string and does not
-/// need a `SymbolInformation` to exist for it. That matters: an index
-/// references far more symbols than it describes. `rust-analyzer` emits
-/// `SymbolInformation` for what the project defines and leaves `std`, `core`
-/// and `alloc` as bare occurrences, so keying this on `SymbolInformation`
-/// meant `extern/4` was **empty on every index that had no local dependency
-/// described** — including the fixture, where `HashMap` and `String` are
-/// referenced by name and were reported as no external packages at all.
 /// Put a SCIP document path under `under`, the `--scip-root` directory.
 ///
 /// `under` is repo-relative with `/` separators; empty means the repository
@@ -474,6 +462,18 @@ fn escapes_root(path: &str) -> bool {
         })
 }
 
+/// Record a symbol that names a package, which is how SCIP says where a thing
+/// came from (`specs/01-facts.md` § `extern`).
+///
+/// A SCIP symbol carries its own package — `<scheme> <manager> <name>
+/// <version> <descriptor>` — so this works on any symbol string and does not
+/// need a `SymbolInformation` to exist for it. That matters: an index
+/// references far more symbols than it describes. `rust-analyzer` emits
+/// `SymbolInformation` for what the project defines and leaves `std`, `core`
+/// and `alloc` as bare occurrences, so keying this on `SymbolInformation`
+/// meant `extern/4` was **empty on every index that had no local dependency
+/// described** — including the fixture, where `HashMap` and `String` are
+/// referenced by name and were reported as no external packages at all.
 fn package_of(symbol: &str, into: &mut BTreeMap<String, (String, String, String)>) {
     let Ok(parsed) = scip::symbol::parse_symbol(symbol) else {
         return;
