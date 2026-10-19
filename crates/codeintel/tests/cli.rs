@@ -442,7 +442,16 @@ fn no_index_is_a_status_not_an_empty_answer() {
     let out = run(dir.path(), &["query", "?- def(S, F, K, N)."]);
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     assert!(stderr.contains("status=no-index"), "{stderr}");
-    assert!(stderr.contains("run: codeintel index"), "{stderr}");
+    // One complete line, not a fragment that needs a second lookup: the tier-A
+    // index, the SCIP indexer for the one language in this tree, and the
+    // re-index that ingests its output (`specs/05-surface.md` § The no-index
+    // hint, #59).
+    assert!(stderr.contains("codeintel index ."), "{stderr}");
+    assert!(stderr.contains("rust-analyzer scip ."), "{stderr}");
+    assert!(
+        stderr.matches("codeintel index .").count() >= 2,
+        "the indexer writes ./index.scip and only a second `index` ingests it: {stderr}"
+    );
     assert_eq!(out.status.code(), Some(2));
     assert!(out.stdout.is_empty());
 }

@@ -358,7 +358,7 @@ fn schema(
     // `codeintel schema` prints in that format. `structuredContent` carries
     // the same catalog, always as JSON, so a client that only reads one field
     // still gets the whole thing (`specs/05-surface.md` § MCP).
-    let structured = wire::schema_json(&schema, &census, root);
+    let structured = wire::schema_json(&schema, &census, root, index_dir);
     let body = if json {
         structured.to_string()
     } else {

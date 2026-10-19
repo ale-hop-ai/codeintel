@@ -219,7 +219,11 @@ fn schema_with_no_index_says_so_rather_than_reading_as_an_inventory() {
     assert!(out.status.success(), "{:?}", out.status);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("status=no-index"), "{stderr}");
-    assert!(stderr.contains("hint: run: codeintel index"), "{stderr}");
+    // The complete chain, not a fragment (`specs/05-surface.md` § The no-index
+    // hint, #59). `schema` reports on the directory it was given and does not
+    // adopt a nearby index, but it gives `query`'s hint.
+    assert!(stderr.contains("hint: no index for"), "{stderr}");
+    assert!(stderr.contains("codeintel index ."), "{stderr}");
 
     let out = run(dir.path(), &["schema", "--format", "json"]);
     assert!(out.status.success(), "{:?}", out.status);
@@ -301,7 +305,11 @@ fn status_with_no_index_is_an_answer_not_a_failure() {
     // sent the reader to index wherever they happened to be standing.
     let root = dir.path().canonicalize().expect("canonical");
     assert!(
-        text.contains(&format!("run: codeintel index {}", root.display())),
+        text.contains(&format!("no index for {}", root.display())),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("run: cd {} && codeintel index .", root.display())),
         "{text}"
     );
 }
@@ -609,7 +617,7 @@ fn the_mcp_schema_call_works_with_no_index() {
     assert!(
         result["structuredContent"]["hint"]
             .as_str()
-            .is_some_and(|h| h.starts_with("run: codeintel index")),
+            .is_some_and(|h| h.starts_with("no index for") && h.contains("codeintel index .")),
         "{result}"
     );
     assert_eq!(result["isError"], false, "{result}");

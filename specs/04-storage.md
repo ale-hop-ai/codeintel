@@ -74,6 +74,58 @@ fails with an error that names `--index-dir`; it never falls back into the tree.
   manifest already records the root (`roots`), so a later `status`-side check is
   possible without a format change.
 
+### Discovery
+
+The store moved out of the tree, so **"is there an index for this directory"
+stopped being a directory listing.** There is no `.codeintel/` to see. An index
+exists for a root exactly when `locate(root)` resolves to a directory holding a
+`manifest.json` — a blake3 of the canonical path, then one `stat`. That is the
+only test, and it is the test this section is built on.
+
+That has a useful consequence and an awkward one.
+
+Useful: asking *"does root R have an index"* costs one hash and one `stat`, for
+any R, with no filesystem search. So asking it of a **set** of candidate roots
+is cheap, and finding an index near a root is a bounded probe rather than a
+scan.
+
+Awkward: the mapping is one-way. `<label>-<hash>` cannot be read back into a
+path, and the only record of which tree an entry describes is `roots` inside
+its manifest. Enumerating `<cache>/codeintel/` and parsing every manifest would
+find an index at any depth, but it costs a full JSON parse of every index on
+the machine — including every unrelated repository — to answer a question about
+one directory. **Discovery therefore probes candidate roots; it never
+enumerates the cache.**
+
+The candidate set for a root `R`, when `R` itself has no index:
+
+- **Up.** Each ancestor of `R`, nearest first, stopping at `R`'s own
+  repository root — the first directory from `R` upward holding a `.git`
+  entry, a file as well as a directory so that a git worktree counts. That
+  root is itself a candidate; nothing above it is, and `MAX_UP` bounds the
+  climb when the tree is not in a checkout at all. Bounded, because an
+  unbounded ascent reaches `$HOME`, and one stray `codeintel index ~` would
+  then answer for every repository beneath it.
+- **Down.** Each directory under `R`, to `MAX_DOWN` levels, by the same
+  `.gitignore`-aware walk the indexer uses, so `target/` and `node_modules/`
+  are not candidates. Bounded by a directory count as well as a depth, and
+  **both bounds are reported when they fire** (invariant 5). A monorepo deeper
+  than `MAX_DOWN` gets "searched 3 levels", never a silent "nothing here".
+
+`MAX_UP` is 8 and `MAX_DOWN` is 3. Both are caps on a guess, not semantics: the
+numbers cover the shapes that occur — a subpackage inside a repo, a repo inside
+a worktree directory, a `daemon/` beside the root — and anything past them is a
+root the caller should name.
+
+An explicit index directory (`--index-dir`, `CODEINTEL_INDEX_DIR`) **disables
+discovery entirely.** Rules 1–2 name one repository's index, so every candidate
+root would resolve to the same pinned directory and the probe would answer
+"yes" for all of them. A caller who pinned the store has already said where it
+is.
+
+What is done with what is found is a surface question, not a storage one:
+[05-surface.md](05-surface.md) § The nearest index.
+
 ## Layout
 
 ```
