@@ -273,7 +273,7 @@ struct Measured {
     status: String,
     rows: usize,
     derived: u64,
-    demand: String,
+    demand: datalog::Demand,
 }
 
 impl Measured {
@@ -281,7 +281,7 @@ impl Measured {
         json!({
             "id": id, "query": goal,
             "status": self.status, "rows": self.rows,
-            "derived": self.derived, "demand": self.demand,
+            "derived": self.derived, "demand": self.demand.as_str(),
             "p50_ms": self.p50, "p95_ms": self.p95, "cli_p50_ms": self.cli_p50,
         })
     }
@@ -298,7 +298,7 @@ fn measure_query(root: &Path, id: &str, goal: &str) -> Result<Measured> {
         ..Options::default()
     };
     let mut runs = Vec::new();
-    let mut first: Option<(String, usize, u64, String)> = None;
+    let mut first: Option<(String, usize, u64, datalog::Demand)> = None;
     for i in 0..QUERY_WARMUPS + QUERY_RUNS {
         let started = Instant::now();
         let answer = query::run(root, goal, &options)?;

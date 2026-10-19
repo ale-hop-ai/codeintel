@@ -9,6 +9,16 @@
 //! `index` and `query` land at M2; `schema` and `status` at M4. `mcp` is the
 //! fifth and last verb.
 
+/// The shipped rule library, compiled in.
+///
+/// One `include_str!`, not two. It was declared in both `query` (which loads
+/// it into the engine) and `schema` (which reads its `%%` docs for the
+/// catalog), so the file was embedded in the binary twice and the two paths
+/// could have been pointed at different files without a word from the
+/// compiler (#48). It belongs to neither module — it is a fact about this
+/// build — so it lives here.
+pub const STDLIB: &str = include_str!("../../../rules/stdlib.dl");
+
 pub mod census;
 pub mod discover;
 pub mod index;

@@ -64,7 +64,13 @@ pub fn json(answer: &Answer) -> serde_json::Value {
     map.insert("rows".into(), serde_json::json!(raw));
     map.insert("display".into(), serde_json::json!(display));
     map.insert("truncated".into(), answer.truncated.into());
-    map.insert("cap".into(), serde_json::json!(answer.cap));
+    // The wire form of the cap is its limit's name, unchanged by `Cap`
+    // becoming an enum: a consumer reads it to look the number up in
+    // `Limits`.
+    map.insert(
+        "cap".into(),
+        serde_json::json!(answer.cap.map(datalog::Cap::as_str)),
+    );
     map.insert("hint".into(), serde_json::json!(answer.hint));
     // Always present, `null` for "the root you named". An absent key reads as
     // "not measured"; `null` reads as "nothing moved"
@@ -81,7 +87,7 @@ pub fn json(answer: &Answer) -> serde_json::Value {
             "derived": answer.derived,
             "refreshed": answer.refreshed,
             "transformed": answer.transformed,
-            "demand": answer.demand,
+            "demand": answer.demand.as_str(),
             "depends": answer.depends,
             "shadowed": answer.shadowed,
             "widened": answer.widened,
@@ -158,7 +164,7 @@ pub fn schema_json(
         "hint": hint,
         "text": catalog.to_string(),
         "indexed": census.indexed,
-        "rules": crate::schema::rules(crate::schema::STDLIB)
+        "rules": crate::schema::rules(crate::STDLIB)
             .iter()
             .map(|r| serde_json::json!({ "head": r.head, "doc": r.doc }))
             .collect::<Vec<_>>(),

@@ -15,9 +15,6 @@ use std::fmt;
 
 use crate::census::Census;
 
-/// The shipped rule library, for the generated rule list.
-pub const STDLIB: &str = include_str!("../../../rules/stdlib.dl");
-
 /// One advertised rule: its head as written, and its doc.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rule {
@@ -133,7 +130,7 @@ impl fmt::Display for Schema<'_> {
         }
 
         f.write_str("\n\nRULES  derived. A new question is a rule, not a verb.\n")?;
-        for rule in rules(STDLIB) {
+        for rule in rules(crate::STDLIB) {
             writeln!(f, "  {}  {}", rule.head, rule.doc)?;
         }
 
@@ -165,34 +162,18 @@ impl fmt::Display for Schema<'_> {
     }
 }
 
-/// The argument names for a base relation, as `specs/01-facts.md` writes them,
-/// and an optional note.
+/// The argument names for a base relation and its note, from
+/// [`facts::RELATIONS`].
 ///
-/// Hand-written because the names carry the meaning and `facts::RELATIONS` only
-/// knows arities. `every_relation_has_a_signature` asserts there is an entry
-/// for every relation and that its comma count matches the declared arity, so
-/// adding a relation cannot ship a blank row in the project's most-read output.
+/// This was a second hand-written table, keyed by name, living in a different
+/// crate from the arities it had to agree with (#48). It is now a lookup: one
+/// row per relation, in the crate that owns the schema, where a new relation
+/// cannot be added without filling both fields in. An unknown name still
+/// answers `("", "")` — callers pass relation names from that same table, so
+/// the arm is unreachable in practice and present so this is total.
 #[must_use]
 pub fn signature(name: &str) -> (&'static str, &'static str) {
-    match name {
-        "file" => ("(F, Lang)", ""),
-        "def" => ("(S, F, Kind, Name)", ""),
-        "def_span" => ("(S, StartLine, EndLine, StartByte, EndByte)", ""),
-        "def_name" => ("(S, Line, Col)", "the identifier token"),
-        "def_sig" => ("(S, Sig)", ""),
-        "def_doc" => ("(S, Doc)", ""),
-        "parent" => ("(Child, Parent)", "one level; see within/2"),
-        "visibility" => ("(S, Vis)", "public|restricted|inherited"),
-        "resolved" => ("(S)", "a SCIP symbol anchored to this def"),
-        "import" => ("(F, Module, Alias)", ""),
-        "scip_ref" => ("(S, F, Line, Col, From, Role)", "compiler-resolved"),
-        "name_ref" => ("(Name, F, Line, Col, From)", "unresolved, tier A"),
-        "scip_impl" => ("(S, T)", "compiler-resolved"),
-        "name_impl" => ("(F, Type, Trait, Line)", "unresolved, tier A"),
-        "extern" => ("(S, Manager, Package, Version)", ""),
-        "name_export" => ("(F, Name)", "export { x }, tier A"),
-        _ => ("", ""),
-    }
+    facts::schema::by_name(name).map_or(("", ""), |rel| (rel.args, rel.note))
 }
 
 /// What a base relation's column accepts, for diagnosing a constant that
@@ -218,11 +199,11 @@ const PROVS: &[&str] = &["exact", "name"];
 
 /// The column types of `relation`, positionally.
 ///
-/// Derived from [`signature`] rather than declared beside it, so the argument
-/// *names* stay the single source of truth — `every_typed_column_is_reachable`
-/// asserts every classified name actually occurs. Classification is by name
-/// because the names are already consistent and meaningful: a column called
-/// `StartLine` holds a line number in every relation that has one.
+/// Derived from the argument *names* rather than declared as a fourth table —
+/// `every_typed_column_is_reachable` asserts every classified name actually
+/// occurs. Classification is by name because the names are already consistent
+/// and meaningful: a column called `StartLine` holds a line number in every
+/// relation that has one.
 #[must_use]
 pub fn columns(relation: &str) -> Vec<Column> {
     let (args, _) = signature(relation);

@@ -88,16 +88,14 @@ fn stdlib_engine() -> Engine {
 #[test]
 fn the_engine_loads_its_own_standard_library() {
     let mut e = stdlib_engine();
-    e.load_rules(codeintel::query::STDLIB)
-        .expect("stdlib loads");
+    e.load_rules(codeintel::STDLIB).expect("stdlib loads");
     assert!(e.rule_count() > 30, "loaded {} rules", e.rule_count());
 }
 
 #[test]
 fn the_naive_evaluator_accepts_the_standard_library_too() {
     let mut e = stdlib_engine();
-    e.load_rules(codeintel::query::STDLIB)
-        .expect("stdlib loads");
+    e.load_rules(codeintel::STDLIB).expect("stdlib loads");
     let result = e
         .query_naive(r#"?- def(S, F, "function", N)."#, &Limits::default())
         .expect("naive evaluation runs the stdlib as written");
@@ -170,8 +168,7 @@ fn store_fixture() -> Engine {
         "name_ref",
         &[&["get", "src/store.rs", "35", "8", "S#put()."]],
     );
-    e.load_rules(codeintel::query::STDLIB)
-        .expect("stdlib loads");
+    e.load_rules(codeintel::STDLIB).expect("stdlib loads");
     e
 }
 
@@ -266,8 +263,7 @@ fn dangling_fixture() -> Engine {
         "extern",
         &[&["npm map Map#get().", "npm", "map", "1.0.0"]],
     );
-    e.load_rules(codeintel::query::STDLIB)
-        .expect("stdlib loads");
+    e.load_rules(codeintel::STDLIB).expect("stdlib loads");
     e
 }
 
@@ -358,8 +354,7 @@ fn same_name_impl_fixture() -> Engine {
         "name_impl",
         &[&["src/error.rs", "Error", "Error", "10"]],
     );
-    e.load_rules(codeintel::query::STDLIB)
-        .expect("stdlib loads");
+    e.load_rules(codeintel::STDLIB).expect("stdlib loads");
     e
 }
 
@@ -419,8 +414,7 @@ fn cross_crate_impl_fixture() -> Engine {
             &["datalog/diag.rs", "Diagnostic", "Symbols", "80"],
         ],
     );
-    e.load_rules(codeintel::query::STDLIB)
-        .expect("stdlib loads");
+    e.load_rules(codeintel::STDLIB).expect("stdlib loads");
     e
 }
 
@@ -543,8 +537,7 @@ fn the_seeded_stdlib_traversals_agree_with_naive_evaluation() {
 #[test]
 fn demand_transformation_applies_over_the_standard_library() {
     let mut e = stdlib_engine();
-    e.load_rules(codeintel::query::STDLIB)
-        .expect("stdlib loads");
+    e.load_rules(codeintel::STDLIB).expect("stdlib loads");
 
     for (query, wanted) in [
         (
@@ -584,8 +577,7 @@ fn demand_transformation_applies_over_the_standard_library() {
 #[test]
 fn the_negation_backoff_keeps_what_it_can() {
     let mut e = stdlib_engine();
-    e.load_rules(codeintel::query::STDLIB)
-        .expect("stdlib loads");
+    e.load_rules(codeintel::STDLIB).expect("stdlib loads");
 
     let seeded = e
         .query(

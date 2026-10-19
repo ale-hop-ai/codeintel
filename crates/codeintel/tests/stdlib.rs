@@ -899,7 +899,7 @@ fn trait_sym_admits_only_trait_like_definitions() {
 fn every_advertised_rule_appears_in_this_file() {
     let source = include_str!("stdlib.rs");
     let mut unexercised = Vec::new();
-    for rule in codeintel::schema::rules(codeintel::schema::STDLIB) {
+    for rule in codeintel::schema::rules(codeintel::STDLIB) {
         let (name, _) = codeintel::schema::split_head(&rule.head).expect("a head");
         if !source.contains(&format!("{name}(")) {
             unexercised.push(name.to_string());

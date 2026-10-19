@@ -21,13 +21,10 @@ use crate::status::Status;
 use crate::wire::Wire;
 use crate::{Regexes, render, schema};
 
-/// The shipped rule library, compiled in.
-pub const STDLIB: &str = include_str!("../../../rules/stdlib.dl");
-
 /// How long auto-refresh may take before the answer is `stale`.
 pub const MAX_REFRESH_MS: u64 = 2_000;
 
-/// Base relations only tier B can populate.
+/// True when only tier B can populate the base relation `name`.
 ///
 /// A goal whose dependency **closure** reaches one of these, against an index
 /// with no SCIP, gets `no-scip` rather than `ok` with zero rows. The closure,
@@ -35,12 +32,23 @@ pub const MAX_REFRESH_MS: u64 = 2_000;
 /// README's own headline query would otherwise return `ok` and nothing on a
 /// fresh install — the exact failure invariant 6 exists to prevent
 /// (`docs/plan.md` M3).
+///
 /// `implements` is deliberately absent. Since schema 2 it is a rule with a
 /// tier-A `name` branch over `name_impl`, so it answers without SCIP, and
 /// `no-scip` would disclaim rows the index really has. `scip_impl`, the base
 /// relation beneath it, stays: a query naming that one directly is asking for
 /// the compiler's answer specifically.
-pub const SCIP_BACKED: &[&str] = &["scip_ref", "resolved", "scip_impl", "extern"];
+///
+/// **Read off `facts::RELATIONS`, not kept beside it.** This was a hand-written
+/// list of four names in this file, which a relation added to the schema could
+/// fall out of without a compiler or a test noticing — and the symptom was
+/// `ok` with zero rows, the one failure invariant 6 exists to prevent (#48).
+/// `Rel::scip_only` has no default, so the question now has to be answered
+/// where the relation is declared.
+#[must_use]
+pub fn scip_backed(name: &str) -> bool {
+    facts::schema::by_name(name).is_some_and(|rel| rel.scip_only)
+}
 
 /// How much larger the engine's raw-atom byte budget is than the printed one.
 ///
@@ -111,7 +119,7 @@ pub struct Answer {
     /// True when a cap dropped rows.
     pub truncated: bool,
     /// Which cap fired.
-    pub cap: Option<&'static str>,
+    pub cap: Option<datalog::Cap>,
     /// Non-null whenever `status != ok`, and always actionable.
     pub hint: Option<String>,
     /// The root that actually answered, when it is **not** the one the caller
@@ -134,7 +142,7 @@ pub struct Answer {
     /// traversal and all-pairs reachability.
     pub transformed: Vec<String>,
     /// Why `transformed` holds what it holds (`datalog::Stats::demand`).
-    pub demand: String,
+    pub demand: datalog::Demand,
     /// Base relations the goal's dependency closure reaches.
     pub depends: Vec<String>,
     /// Stdlib rules the query itself shadowed. Never silent: a rule quietly
@@ -169,7 +177,7 @@ impl Answer {
             elapsed_ms: 0,
             refreshed: 0,
             transformed: Vec::new(),
-            demand: String::new(),
+            demand: datalog::Demand::default(),
             depends: Vec::new(),
             shadowed: Vec::new(),
             widened: Vec::new(),
@@ -368,7 +376,7 @@ impl Loaded {
             );
         }
         engine
-            .load_rules(STDLIB)
+            .load_rules(crate::STDLIB)
             .map_err(|d| anyhow::anyhow!("rules/stdlib.dl does not load: {}", d.message))?;
         // A repository's own conformance rules. Additive: a predicate is the
         // union of its clauses, so a file defining `is_test` widens it. Only a
@@ -562,7 +570,7 @@ fn evaluate(
         // so it is the one reported. Naming the engine's row cap there advised
         // `--limit`, which returns the same rows every time (#27).
         let cap = if byte_cut {
-            Some("max_result_bytes")
+            Some(datalog::Cap::Bytes)
         } else {
             result.cap
         };
@@ -571,14 +579,18 @@ fn evaluate(
         if truncated {
             // `--limit` moves `max_result_rows` and nothing else, so offering
             // it against a byte cap is advice that changes nothing.
+            // Exhaustive over `Cap`, so a third cap could not be added
+            // upstream and land silently in the general arm with the wrong
+            // advice attached (#48).
             let cut = match cap {
-                Some("max_result_rows") => format!(
-                    "max_result_rows fired at {}; raise it with --limit or narrow the query",
+                Some(datalog::Cap::Rows) => format!(
+                    "{} fired at {}; raise it with --limit or narrow the query",
+                    datalog::Cap::Rows,
                     options.limit
                 ),
                 // The engine's cap and the host's are different numbers, and
                 // quoting the wrong one is invariant 5 with extra steps.
-                Some(fired) => {
+                Some(fired @ datalog::Cap::Bytes) => {
                     let at = if byte_cut {
                         budget
                     } else {
@@ -634,7 +646,7 @@ fn evaluate(
             elapsed_ms: result.stats.elapsed_ms,
             refreshed,
             transformed: result.stats.transformed.clone(),
-            demand: result.stats.demand.clone(),
+            demand: result.stats.demand,
             depends: result.stats.depends.clone(),
             shadowed: result.stats.shadowed.clone(),
             widened: loaded.widened.clone(),
@@ -1041,7 +1053,7 @@ impl ScipState {
     /// The status this answer deserves, or `None` when SCIP has nothing to say
     /// about it.
     fn verdict(&self, depends: &[String], langs: &[&'static str]) -> Option<(Status, String)> {
-        if !depends.iter().any(|d| SCIP_BACKED.contains(&d.as_str())) {
+        if !depends.iter().any(|d| scip_backed(d)) {
             return None;
         }
         let commands = if langs.is_empty() {
@@ -1051,7 +1063,7 @@ impl ScipState {
         };
         let wanted = depends
             .iter()
-            .filter(|d| SCIP_BACKED.contains(&d.as_str()))
+            .filter(|d| scip_backed(d))
             .cloned()
             .collect::<Vec<_>>()
             .join(", ");

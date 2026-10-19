@@ -42,14 +42,106 @@ impl Default for Limits {
     }
 }
 
-impl Limits {
-    /// The names a `cap` field can carry, for a consumer that wants to switch
-    /// on them rather than parse prose.
-    /// Only the two truncating limits are here. `max_derived_tuples` and
-    /// `max_time_ms` abort the query with a diagnostic rather than trim an
-    /// answer, so they never appear in `cap`, and listing them told a consumer
-    /// to switch on a value it would never see.
-    pub const CAPS: [&'static str; 2] = ["max_result_rows", "max_result_bytes"];
+/// The cap that trimmed an answer.
+///
+/// Two values, because only two limits trim. `max_derived_tuples` and
+/// `max_time_ms` abort the query with a diagnostic rather than cut an answer
+/// short, so they never appear here — an earlier list of cap *names* included
+/// them and told a consumer to switch on values it would never see.
+///
+/// An enum and not a `&'static str`. The host branches on which cap fired to
+/// decide what advice to give — `--limit` moves `max_result_rows` and nothing
+/// else, so offering it against a byte cap is advice that changes nothing
+/// (#27) — and it did that by matching on a string literal, where a typo
+/// falls through to the general arm and silently gives the wrong advice. The
+/// wire form is unchanged: [`Cap::as_str`] is what is serialized.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cap {
+    /// `max_result_rows` fired: the engine stopped adding rows.
+    Rows,
+    /// `max_result_bytes` fired: the rendered answer reached its budget.
+    Bytes,
+}
+
+impl Cap {
+    /// Both of them, for a consumer enumerating what it may be told.
+    pub const ALL: [Self; 2] = [Self::Rows, Self::Bytes];
+
+    /// Its wire name — the limit field it corresponds to, spelled exactly as
+    /// [`Limits`] spells it, so a consumer can look the number up.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Rows => "max_result_rows",
+            Self::Bytes => "max_result_bytes",
+        }
+    }
+}
+
+impl std::fmt::Display for Cap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// What the demand transformation did, and why.
+///
+/// A closed set of outcomes. It was a `String` built from `&'static str`
+/// literals at six sites, which meant a consumer wanting to branch on it —
+/// and `tests/counters.rs` pins it, so there is one — had to `starts_with`
+/// or `contains` a sentence. The sentences are unchanged: [`Demand::as_str`]
+/// returns exactly what was written before, so a pinned golden does not move.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Demand {
+    /// The rewrite ran and `Stats::transformed` names what it rewrote.
+    Applied,
+    /// The caller asked for the program as written.
+    #[default]
+    Disabled,
+    /// No derived literal had a bound argument, so there was nothing to seed.
+    /// Not a failure — the common case for an unseeded goal.
+    NothingToSeed,
+    /// The rewritten program did not pass the safety check.
+    Unsafe,
+    /// The rewritten program was over the planning limits the plain one met.
+    OverLimits,
+    /// The rewrite did not stratify and named no cycle to back off from.
+    NoCycle,
+    /// The rewrite did not stratify and every seeded negation was already
+    /// excluded.
+    NoBackoff,
+    /// Backing off one component at a time ran out of attempts.
+    Exhausted,
+}
+
+impl Demand {
+    /// Its wire form, **verbatim as it has always been written**. These
+    /// strings are a pinned golden (`crates/codeintel/tests/counters.rs`) and
+    /// are asserted by prefix in the conformance suite; changing one is a
+    /// golden change, not a wording change.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Applied => "applied",
+            Self::Disabled => "disabled",
+            Self::NothingToSeed => "nothing to seed: no derived literal has a bound argument",
+            Self::Unsafe => "rewrite failed the safety check; the program ran as written",
+            Self::OverLimits => "rewrite exceeded the planning limits; the program ran as written",
+            Self::NoCycle => {
+                "rewrite did not stratify and named no cycle; the program ran as written"
+            }
+            Self::NoBackoff => {
+                "rewrite did not stratify and no seeded negation was left to back off"
+            }
+            Self::Exhausted => "rewrite backed off too many times; the program ran as written",
+        }
+    }
+}
+
+impl std::fmt::Display for Demand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 /// What one evaluation cost. Not part of the answer, so timings here do not
@@ -71,11 +163,10 @@ pub struct Stats {
     /// Predicates the demand transformation rewrote, so an unexpectedly slow
     /// query can be diagnosed rather than guessed at.
     pub transformed: Vec<String>,
-    /// Why `transformed` holds what it holds: `applied`, or the reason the
-    /// program ran as written. An empty `transformed` alone conflated
-    /// nothing-to-seed with a rewrite that was tried and dropped, and the
-    /// second is the one that shows up as an unexplained timeout.
-    pub demand: String,
+    /// Why `transformed` holds what it holds. An empty `transformed` alone
+    /// conflated nothing-to-seed with a rewrite that was tried and dropped,
+    /// and the second is the one that shows up as an unexplained timeout.
+    pub demand: Demand,
     /// Stdlib rules a query-local rule shadowed. Never silent.
     pub shadowed: Vec<String>,
     /// When the goal derived no rows, the body literal — quoted as the caller

@@ -11,11 +11,10 @@
 
 use std::process::ExitCode;
 
-use codeintel::{Regexes, load_facts, render_row};
+use codeintel::{Regexes, STDLIB, load_facts, render_row};
 use datalog::{Engine, Limits, Strings};
 
 const FACTS: &str = include_str!("../../../tests/fixtures/eval/facts.dl");
-const STDLIB: &str = include_str!("../../../rules/stdlib.dl");
 
 fn main() -> ExitCode {
     let Some(query) = std::env::args().nth(1) else {
@@ -46,7 +45,10 @@ fn main() -> ExitCode {
             }
             println!("rows\t{}", result.rows.len());
             if result.truncated {
-                println!("truncated\t{}", result.cap.unwrap_or("?"));
+                println!(
+                    "truncated\t{}",
+                    result.cap.map_or("?", datalog::Cap::as_str)
+                );
             }
             ExitCode::SUCCESS
         }

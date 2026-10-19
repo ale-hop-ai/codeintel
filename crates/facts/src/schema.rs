@@ -20,6 +20,17 @@
 pub const SCHEMA_VERSION: u32 = 3;
 
 /// One base relation.
+///
+/// Everything a consumer needs to *describe* this relation lives here, in one
+/// row. It used to live in three places — arity here, argument names and a
+/// note in `codeintel::schema`, SCIP-only-ness in a fourth hand-kept list in
+/// `codeintel::query` — and parallel tables drift in one direction: toward the
+/// one nobody remembered to edit. A SCIP-only relation left out of that list
+/// answered `ok` with zero rows instead of `no-scip`, which is invariant 6
+/// broken by an omission no compiler could see (#48).
+///
+/// Now it is a struct literal with no `..`, so a relation added without
+/// deciding each of these does not compile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rel {
     /// Its id, as written into a segment. Stable for a given [`SCHEMA_VERSION`].
@@ -28,6 +39,23 @@ pub struct Rel {
     pub name: &'static str,
     /// How many columns it has.
     pub arity: usize,
+    /// Its argument names, parenthesised, as `specs/01-facts.md` writes them.
+    ///
+    /// The names carry the meaning that [`Self::arity`] cannot: a column
+    /// called `StartLine` holds a line number, and that is what lets a host
+    /// diagnose a quoted integer. `arity_matches_the_argument_names` asserts
+    /// the two agree.
+    pub args: &'static str,
+    /// One clause of agent-facing copy, or empty. Printed beside the signature
+    /// in `schema`, which is the most-read output this project has.
+    pub note: &'static str,
+    /// True when **only** a SCIP index populates this relation.
+    ///
+    /// A goal whose dependency closure reaches one of these, against an index
+    /// with no SCIP, is `no-scip` and not `ok` with zero rows — the difference
+    /// between "your code does not do this" and "this index cannot see it"
+    /// (`specs/05-surface.md` § Status taxonomy).
+    pub scip_only: bool,
 }
 
 /// Every base relation, in id order. The index into this array *is* the id.
@@ -39,81 +67,129 @@ pub const RELATIONS: &[Rel] = &[
         id: 0,
         name: "file",
         arity: 2,
+        args: "(F, Lang)",
+        note: "",
+        scip_only: false,
     },
     Rel {
         id: 1,
         name: "def",
         arity: 4,
+        args: "(S, F, Kind, Name)",
+        note: "",
+        scip_only: false,
     },
     Rel {
         id: 2,
         name: "def_span",
         arity: 5,
+        args: "(S, StartLine, EndLine, StartByte, EndByte)",
+        note: "",
+        scip_only: false,
     },
     Rel {
         id: 3,
         name: "def_name",
         arity: 3,
+        args: "(S, Line, Col)",
+        note: "the identifier token",
+        scip_only: false,
     },
     Rel {
         id: 4,
         name: "def_sig",
         arity: 2,
+        args: "(S, Sig)",
+        note: "",
+        scip_only: false,
     },
     Rel {
         id: 5,
         name: "def_doc",
         arity: 2,
+        args: "(S, Doc)",
+        note: "",
+        scip_only: false,
     },
     Rel {
         id: 6,
         name: "parent",
         arity: 2,
+        args: "(Child, Parent)",
+        note: "one level; see within/2",
+        scip_only: false,
     },
     Rel {
         id: 7,
         name: "visibility",
         arity: 2,
+        args: "(S, Vis)",
+        note: "public|restricted|inherited",
+        scip_only: false,
     },
     Rel {
         id: 8,
         name: "resolved",
         arity: 1,
+        args: "(S)",
+        note: "a SCIP symbol anchored to this def",
+        scip_only: true,
     },
     Rel {
         id: 9,
         name: "import",
         arity: 3,
+        args: "(F, Module, Alias)",
+        note: "",
+        scip_only: false,
     },
     Rel {
         id: 10,
         name: "scip_ref",
         arity: 6,
+        args: "(S, F, Line, Col, From, Role)",
+        note: "compiler-resolved",
+        scip_only: true,
     },
     Rel {
         id: 11,
         name: "name_ref",
         arity: 5,
+        args: "(Name, F, Line, Col, From)",
+        note: "unresolved, tier A",
+        scip_only: false,
     },
     Rel {
         id: 12,
         name: "scip_impl",
         arity: 2,
+        args: "(S, T)",
+        note: "compiler-resolved",
+        scip_only: true,
     },
     Rel {
         id: 13,
         name: "name_impl",
         arity: 4,
+        args: "(F, Type, Trait, Line)",
+        note: "unresolved, tier A",
+        scip_only: false,
     },
     Rel {
         id: 14,
         name: "extern",
         arity: 4,
+        args: "(S, Manager, Package, Version)",
+        note: "",
+        scip_only: true,
     },
     Rel {
         id: 15,
         name: "name_export",
         arity: 2,
+        args: "(F, Name)",
+        note: "export { x }, tier A",
+        scip_only: false,
     },
 ];
 
@@ -172,6 +248,38 @@ mod tests {
             "specs/01-facts.md front matter says schema_version: {declared}, \
              facts::schema::SCHEMA_VERSION is {SCHEMA_VERSION}"
         );
+    }
+
+    #[test]
+    fn arity_matches_the_argument_names() {
+        // The two halves of one fact. `arity` is what a segment is decoded
+        // against; `args` is what a reader is shown. A relation whose
+        // signature says four columns and whose arity says five prints a
+        // table that does not match the rows under it.
+        for rel in RELATIONS {
+            let args = rel
+                .args
+                .strip_prefix('(')
+                .and_then(|a| a.strip_suffix(')'))
+                .unwrap_or_else(|| panic!("{} args are not parenthesised: {}", rel.name, rel.args));
+            let named = args.split(',').filter(|a| !a.trim().is_empty()).count();
+            assert_eq!(named, rel.arity, "{} is {}", rel.name, rel.args);
+        }
+    }
+
+    #[test]
+    fn only_the_tier_b_relations_are_scip_only() {
+        // Named rather than counted: this is the list a `no-scip` verdict is
+        // read off, and it was once a hand-kept copy in another crate that
+        // could silently fall behind this table (#48). Changing it is a
+        // deliberate edit here, with `specs/05-surface.md` § Status taxonomy
+        // to match.
+        let scip_only: Vec<&str> = RELATIONS
+            .iter()
+            .filter(|r| r.scip_only)
+            .map(|r| r.name)
+            .collect();
+        assert_eq!(scip_only, ["resolved", "scip_ref", "scip_impl", "extern"]);
     }
 
     #[test]

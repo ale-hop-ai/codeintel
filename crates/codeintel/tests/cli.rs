@@ -533,7 +533,7 @@ fn a_truncated_answer_from_a_stale_index_still_says_stale() {
         codeintel::query::run(dir.path(), "?- def(S, F, K, N).", &options).expect("answers");
     assert_eq!(answer.status, codeintel::Status::Stale);
     assert!(answer.truncated);
-    assert_eq!(answer.cap, Some("max_result_rows"));
+    assert_eq!(answer.cap, Some(datalog::Cap::Rows));
     let hint = answer.hint.unwrap_or_default();
     assert!(hint.contains("codeintel index"), "{hint}");
     assert!(hint.contains("max_result_rows"), "{hint}");
