@@ -255,6 +255,17 @@ Per file, one parse, then:
 3. `def_sig` = the definition's source text from `start_byte` up to the first
    body delimiter (`{`, `:` + newline, `=`, or end of line), whitespace-collapsed,
    capped at 512 bytes. Crude and honest — it is a display string, not a parse.
+   The delimiter counts only at bracket depth zero, so `struct S<T = u32>` is
+   not cut at its `=`. Depth is lexical, with one exception: a `<` or `>` with
+   `-` or `=` immediately beside it is half of `<-`, `->`, `=>`, `<=` or `>=`
+   and moves nothing. Without it Go's `func f(c <-chan int) error {` never
+   returned to depth zero and the header ran to end of line, and TypeScript's
+   `(cb: (x: number) => void, o: {a: 1})` reached depth zero at the `=>` and
+   was cut mid-parameters. A shift (`<<`, `>>`) and a bare comparison
+   (`a < b`) still move it, so a default argument containing one still reports
+   a wrong header — known, not fixed here, and adjacency does not reach them: a
+   shift is two angle brackets that balance each other, and a bare `<` is
+   indistinguishable from a generic without a parse (#74).
 4. `def_doc` = contiguous comment lines immediately preceding `def_span.start`,
    marker prefixes stripped. Emitted only if non-empty. A language whose
    documentation lives inside the definition captures it with `@doc` instead
