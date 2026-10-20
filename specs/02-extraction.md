@@ -952,10 +952,24 @@ hand-written golden fact file.
 1. **Golden facts.** `cargo test` extracts the fixture and diffs against
    `expected.facts` (sorted, text). Any extraction change shows up as a legible
    diff.
-2. **Span exactness.** For every `def`, assert `src[start_byte..end_byte]`
-   re-parses as a definition of the same kind, and `src` at `def_name` equals
-   `Name`. Catches off-by-one and encoding bugs, which are otherwise invisible
-   until someone applies an edit.
+2. **Span exactness.** Re-parse the file, and for every `def` assert that
+   `end_byte` is where a node ends, that the outermost node inside the span
+   ending there is the definition and is not a parse error, that `start_byte` is
+   that node's start or the start of the contiguous attributes, comments and
+   keywords before it (the leading siblings `def_span` reaches back over, and
+   nothing else), and that `def_name` is the one identifier node, inside the
+   definition, whose text is `Name`. Catches off-by-one and encoding bugs, a
+   span that swallows its neighbour (#12), and a name that merely *starts* the
+   line — all invisible to a containment check, and invisible until someone
+   applies an edit.
+
+   **In context, not the slice alone.** Parsing `src[start_byte..end_byte]` by
+   itself was the first wording, and it cannot be asserted: a method, a field, an
+   enum variant and a TypeScript constructor are nodes only inside their parent,
+   so on the four fixtures 59 of 167 definitions fail it with exact spans. That
+   check is not run. **The kind is not asserted here** either: that a node is a
+   `struct` and not a `type` is `Kind fidelity`'s job and the golden file's, and
+   restating it from the same query would agree with the query by construction.
 3. **Anchor coverage.** On a fixture with both tiers, assert the **exact set**
    of tier-A definitions that do *not* get `resolved(S)`, by `file:Name`. Any
    other definition failing to anchor is the join drifting, and the assertion

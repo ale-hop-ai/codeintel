@@ -150,10 +150,17 @@ pub(crate) fn assert_golden(extracted: &Extracted) {
     );
 }
 
-/// Span exactness: every `def_span` is a byte range that really contains the
-/// name, and every `def_name` position really points at the identifier.
+/// Span exactness, asserted by re-slicing and **re-parsing** the source: every
+/// `def_span` is a node boundary and every `def_name` is exactly the identifier.
 ///
-/// Asserted by re-slicing the source, not by trusting the numbers.
+/// The file is parsed again, here, with the language's grammar, and
+/// [`span_defect`] reads the spans off that tree. It is the whole file and not
+/// the slice `src[start..end]` that is re-parsed: a method, a field, an enum
+/// variant or a TypeScript constructor is only a node inside its parent, and
+/// standalone it is a parse error or a different kind. On the four fixtures 59
+/// of 167 definitions (every member) fail that literal check although their
+/// spans are exact, which is why `specs/02-extraction.md` § Validation 2 says
+/// "in context".
 pub(crate) fn assert_spans_exact(extracted: &Extracted) {
     let spans: BTreeMap<String, (usize, usize)> = extracted
         .rows("def_span")
@@ -175,6 +182,11 @@ pub(crate) fn assert_spans_exact(extracted: &Extracted) {
             ))
         })
         .collect();
+    let langs: BTreeMap<String, &'static lang::Lang> = walk(&extracted.root)
+        .files
+        .into_iter()
+        .map(|c| (c.path, c.lang))
+        .collect();
 
     for def in extracted.rows("def") {
         let (sym, path, name) = (
@@ -184,20 +196,136 @@ pub(crate) fn assert_spans_exact(extracted: &Extracted) {
         );
         let src = std::fs::read_to_string(extracted.root.join(path)).expect("source");
         let (start, end) = *spans.get(sym).expect("every def has a span");
-        let text = src
-            .get(start..end)
-            .expect("the span is a byte range in the file");
+        let at = *names.get(sym).expect("every def has a def_name");
+        let lang = langs.get(path).expect("a registered language");
+        let defect = span_defect(&src, lang, (start, end), name, at);
         assert!(
-            text.contains(name.as_str()),
-            "{sym}: span {start}..{end} does not contain {name}"
+            defect.is_none(),
+            "{sym}: {path}: {}",
+            defect.unwrap_or_default()
         );
-        // 1-based line, 0-based UTF-8 byte column, and the identifier is there.
-        let (line, col) = *names.get(sym).expect("every def has a def_name");
-        let at = src.lines().nth(line - 1).expect("the line exists");
-        assert!(
-            at.get(col..).is_some_and(|t| t.starts_with(name.as_str())),
-            "{sym}: {path}:{line}:{col} is {at:?}, which does not start with {name}"
-        );
+    }
+}
+
+/// What is wrong with a definition's recorded spans, read off a fresh parse of
+/// `src`; `None` when they are exact.
+///
+/// - **The end** is where a node ends. The outermost node inside the span that
+///   ends there is *the definition node*, and it is not a parse error.
+/// - **The start** is where the definition node starts, or where a contiguous
+///   run of attributes, comments and keywords before it starts — the leading
+///   siblings `def_span` is documented to reach back over, and nothing else.
+///   Containment cannot tell a span that swallows its neighbour from an exact
+///   one; this can, because the neighbour is not a leading sibling.
+/// - **`def_name`** is the one identifier node whose text is the name, inside
+///   the definition node. `starts_with` accepted `get` at `getter`.
+///
+/// `at` is a 1-based line and a 0-based UTF-8 byte column.
+pub(crate) fn span_defect(
+    src: &str,
+    lang: &lang::Lang,
+    (start, end): (usize, usize),
+    name: &str,
+    at: (usize, usize),
+) -> Option<String> {
+    use tree_sitter::{Parser, Point};
+
+    let mut parser = Parser::new();
+    parser
+        .set_language(&(lang.language)())
+        .expect("the grammar loads");
+    let tree = parser.parse(src, None).expect("parses");
+    let root = tree.root_node();
+
+    if src.get(start..end).is_none() || start >= end {
+        return Some(format!("{start}..{end} is not a byte range in the file"));
+    }
+    let Some(mut node) = root.descendant_for_byte_range(end - 1, end) else {
+        return Some(format!("no node holds the span's last byte, {}", end - 1));
+    };
+    if node.end_byte() != end {
+        return Some(format!(
+            "span end {end} is not where a node ends: the node over its last byte is a {} ending at {}",
+            node.kind(),
+            node.end_byte()
+        ));
+    }
+    while let Some(parent) = node
+        .parent()
+        .filter(|p| p.end_byte() == end && p.start_byte() >= start)
+    {
+        node = parent;
+    }
+    if node.start_byte() < start {
+        return Some(format!(
+            "the {} ending at {end} starts at {}, before the span's {start}",
+            node.kind(),
+            node.start_byte()
+        ));
+    }
+    if node.is_error() || node.has_error() {
+        return Some(format!(
+            "the {} at {start}..{end} contains a parse error",
+            node.kind()
+        ));
+    }
+    let definition = node;
+
+    let mut cursor = definition;
+    let mut reached = definition.start_byte();
+    while reached > start {
+        let Some(leading) = cursor.prev_sibling() else {
+            let Some(parent) = cursor.parent().filter(|p| p.start_byte() == reached) else {
+                break;
+            };
+            cursor = parent;
+            continue;
+        };
+        let kind = leading.kind();
+        let leads = lang.attribute_kinds.contains(&kind)
+            || lang.comment_kinds.contains(&kind)
+            || lang.keyword_kinds.contains(&kind);
+        if !leads || leading.start_byte() < start {
+            break;
+        }
+        reached = leading.start_byte();
+        cursor = leading;
+    }
+    if reached != start {
+        return Some(format!(
+            "span start {start} is not a node boundary: the {} starts at {} and the run of \
+             attributes, comments and keywords before it reaches back only to {reached}",
+            definition.kind(),
+            definition.start_byte()
+        ));
+    }
+
+    let (line, col) = at;
+    let Some(row) = line.checked_sub(1) else {
+        return Some("def_name line is 0; lines are 1-based".to_string());
+    };
+    let named = root.descendant_for_point_range(
+        Point { row, column: col },
+        Point {
+            row,
+            column: col + name.len(),
+        },
+    );
+    match named {
+        Some(n)
+            if n.start_position() == (Point { row, column: col })
+                && n.utf8_text(src.as_bytes()) == Ok(name)
+                && n.start_byte() >= definition.start_byte()
+                && n.end_byte() <= definition.end_byte() =>
+        {
+            None
+        }
+        Some(n) => Some(format!(
+            "def_name {line}:{col} is a {} {:?}, not the identifier {name:?} inside the definition",
+            n.kind(),
+            n.utf8_text(src.as_bytes()).unwrap_or("?")
+        )),
+        None => Some(format!("no node at def_name {line}:{col}")),
     }
 }
 
