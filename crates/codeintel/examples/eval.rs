@@ -19,8 +19,11 @@
 //!
 //! `--facts` exists because the eval has more than one fact set: `facts.dl` is
 //! frozen with the M1 bank, and `bank.dl` carries the working and held-out
-//! ones. The default is still the embedded M1 fixture, so every command
-//! recorded in `docs/agent-eval.md` still means what it meant.
+//! ones. The default is still the embedded M1 fixture, but that fixture has not
+//! loaded since schema 2 made `exported` a rule (#87), so the default-fixture
+//! commands recorded in `docs/agent-eval.md` do NOT run. `tests/eval_commands.rs`
+//! executes every command above and every `.dl` fixture, and holds the dead one
+//! to its recorded failure until #87 is decided.
 
 use std::process::ExitCode;
 
