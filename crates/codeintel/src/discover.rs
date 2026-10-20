@@ -211,7 +211,7 @@ pub fn adopted_hint(requested: &Path, adopted: &Path) -> String {
 /// `./index.scip` when it is there, and the indexer has only just written it.
 fn index_chain(root: &Path) -> String {
     let mut chain = vec![
-        format!("cd {}", root.display()),
+        format!("cd {}", shell_quote(&root.to_string_lossy())),
         "codeintel index .".to_string(),
     ];
     let indexers = indexers(root);
@@ -222,6 +222,18 @@ fn index_chain(root: &Path) -> String {
     chain.extend(indexers.into_iter().map(ToString::to_string));
     chain.push("codeintel index .".to_string());
     format!("run: {}", chain.join(" && "))
+}
+
+/// `word` as one POSIX shell word. Left bare when every byte is safe, so the
+/// common line stays the line the spec shows; single-quoted otherwise, with an
+/// embedded `'` written as `'\''`.
+fn shell_quote(word: &str) -> String {
+    let safe = |c: char| c.is_ascii_alphanumeric() || "/._-+=:@%,".contains(c);
+    if !word.is_empty() && word.chars().all(safe) {
+        word.to_string()
+    } else {
+        format!("'{}'", word.replace('\'', "'\\''"))
+    }
 }
 
 /// The SCIP indexer for every language the tree actually holds.

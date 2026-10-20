@@ -292,7 +292,7 @@ pub const LANGS: &[Lang] = &[
         // does not count.
         sig_stops: &[':', '='],
         function_values: &[],
-        indexer: "scip-python index . --project-name <name>",
+        indexer: "scip-python index .",
     },
     Lang {
         name: "rust",

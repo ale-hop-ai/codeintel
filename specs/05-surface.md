@@ -506,7 +506,20 @@ no index for /repo. run: cd /repo && codeintel index . && rust-analyzer scip . &
   `./index.scip` when it is there and the indexer has only just written it, so
   without the second run the SCIP output is produced and never ingested.
 - `cd <root> &&` leads, because every SCIP indexer resolves its own project
-  relative to the working directory.
+  relative to the working directory. The root is a shell word: bare when every
+  byte is safe, single-quoted otherwise, so a root with a space or a `'` still
+  lands where it says.
+- **The line is paste-ready, so it holds no placeholder.** An `Lang.indexer`
+  string is run verbatim; `<name>` is a redirect in `sh` and makes the whole
+  chain a syntax error. A command that needs an argument the tree does not
+  supply is written without it. `crates/codeintel/tests/hint_runs.rs` runs the
+  hint, and the `build one:` list `index` prints, through `sh -n` over a tree
+  holding every language in the table, at a root with a space and a quote.
+- **The chain is `&&` on purpose.** If one indexer is missing or fails, the
+  chain stops there and the final `codeintel index .` does not run: nothing is
+  ingested, and the index stays tier A, which is what it already was. A partial
+  SCIP set ingested without anyone being told is the worse outcome. The shell
+  reports which command failed.
 - When discovery found indexes that were not adopted, the hint names them
   first: `no index for /repo; found one at /repo/daemon`. The found path is the
   **root**, not its store directory — that is what the caller passes to
