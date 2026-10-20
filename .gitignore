@@ -8,3 +8,8 @@
 # is committed so the tier-B tests run without rust-analyzer installed, and an
 # unanchored pattern would match it too.
 /index.scip
+
+# Python bytecode, written beside any module a script imports. Unanchored on
+# purpose, unlike /index.scip: it appears in whichever directory is imported
+# from, and nothing under it is committed.
+__pycache__/

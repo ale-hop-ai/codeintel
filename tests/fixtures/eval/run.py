@@ -118,29 +118,94 @@ def load_questions(bank):
     return found
 
 
-def partition(ids, per_agent, rounds, rng):
+# Openers whose subject is the previous question's. Kept in step with
+# REFERENTIAL in crates/codeintel/tests/eval_banks.rs, which guards the banks.
+REFERENTIAL = ("The same", "The other", "Likewise", "Again,")
+
+
+def chains_of(ids, texts):
+    """(referent, question) pairs: a question that opens referentially, paired
+    with the question numbered just before it. Only pairs whose referent is in
+    `ids` — a sampled subset can drop one."""
+    have = set(ids)
+    return [(str(int(q) - 1), q) for q in ids
+            if texts[q].startswith(REFERENTIAL) and str(int(q) - 1) in have]
+
+
+def keep_chains(groups, chains, seen):
+    """Put each (referent, question) pair in one group, moving as little as
+    possible: the question swaps places with a groupmate of its referent, so
+    exactly two questions change group per repaired pair and nothing else in
+    the round moves. The groupmate must be free of chains itself and must not
+    create a pair `seen` already holds. Returns (groups, pairs still split)."""
+    linked = {q for pair in chains for q in pair}
+    where = {q: gi for gi, g in enumerate(groups) for q in g}
+    split = []
+    for ref, q in chains:
+        if where[ref] == where[q]:
+            continue
+        for mover, anchor in ((q, ref), (ref, q)):
+            home, target = groups[where[mover]], groups[where[anchor]]
+            fits = [m for m in target if m not in linked
+                    and not any(frozenset((mover, o)) in seen for o in target if o != m)
+                    and not any(frozenset((m, o)) in seen for o in home if o != mover)]
+            if fits:
+                m = fits[0]
+                gm, ga = where[mover], where[anchor]
+                home[home.index(mover)], target[target.index(m)] = m, mover
+                where[mover], where[m] = ga, gm
+                break
+        else:
+            split.append((ref, q))
+    for g in groups:
+        for ref, q in chains:
+            if ref in g and q in g:
+                g.remove(q)
+                g.insert(g.index(ref) + 1, q)
+    return groups, split
+
+
+def partition(ids, per_agent, rounds, rng, chains=()):
     """`rounds` partitions of `ids` into groups of `per_agent`. Each round is a
     fresh shuffle, retried until no pair of questions shares a group twice
-    across rounds — the original's rule. Returns (rounds, repeated_pairs);
-    repeated_pairs > 0 means it was arithmetically out of reach."""
-    seen, plan, repeats = set(), [], 0
-    for _ in range(rounds):
+    across rounds — the original's rule. Returns (rounds, repeated_pairs,
+    split); repeated_pairs > 0 means it was arithmetically out of reach.
+
+    `chains` (off by default, so the recorded partition is reproducible) keeps
+    each referent and the question that refers back to it in one group, every
+    round. That is a deliberate exception to the rule above: a chain's pair
+    co-occurs in all rounds by construction, and is excluded from the repeat
+    count rather than hidden in it. `split` lists chains no swap could join."""
+    linked = {frozenset(c) for c in chains}
+    # `drawn` steers the shuffle exactly as without chains, so the unrepaired
+    # round is the recorded one; `kept` is what the repaired rounds hold, and is
+    # what repairs and the repeat count are checked against. Repairing inside
+    # the retry loop instead re-rolls every later round: a round is accepted
+    # after ~50 rejected shuffles, and any change to `seen` moves which one.
+    drawn, kept, plan, repeats, split = set(), set(), [], 0, []
+    for rnd in range(rounds):
         best = None
         for _attempt in range(500):
             order = list(ids)
             rng.shuffle(order)
             groups = [order[i:i + per_agent] for i in range(0, len(order), per_agent)]
             pairs = {frozenset(p) for g in groups for p in itertools.combinations(g, 2)}
-            clash = len(pairs & seen)
+            clash = len(pairs & drawn)
             if best is None or clash < best[0]:
                 best = (clash, groups, pairs)
             if clash == 0:
                 break
         clash, groups, pairs = best
-        repeats += clash
-        seen |= pairs
+        drawn |= pairs
+        left = []
+        if chains:
+            groups, left = keep_chains(groups, chains, kept)
+        held = {frozenset(p) for g in groups for p in itertools.combinations(g, 2)} - linked
+        repeats += len(held & kept)
+        split += [(rnd + 1, *c) for c in left]
+        kept |= held
         plan.append(groups)
-    return plan, repeats
+    return plan, repeats, split
 
 
 def run_agent(model, prompt, max_usd, timeout):
@@ -224,6 +289,8 @@ def main():
                     help="stop launching agents past this total spend")
     ap.add_argument("--agent-usd", type=float, default=0.50, help="per-agent ceiling")
     ap.add_argument("--timeout", type=int, default=300)
+    ap.add_argument("--keep-chains", action="store_true",
+                    help="keep a back-referring question in its referent's group (#91)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--merge", action="store_true", help="required for --bank heldout")
     ap.add_argument("--out", type=Path, default=ROOT / "target" / "eval")
@@ -241,7 +308,8 @@ def main():
     if a.questions and a.questions < len(ids):
         ids = sorted(random.Random(a.seed).sample(ids, a.questions), key=int)
     rng = random.Random(a.seed)
-    plan, repeats = partition(ids, a.per_agent, a.rounds, rng)
+    chains = chains_of(ids, texts) if a.keep_chains else []
+    plan, repeats, split = partition(ids, a.per_agent, a.rounds, rng, chains)
     jobs = [(r, g) for r, groups in enumerate(plan, 1) for g in groups]
 
     def prompt_for(group):
@@ -252,6 +320,10 @@ def main():
           f"{a.per_agent}/agent -> {len(jobs)} agents on {a.model}")
     print(f"schema page {len(page)} chars, sha256 {hashlib.sha256(page.encode()).hexdigest()[:12]}"
           f"; tree {git_head()}; seed {a.seed}; repeated pairs {repeats}")
+    if a.keep_chains:
+        print(f"chains kept {len(chains)} x {a.rounds} rounds, outside the repeated-pair "
+              f"rule: {' '.join(f'Q{r}+Q{q}' for r, q in chains)}; "
+              f"left split {split or 'none'}")
     if a.dry_run:
         for r, g in jobs:
             print(f"  round {r}: {' '.join('Q' + q for q in g)}")
