@@ -205,3 +205,82 @@ fn first_source(dir: &Path) -> Option<std::path::PathBuf> {
     }
     None
 }
+
+/// A tree whose chain ends in `scip-python index .` — the shape #104 reported —
+/// with a real call in the Rust so one query returns rows and composes nothing.
+fn two_language_tree() -> tempfile::TempDir {
+    let tree = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        tree.path().join("f.rs"),
+        "fn callee() {}\nfn caller() { callee(); }\n",
+    )
+    .expect("write");
+    std::fs::write(tree.path().join("f.py"), "def f():\n    pass\n").expect("write");
+    tree
+}
+
+/// The `run: ` tail of the hint `goal` produces, under one hint shape.
+fn chain_under(tree: &Path, shape: &str, goal: &str) -> String {
+    let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
+        .args(["query", goal])
+        .current_dir(tree)
+        .env("XDG_CACHE_HOME", tree.join(".cache-for-test"))
+        .env("CODEINTEL_HINT_SHAPE", shape)
+        .env_remove("CODEINTEL_INDEX_DIR")
+        .output()
+        .expect("the binary runs");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // `expect` and not `panic!`: a helper in tests/ is production code to the
+    // panic-surface lints (clippy.toml). Both queries are `no-scip` on this
+    // tree, so both hints carry a chain.
+    let (_, after) = text
+        .split_once("run: ")
+        .expect("a no-scip hint carries a runnable chain");
+    after.lines().next().expect("a line").to_string()
+}
+
+/// Composing a second clause onto a hint must leave its runnable chain alone.
+///
+/// Not a syntax check — the broken output *is* valid shell, which is why
+/// `sh -n` cannot see it (#104). When the chain's last command ends in `.`,
+/// the `. also:` opening the next clause is read as two more arguments to it:
+/// `scip-python index .. also: …`, and `..` is a valid path, so the command
+/// runs against the parent directory.
+///
+/// So this asserts the chain's **boundary**: two queries against one tree in
+/// one condition, one returning rows and composing nothing, one returning none
+/// and composing the emptiness. The `run: ` tail must be identical.
+#[test]
+fn composing_a_hint_leaves_its_runnable_chain_untouched() {
+    let tree = two_language_tree();
+    assert!(codeintel(tree.path(), &["index", "."]).status.success());
+    // Both are `no-scip`, so both carry the same chain. Only the second is
+    // empty, and emptiness is what composes.
+    let (rows, empty) = (
+        "?- calls(A, B).",
+        "?- def(S, F, K, N), scip_ref(S, F, _, _, _, _).",
+    );
+
+    for shape in ["chain-last", "own-line"] {
+        assert_eq!(
+            chain_under(tree.path(), shape, rows),
+            chain_under(tree.path(), shape, empty),
+            "{shape}: composition appended to the runnable chain's line. Everything \
+             after the last command is read as more arguments to it, so an agent \
+             that pastes the advertised fix runs it against the wrong input (#104)"
+        );
+    }
+
+    // What ships, recorded so this branch states the difference rather than
+    // implying it. When a shape is adopted, this is the assertion that flips.
+    assert_ne!(
+        chain_under(tree.path(), "glued", rows),
+        chain_under(tree.path(), "glued", empty),
+        "the default no longer glues: #104 is fixed, so adopt a shape and \
+         delete this assertion"
+    );
+}
