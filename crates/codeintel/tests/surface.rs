@@ -1244,3 +1244,68 @@ fn uses_package_advertises_whose_package_name_it_reports() {
         uses_package.doc
     );
 }
+
+/// `schema` counts and `query` counts for one relation, on the same tree.
+fn schema_and_query_rows(root: &Path, relation: &str, goal: &str) -> (u64, u64) {
+    let schema = stdout(root, &["schema", "--format", "json"]);
+    let json: serde_json::Value = serde_json::from_str(&schema).expect("JSON");
+    let in_schema = json
+        .get("relations")
+        .and_then(serde_json::Value::as_array)
+        .expect("relations")
+        .iter()
+        .find(|r| r.get("name").is_some_and(|n| n == relation))
+        .and_then(|r| r.get("rows")?.as_u64())
+        .expect("the relation is in the catalog");
+    let counted = stdout(root, &["query", &format!("?- N = count{{{goal}}}.")]);
+    let in_query = counted
+        .lines()
+        .find_map(|line| line.trim().parse::<u64>().ok())
+        .expect("a count");
+    (in_schema, in_query)
+}
+
+#[test]
+fn schema_counts_equal_what_query_sees_on_a_tree_edited_since_indexing() {
+    // The catalog says "Counts from THIS index. A value at 0 returns no rows"
+    // and an agent decides what to ask from it. It must describe the database
+    // `query` answers from, which refreshes on every call.
+    let dir = tree();
+    run(dir.path(), &["index", "."]);
+    let before = schema_and_query_rows(dir.path(), "def", "S: def(S, _, _, _)");
+
+    std::fs::write(
+        dir.path().join("src/added.rs"),
+        "pub fn one() {}\npub fn two() {}\npub fn three() {}\n",
+    )
+    .expect("write");
+    let (in_schema, in_query) = schema_and_query_rows(dir.path(), "def", "S: def(S, _, _, _)");
+    assert_eq!(in_schema, in_query, "schema and query disagree on `def`");
+    assert!(in_schema >= before.0 + 3, "{in_schema} vs {}", before.0);
+
+    let files = |root: &Path| schema_and_query_rows(root, "file", "F: file(F, _)");
+    std::fs::remove_file(dir.path().join("src/added.rs")).expect("remove");
+    let (in_schema, in_query) = files(dir.path());
+    assert_eq!(in_schema, in_query, "schema and query disagree on `file`");
+}
+
+#[test]
+fn schema_says_stale_when_it_could_not_refresh() {
+    // Invariant 5: a catalog counted from an index it could not bring up to
+    // date says so, the way `query` does.
+    let dir = tree();
+    run(dir.path(), &["index", "."]);
+    let mut lock = facts::Lock::open(&dir.path().join(".codeintel")).expect("opens");
+    let held = lock.try_hold().expect("no io error").expect("uncontended");
+
+    let out = stdout(dir.path(), &["schema", "--format", "json"]);
+    let json: serde_json::Value = serde_json::from_str(&out).expect("JSON");
+    assert_eq!(json["status"], "stale", "{json}");
+    assert!(
+        json["hint"]
+            .as_str()
+            .is_some_and(|h| h.contains("codeintel index")),
+        "{json}"
+    );
+    drop(held);
+}

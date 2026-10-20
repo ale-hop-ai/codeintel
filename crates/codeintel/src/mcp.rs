@@ -340,11 +340,14 @@ fn schema(
     index_dir: Option<&Path>,
     json: bool,
 ) -> Result<serde_json::Value, (i64, String)> {
-    let census = match facts::store::locate(root, index_dir)
+    let counted = facts::store::locate(root, index_dir)
         .and_then(|dir| facts::Store::open(root, dir, &extract::fingerprint()))
-        .and_then(|store| Census::of(&store))
-    {
-        Ok(census) => census,
+        .and_then(|mut store| {
+            let refreshed = crate::query::refresh_store(&mut store, root)?;
+            Census::of(&store).map(|census| (census, refreshed))
+        });
+    let (census, refreshed) = match counted {
+        Ok(counted) => counted,
         Err(e) => {
             let text = format!("codeintel: {e}");
             return match facts::fault(&e) {
@@ -358,7 +361,7 @@ fn schema(
     // `codeintel schema` prints in that format. `structuredContent` carries
     // the same catalog, always as JSON, so a client that only reads one field
     // still gets the whole thing (`specs/05-surface.md` § MCP).
-    let structured = wire::schema_json(&schema, &census, root, index_dir);
+    let structured = wire::schema_json(&schema, &census, root, index_dir, &refreshed);
     let body = if json {
         structured.to_string()
     } else {

@@ -659,6 +659,17 @@ are absent, and the status says so. Exit 2 means "never ran", and failing
 asked would be that code lying in the other direction. A store that exists but
 will not load is still `corrupt` and exits 2.
 
+**`schema` refreshes the way `query` does, and says so when it cannot.** Its
+counts are what an agent uses to decide what is worth asking, so they must be
+the counts `query` will answer from. It refreshes the index first, within the
+same `max_refresh_ms`; a refresh that runs out of budget or cannot take the
+writer lock leaves the catalog counted from the index as it stands, with status
+`stale` and `query`'s hint. With no index, or one written for another schema,
+it does not refresh. `tests/surface.rs` asserts the counts equal what a query
+sees on a tree edited since indexing, and that a lock-blocked refresh reports
+`stale`. (Before this, `schema` reported `ok` over a tree with 45 files changed,
+`def` over 108 files while the next query saw 115.)
+
 ### `status`
 
 Index freshness, per-tier. Reports the counts a user needs to trust or distrust
@@ -694,6 +705,12 @@ reader repairing a `corrupt` index cannot otherwise work out.
 the directory named on its command line and nothing else — but its `no-index`
 hint is the same one `query` gives: the complete index chain, and any index
 discovery found above or below, named by root.
+
+**`status` does not refresh, on purpose.** It is the diagnostic for the index
+*as it stands*: a refresh would repair the very staleness it exists to report,
+and make the orientation command write to disk. It already reports the
+condition — `stale` with the changed files named — so unlike `schema` it was
+never silent.
 
 The unsupported-extension count costs a full walk, which is why it lives here
 and not on every query. It is printed biggest-first, because the number that
