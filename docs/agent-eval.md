@@ -544,3 +544,128 @@ python3 tests/fixtures/eval/score.py --bank heldout answers.tsv
 `expected.tsv`, so every command recorded above means what it meant.
 `cargo run -p codeintel --example eval` gained a `--facts <path>` argument for
 the second fixture and defaults to the embedded `facts.dl`.
+
+---
+
+# Tier 3 runner — 2026-10-20
+
+`tests/fixtures/eval/run.py` is [docs/50-self-improvement.md](50-self-improvement.md)
+§ 4's Tier 3, automated. Everything above was run by hand; this is the same
+method with the manual steps written down and the "instruction, not a sandbox"
+caveat removed.
+
+```sh
+python3 tests/fixtures/eval/run.py --bank working --dry-run   # the plan and the cost bound
+python3 tests/fixtures/eval/run.py probe                      # prove the isolation (one agent, ~$0.01)
+python3 tests/fixtures/eval/run.py --bank working             # 75 questions x 3 rounds
+python3 tests/fixtures/eval/run.py --bank working --questions 6 --rounds 3 --per-agent 2   # a small sample
+python3 tests/fixtures/eval/run.py --bank heldout --merge     # the merge gate; aggregates only
+```
+
+Sample size is `--questions` (seeded subset, 0 = whole bank), `--rounds`
+(samples per question) and `--per-agent`; agents = rounds x ceil(questions /
+per-agent). `--max-usd` stops *launching* agents past a total and says so in the
+report — a truncated run is labelled, never presented as a full one.
+
+## Why headless, and not tally
+
+Both were evaluated. **Headless `claude -p`, one process per agent.**
+
+| | headless `claude -p` | `tally spawn` |
+|---|---|---|
+| Isolation | `--tools ""` removes every tool; `--safe-mode` removes CLAUDE.md, hooks, skills, MCP, memory; fresh empty cwd | a pad is a full interactive session in a worktree: this repo's CLAUDE.md, hooks and memory load, and the agent has file tools. Isolation falls back to an instruction — the caveat this runner exists to remove |
+| Collecting answers | one JSON object on stdout | scrape a TUI |
+| Cost accounting | `total_cost_usd` and token usage per agent | none |
+| Footprint | a process | a pad. The grid is 5 x 8 and ~16 pads were running when this was built; a 75-agent run would not fit, and it is a shared surface the user presses to jump between sessions |
+
+Tally is the right home for the *experimenter* running `run.py`, and for nothing
+the eval agents do. The runner never touches the grid.
+
+## What an agent sees
+
+The system prompt is replaced, not appended to, and says one sentence. The user
+message is the instructions of the M4 prompt, the **page inline** (the original
+had agents read it with a tool — with no tools the same text arrives in the
+prompt), and its questions as `Q<id>: <text>`. The page is
+`cargo run --example eval -- --facts bank.dl --schema`: the real `Schema`
+renderer over a census of the bank's own facts. `codeintel schema` itself cannot
+be used, because the bank is a fact file with no tree to index, and the no-index
+page ends "THERE IS NO INDEX HERE", which would be a different measurement. The
+page is the one this tree's rules produce, so a change to a rule signature or a
+doc line changes what the next run reads. Never the reference query, the answer
+variables, the facts, or any other group.
+
+**Isolation is measured, not asserted.** `run.py probe` puts a random canary in
+the agent's cwd, asks it to read it and describe its situation, and passes only
+if the canary is absent, it took one turn, and its input was <= 600 tokens (a
+CLAUDE.md, memory or tool schema is thousands). Findings from building it:
+
+- With the **default system prompt** and `--tools ""` the model is still told it
+  has tools, writes a `Read` call as text, and invents the contents of the file.
+  The canary read back as a different random string. Replacing the system
+  prompt fixed it, which is why `--system-prompt` is there.
+- The agent still receives the account email, the date and a budget note as a
+  context note (~250 tokens, constant across agents). `--safe-mode` does not
+  drop them. They cannot carry the answer; they are a residual, not a leak.
+- `--bare` was the obvious flag and is unusable here: it ignores OAuth and the
+  keychain and needs `ANTHROPIC_API_KEY`, which this host does not set.
+
+Agents run as separate processes, so they cannot see each other. Questions are
+re-partitioned each round from a seeded shuffle, retried until no two questions
+share a group twice; when that is arithmetically impossible `repeated pairs` in
+the report says by how much. The seed fixes the partition and the subset only.
+
+## What it reports
+
+Per-round score, total, the **pass-count histogram** (how many questions passed
+3, 2, 1, 0 rounds), and agreement as "questions that passed in a majority of
+rounds" — the 2-of-3 figure when rounds is 3. Plus agents run, tokens, cost,
+cost per agent, wall time split into agents and scoring, and an extrapolated
+cost for the full bank, labelled an estimate. Artifacts, in
+`target/eval/<bank>/<utc>/`: `report.txt`, `agents.jsonl` (raw replies and
+usage), `outcomes.json`, `schema.txt` and `answers.tsv`. Any agent that took
+more than one turn, hit a permission denial or errored is flagged `ANOMALY`.
+
+An unparseable or missing answer is a failure, not a skip. A transport failure
+(error, timeout, no JSON) is retried up to twice and the retry count recorded; a
+*wrong* answer is never retried.
+
+**Held-out.** `--bank heldout` needs `--merge`. It prints aggregates only — no
+question ids, queries or failure reasons — and keeps neither `answers.tsv` nor
+the raw replies, because a per-question breakdown handed to an experimenting
+agent is the held-out set leaking.
+
+## What it does not do
+
+- **It does not make the number stable.** It is an LLM measurement: the same
+  tree, seed and model give a different score on a different day. Compare
+  distributions across runs, not totals. Re-running to move a score is still the
+  failure this page opened with.
+- **Model is a parameter** (`--model`, default `claude-opus-5`, the M4 runs'
+  model). Scores across models do not compare.
+- **Scoring is slow.** `score.py` recomputes every reference query in the bank
+  with one `cargo run` each, ~2.5 minutes for the working bank regardless of how
+  many answers it scores. Fixed overhead per run, not per agent.
+- **Same-family blind spots** and **the small fixture** (43 definitions) are the
+  M1 caveats, unchanged.
+
+## Validated sample, not a score
+
+Built and checked on 2026-10-20 at `0291ac8` + this change: working bank,
+`--questions 4 --per-agent 2 --rounds 3`, seed 1 — 6 agents, 12 answers, on
+`claude-opus-5`.
+
+| Measured | |
+|---|---|
+| Isolation probe | canary absent, 1 turn, 372 input tokens |
+| Agents | 6/6 ran, 0 anomalies, 0 retries, every answer parsed |
+| Cost | $0.206 total, **$0.034 per agent**, 17,430 tokens in, 531 out |
+| Partition | 3 rounds, 0 repeated pairs (4 questions in pairs: the 3 perfect matchings) |
+| Scoring check | a deliberately wrong query and a malformed one were both caught as failures |
+| Extrapolation | the full working bank is 75 agents, about **$2.6** and ~25 minutes at 3 in flight |
+
+The sample's answers scored 12/12. **That is not a measurement of the schema.**
+Four questions out of 75 were chosen by seed, not for being representative, and
+no claim is made from them; they exist to show every stage of the pipeline ran.
+The first full-bank number is the user's call and gets its own section, with its
+tree, seed and report, the way § Set A, re-run does.
