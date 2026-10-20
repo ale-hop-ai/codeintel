@@ -167,8 +167,8 @@ not a sixth verb.
   documented deviation triggers.
 
 **STACK.md outranks [research.md](research.md) §6 on crate choice.** Where this
-project deviates — the zero-dependency `crates/datalog`, `memmap2` for segment
-loading — record the deviation and its trigger in §6 rather than letting the two
+project deviates — the zero-dependency `crates/datalog`, and `memmap2` for
+segment loading (taken, then removed: #44, [research.md](research.md) §6) — record the deviation and its trigger in §6 rather than letting the two
 documents disagree silently. Reconcile them during M0, before any code depends
 on either.
 
@@ -198,7 +198,8 @@ on either.
 [03-datalog.md](../specs/03-datalog.md), end to end, with **no code-intel
 concepts**. This is the highest-risk milestone; do it first and do it properly.
 
-1. Interner (`facts` crate): reserved integer range, append-only dict, mmap load.
+1. Interner (`facts` crate): reserved integer range, append-only dict, `fs::read`
+   load (an mmap was built first and dropped, #44).
    **`dict.idx` holds u64 offsets** — u32 silently caps `dict.bin` at 4 GiB.
 2. Lexer + parser → AST. Fuzz it.
 3. Safety checks: range restriction, negation safety, comparison safety,
@@ -228,8 +229,8 @@ concepts**. This is the highest-risk milestone; do it first and do it properly.
 **Done when**
 - The conformance suite passes: transitive closure, same-generation, stratified
   negation, `count`, arithmetic.
-- The `#[cfg(test)]` naive evaluator agrees with semi-naive on every conformance
-  program. *This is the acceptance gate* — a semi-naive bug that drops rows is
+- The naive evaluator (`Engine::query_naive`, public and `#[doc(hidden)]`) agrees
+  with semi-naive on every conformance program. *This is the acceptance gate* — a semi-naive bug that drops rows is
   otherwise invisible until it corrupts a real answer.
 - Every safety rule has a test asserting its exact diagnostic message.
 - Every limit has a test provoking it and asserting `status` and `cap`.
@@ -442,12 +443,15 @@ printed command is copy-pasteable and the user runs it.
 - On `tests/fixtures/rust/` with both tiers, >= 95% of tier-A definitions carry
   `resolved(S)`, **counting definitions a position join can reach**. Modules
   are exempt and the exemption is pinned by count
-  ([02-extraction.md](02-extraction.md) § Validation): tier A places module
+  ([02-extraction.md](../specs/02-extraction.md) § Validation): tier A places module
   `conn` at `mod conn;` in one file and rust-analyzer places it at line 1 of
-  another, so no join on identifier position can match them. Measured: 33/33
-  non-module, 0/9 module.
-- Tier-A precision test passes: every `"name"` ref either matches an `"exact"`
-  ref at the same position or is listed in `known-imprecise.txt` with a reason.
+  another, so no join on identifier position can match them. Measured at M3:
+  33/33 non-module, 0/9 module; today 35/35 and 1 of 10 (the inline
+  `mod detail { }` anchors).
+- Tier-A precision test passes: no `"name"` ref sits at a position an `"exact"`
+  ref covers. This read "or is listed in `known-imprecise.txt` with a reason";
+  the list is gone and the `!scip_claim` guard makes the count zero by
+  construction ([02-extraction.md](../specs/02-extraction.md) § Validation 4).
 - `?- calls_exact(A, B).` returns edges that a **tier-A-only** `?- calls(A, B).`
   misses, and the set is hand-audited in both directions. The original wording
   was unsatisfiable: `calls_exact` is `calls_at` with `Prov` pinned to
@@ -558,7 +562,9 @@ definition. A `stdlib.dl` rule naming the set is the cheap fix if it bites.
 5. The surface-budget CI test: assert 1 MCP tool, **5 CLI verbs**, <= 16 base
    relations, **and <= 24 named predicates in `stdlib.dl`**. The rule count is
    the dimension that actually grows; asserting only the three that do not makes
-   the founding thesis unfalsifiable.
+   the founding thesis unfalsifiable. (Superseded: the cap went 24, then 40, and
+   was dropped; the assertion is `schema` size against a worst-case census,
+   [00-overview.md](../specs/00-overview.md) § Surface budget.)
 
    **Open conflict, to be resolved here.** `rules/stdlib.dl` shipped at M1 with
    **37** named predicates, and every one of them is specified in
@@ -1117,8 +1123,8 @@ rows" invariant 5 warns about, turned on the bench.
 
 `query_ms` **includes opening and loading the store**, because `query::run`
 does both on every call — and so does `codeintel mcp` today
-(`crates/codeintel/src/mcp.rs` → `query::run`). There is no warm MCP process
-yet for the done-when above to be measured in. The bench reports what exists
+(`crates/codeintel/src/mcp.rs` → `query::run`). There was no warm MCP process
+yet for the done-when above to be measured in; #18 below added one. The bench reports what exists
 under a name that says what it includes, rather than a number labelled as the
 thing the spec asked for.
 
@@ -1364,9 +1370,9 @@ re-measured with the machine otherwise idle, at load average 1.3–1.6 from this
 session and the OS. Then `tasks/bench.yml` ran end to end against them: 6 steps
 ok, every counter equal, and every compared metric within 6% of its baseline.
 
-| from `benches/corpora/<name>/baseline.json` | fd ~10k | tokio ~100k | deno ~1M |
+| from `benches/corpora/<name>/baseline.json` as #26 wrote it | fd ~10k | tokio ~100k | deno ~1M |
 |---|---:|---:|---:|
-| files / defs | 24 / 638 | 799 / 11,516 | 4,711 / 88,514 |
+| files / defs (`defs` since recounted to 629 / 11,376 / 84,068) | 24 / 638 | 799 / 11,516 | 4,711 / 88,514 |
 | `index_cold_ms` | 373 | 10,818 | 58,243 |
 | `load_warm_ms` | 1.5 | 21.7 | 137.6 |
 | `reindex_one_ms` | 31.9 | 47.9 | 179.1 |
