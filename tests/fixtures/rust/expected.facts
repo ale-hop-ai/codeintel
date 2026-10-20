@@ -12,7 +12,7 @@ def("local src/kinds.rs Handler#", "src/kinds.rs", "trait", "Handler").
 def("local src/kinds.rs Handler#handle().", "src/kinds.rs", "method", "handle").
 def("local src/kinds.rs Handler#name().", "src/kinds.rs", "method", "name").
 def("local src/kinds.rs Key#", "src/kinds.rs", "typealias", "Key").
-def("local src/kinds.rs Key#[`Handler for &Key`]handle().", "src/kinds.rs", "method", "handle").
+def("local src/kinds.rs Key#[Handler][`&Key`]handle().", "src/kinds.rs", "method", "handle").
 def("local src/kinds.rs LIMIT.", "src/kinds.rs", "constant", "LIMIT").
 def("local src/kinds.rs Mode#", "src/kinds.rs", "enum", "Mode").
 def("local src/kinds.rs Mode#Careful.", "src/kinds.rs", "constant", "Careful").
@@ -78,7 +78,7 @@ def_name("local src/kinds.rs Handler#", 30, 10).
 def_name("local src/kinds.rs Handler#handle().", 32, 7).
 def_name("local src/kinds.rs Handler#name().", 35, 7).
 def_name("local src/kinds.rs Key#", 27, 9).
-def_name("local src/kinds.rs Key#[`Handler for &Key`]handle().", 77, 7).
+def_name("local src/kinds.rs Key#[Handler][`&Key`]handle().", 77, 7).
 def_name("local src/kinds.rs LIMIT.", 41, 10).
 def_name("local src/kinds.rs Mode#", 15, 9).
 def_name("local src/kinds.rs Mode#Careful.", 17, 4).
@@ -123,7 +123,7 @@ def_sig("local src/kinds.rs Handler#", "pub trait Handler").
 def_sig("local src/kinds.rs Handler#handle().", "fn handle(&self, key: &Key) -> bool").
 def_sig("local src/kinds.rs Handler#name().", "fn name(&self) -> &'static str").
 def_sig("local src/kinds.rs Key#", "pub type Key").
-def_sig("local src/kinds.rs Key#[`Handler for &Key`]handle().", "fn handle(&self, key: &Key) -> bool").
+def_sig("local src/kinds.rs Key#[Handler][`&Key`]handle().", "fn handle(&self, key: &Key) -> bool").
 def_sig("local src/kinds.rs LIMIT.", "pub const LIMIT: u32").
 def_sig("local src/kinds.rs Mode#", "pub enum Mode").
 def_sig("local src/kinds.rs Mode#Careful.", "Careful").
@@ -168,7 +168,7 @@ def_span("local src/kinds.rs Handler#", 29, 38, 629, 845).
 def_span("local src/kinds.rs Handler#handle().", 31, 32, 709, 763).
 def_span("local src/kinds.rs Handler#name().", 34, 37, 769, 843).
 def_span("local src/kinds.rs Key#", 26, 27, 587, 627).
-def_span("local src/kinds.rs Key#[`Handler for &Key`]handle().", 77, 79, 1710, 1797).
+def_span("local src/kinds.rs Key#[Handler][`&Key`]handle().", 77, 79, 1710, 1797).
 def_span("local src/kinds.rs LIMIT.", 40, 41, 847, 889).
 def_span("local src/kinds.rs Mode#", 14, 18, 413, 466).
 def_span("local src/kinds.rs Mode#Careful.", 17, 17, 456, 463).
@@ -227,8 +227,8 @@ name_ref("get", "src/store.rs", 40, 10, "local src/store.rs warm().").
 name_ref("insert", "src/store.rs", 30, 21, "local src/store.rs Store#put().").
 name_ref("is_empty", "src/db/conn.rs", 5, 9, "local src/db/conn.rs open().").
 name_ref("is_empty", "src/kinds.rs", 48, 31, "local src/kinds.rs Config#[Handler]handle().").
-name_ref("is_empty", "src/kinds.rs", 78, 14, "local src/kinds.rs Key#[`Handler for &Key`]handle().").
-name_ref("is_empty", "src/kinds.rs", 78, 33, "local src/kinds.rs Key#[`Handler for &Key`]handle().").
+name_ref("is_empty", "src/kinds.rs", 78, 14, "local src/kinds.rs Key#[Handler][`&Key`]handle().").
+name_ref("is_empty", "src/kinds.rs", 78, 33, "local src/kinds.rs Key#[Handler][`&Key`]handle().").
 name_ref("open", "src/app.rs", 9, 10, "local src/app.rs start().").
 name_ref("open", "src/ui/panel.rs", 10, 10, "local src/ui/panel.rs draw().").
 name_ref("starts_with", "src/net/conn.rs", 8, 8, "local src/net/conn.rs open().").
@@ -248,7 +248,7 @@ parent("local src/kinds.rs Handler#", "src/kinds.rs").
 parent("local src/kinds.rs Handler#handle().", "local src/kinds.rs Handler#").
 parent("local src/kinds.rs Handler#name().", "local src/kinds.rs Handler#").
 parent("local src/kinds.rs Key#", "src/kinds.rs").
-parent("local src/kinds.rs Key#[`Handler for &Key`]handle().", "local src/kinds.rs Key#").
+parent("local src/kinds.rs Key#[Handler][`&Key`]handle().", "local src/kinds.rs Key#").
 parent("local src/kinds.rs LIMIT.", "src/kinds.rs").
 parent("local src/kinds.rs Mode#", "src/kinds.rs").
 parent("local src/kinds.rs Mode#Careful.", "local src/kinds.rs Mode#").
@@ -293,7 +293,7 @@ visibility("local src/kinds.rs Handler#", "public").
 visibility("local src/kinds.rs Handler#handle().", "inherited").
 visibility("local src/kinds.rs Handler#name().", "inherited").
 visibility("local src/kinds.rs Key#", "public").
-visibility("local src/kinds.rs Key#[`Handler for &Key`]handle().", "inherited").
+visibility("local src/kinds.rs Key#[Handler][`&Key`]handle().", "inherited").
 visibility("local src/kinds.rs LIMIT.", "public").
 visibility("local src/kinds.rs Mode#", "public").
 visibility("local src/kinds.rs Mode#Careful.", "inherited").

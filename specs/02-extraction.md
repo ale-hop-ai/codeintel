@@ -229,12 +229,12 @@ Three things follow from the suffix alone, in language-neutral code:
 Any language with trait-like implementation blocks uses the same three
 captures. Only Rust's query uses them today.
 
-**Known defect.** The qualifier's two-name form is spelled with Rust's own
-syntax — `` [`Handler for &Key`] `` — by a `format!` in `tier_a.rs`. The
-separator is surface syntax, not a fact, and no other language spells it that
-way. It is recorded here rather than fixed because the qualifier is part of a
-symbol string: changing it moves rows, not counts, and is its own change with
-its own golden analysis.
+The qualifier is **one `[...]` segment per captured name**, never one segment
+holding a joined phrase ([01-facts.md](01-facts.md) § Symbol identity). It
+shipped joined — `` [`Handler for &Key`] `` — and the ` for ` in it was Rust's
+surface syntax inside a `SymId` (#86). The segments come from the captures, so
+a language whose implementation blocks read any other way needs no separator of
+its own.
 
 #### TypeScript and TSX: two grammars, one query
 

@@ -255,8 +255,8 @@ fn two_trait_impls_for_one_type_give_their_methods_two_symbols() {
     assert_eq!(
         gos,
         [
+            "local lib.rs A#[T][`&A`]go().",
             "local lib.rs A#[T]go().",
-            "local lib.rs A#[`T for &A`]go().",
             "local lib.rs T#go().",
         ]
     );
