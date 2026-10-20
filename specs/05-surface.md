@@ -310,10 +310,23 @@ so, because every join an agent does not have to write is a join it cannot get
 wrong.
 
 `--raw` prints the underlying `SymId` instead. Use it when piping one query's
-output into another query's literal. JSON carries both: `rows` is always the raw
-atoms, one value per column, and `display` is the same rows expanded — so a
-programmatic consumer never parses the pretty form. This is presentation only —
-the tuple is unchanged, and `--raw` is what round-trips.
+output into another query's literal. This is presentation only — the tuple is
+unchanged, and `--raw` is what round-trips.
+
+**One notation per answer, chosen by `raw`.** JSON carries `rows` only: the
+rendered form by default, the raw atoms under `raw: true`. An earlier version
+carried both at once — `rows` raw and `display` expanded — so that "a
+programmatic consumer never parses the pretty form."
+
+That consumer does not exist. **The sole consumer of this surface is a language
+model** (§ The consumer), and for it the second notation is not a convenience,
+it is a duplicate of every row it already has. Measured on a seven-row answer:
+`rows` 1163 bytes, `display` 1131 bytes, carrying the same seven tuples twice.
+
+The round-trip the two-notation rule existed to protect is preserved exactly,
+because `raw` already selects the notation that round-trips, and the tie-break
+rule below is unaffected: the sort key stays (rendered row, raw row) whichever
+notation is sent, so ordering does not depend on the flag.
 
 **The byte cap is measured on the bytes sent**, not on the engine's estimate
 over raw atoms. Symbol expansion is what the consumer's context window actually
@@ -328,7 +341,7 @@ with the same function that sends it:
 |---|---|
 | CLI `query`, text | the rows on stdout (the status goes to stderr) |
 | CLI `query --format json` | the whole document: both notations of every row, JSON escaping included |
-| MCP `code_query` | the tool result object: its `content` body escaped into a JSON string, plus `structuredContent` |
+| MCP `code_query` | the tool result object, one body (§ The consumer) |
 
 An earlier version measured the printed text everywhere. That bounded the text
 surface and nothing else: the JSON document carries two notations per row, and
@@ -927,6 +940,39 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
   able to self-correct in one retry.
 - Text format wins by default. It is ~4× denser than JSON for tabular results
   and every consumer is a language model.
+
+### The consumer
+
+**There is exactly one, and it is a language model.** No human reads this
+output except while debugging the tool itself, and no programmatic consumer
+exists or is planned. Where a rule in this spec trades density for the
+convenience of a consumer that parses structurally, density wins, because the
+context window is the budget that is actually scarce.
+
+Three rules follow, and they supersede the earlier drafts named at each site:
+
+1. **One notation per answer** (§ `query`, Symbol rendering). `rows`, chosen by
+   `raw`. Not `rows` *and* `display`.
+2. **One body per MCP tool result.** A result carries `content` or
+   `structuredContent`, never the same answer in both. Which one is chosen by
+   what the client declared at `initialize`; a client that takes
+   `structuredContent` gets only that, and one that does not gets `content`.
+   Sending both made `format` and `raw` inert for every client that prefers
+   structured content — the parameters were advertised and did nothing — and
+   cost 3717 bytes to deliver a 1131-byte answer.
+3. **The schema is a budget, not an inventory.** It is read once per session
+   before any question is asked, so its bytes are charged to every session
+   including the ones that ask one question. It is currently 18,304 bytes.
+
+**These are decisions, not measurements.** The magnitude each one recovers is
+the subject of a standing hypothesis in
+[docs/50-self-improvement.md](../docs/50-self-improvement.md) § 7, measured by
+that document's scoreboard against a pinned corpus. The decision stands on the
+consumer being a language model; the number is what the experiment reports.
+
+The byte cap is unaffected in principle and tightened in practice: it is still
+measured on the bytes actually sent (§ `query`, the byte cap), which is now a
+smaller number for the same rows.
 
 ### Why one tool
 
