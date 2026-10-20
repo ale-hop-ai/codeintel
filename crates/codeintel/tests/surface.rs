@@ -1438,6 +1438,35 @@ fn schema_counts_equal_what_query_sees_on_a_tree_edited_since_indexing() {
 }
 
 #[test]
+fn schema_does_not_claim_role_read_has_no_rows_while_ref_returns_them() {
+    // #119: Role is counted over `scip_ref`, but `ref` stamps "read" on every
+    // name-tier row. With no SCIP index the count is 0 and `ref` is full.
+    let dir = tree();
+    run(dir.path(), &["index", "."]);
+    let read_rows = stdout(
+        dir.path(),
+        &["query", "?- N = count{L: ref(_, _, L, _, _, \"read\", _)}."],
+    );
+    let read_rows: u64 = read_rows
+        .lines()
+        .find_map(|line| line.trim().parse().ok())
+        .expect("a count");
+    assert!(read_rows > 0, "the fixture has name-tier refs");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout(dir.path(), &["schema", "--format", "json"])).expect("JSON");
+    assert_eq!(json["roles_counted_over"], "scip_ref");
+
+    let text = stdout(dir.path(), &["schema"]);
+    assert!(text.contains("A Kind at 0 has no rows"), "{text}");
+    assert!(
+        !text.contains("A value at 0 returns no rows"),
+        "blanket claim covers Role, which ref contradicts:\n{text}"
+    );
+    assert!(text.contains("name tier = \"read\""), "{text}");
+}
+
+#[test]
 fn schema_says_stale_when_it_could_not_refresh() {
     // Invariant 5: a catalog counted from an index it could not bring up to
     // date says so, the way `query` does.
