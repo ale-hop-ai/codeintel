@@ -669,3 +669,72 @@ Four questions out of 75 were chosen by seed, not for being representative, and
 no claim is made from them; they exist to show every stage of the pipeline ran.
 The first full-bank number is the user's call and gets its own section, with its
 tree, seed and report, the way § Set A, re-run does.
+
+## Tier 3, first automated run — 2026-10-20
+
+The first measurement taken by `tests/fixtures/eval/run.py` rather than by hand.
+Run because the schema and the rendering both moved (`schema_bytes` 15,407 →
+5,356; one notation per row), which `docs/50-self-improvement.md` § 4 names as
+Tier 3's trigger.
+
+**210/225 first-attempt correct (93%). 70/75 questions passed a majority of
+three rounds.** Per round 71/75, 71/75, 68/75. Histogram 3x:67 2x:3 1x:3 0x:2.
+Tree `95d032f`, model `claude-opus-5`, seed 1, schema page sha `f00beda11363`,
+$2.836 at $0.038/agent, 96 s of agents at 4 in flight.
+
+This is the **working** bank. It is not comparable to the frozen bank's 85/90,
+which is a different question set against a different fixture.
+
+### The isolation is not quite what the page claims
+
+`run.py probe` reports the agent sees no tools and no working directory and
+cannot read a canary — but it also reports a system-reminder carrying the
+operator's email address and today's date. "Sees the schema page and nothing
+else" is therefore not literally true. Nothing in that reminder is the fixture,
+the bank or the expected answers, so the measurement stands; the sentence does
+not, and is corrected here rather than in a footnote to a score.
+
+### Q20's reference answer is wrong, and the agents were right
+
+> *Which definitions state a bounded visibility, or state none where the
+> grammar offers the slot?*
+
+The reference is `?- visibility(A, "restricted").`, which answers only the first
+half. "States none where the grammar offers the slot" is `inherited`. All three
+rounds returned the larger, correct set — identically — and all three scored as
+failures.
+
+**This is the fourth reference-answer defect this eval has found in itself**,
+and the second where the agents were right. Recorded, not silently repaired:
+the 210/225 above was measured against the wrong reference and is reported as
+measured. The question and its query are reconciled separately, and whatever
+the next run reports is the next run's number.
+
+### The one systematic failure: `count` must be bound first
+
+Four of the six aggregate attempts, across Q26 and Q60, were rejected with
+
+```
+`count` may only appear as `X = count{ T : goal }`
+```
+
+because the agent wrote the aggregate straight into a comparison:
+
+```prolog
+?- file(A, _), count{S : def(S, A, _, _)} > 3.          % rejected
+?- file(A, _), B = count{S : def(S, A, _, _)}, B > 3.   % accepted, and scored
+```
+
+The schema's `BUILTINS` line teaches `count{X:goal}` — the aggregate, with no
+indication that it cannot stand in comparison position. The agents did not
+misunderstand aggregation; they could not see the binding requirement, because
+the one line that teaches the builtin omits it.
+
+The engine's error message is good and names the legal form. It does not help
+here: this eval allows one attempt, which is the right measure of whether a
+schema teaches, and a retry budget would measure the error message instead.
+
+**Next hypothesis, and it is cheap:** teach the builtin as `N = count{X:goal}`.
+Expected to recover up to four samples. It changes the schema page, so it is
+measured by re-running this bank and reporting both numbers — which is an
+experiment, not a re-roll, as long as the before number stays on this page.
