@@ -925,7 +925,10 @@ fn an_aggregate_does_not_steal_the_empty_literal() {
         .query("?- p(X), r(X).", &Limits::default())
         .expect("answers");
     assert!(plain.rows.is_empty());
-    assert_eq!(plain.stats.empty_at.as_deref(), Some("r(X)"));
+    assert_eq!(
+        plain.stats.empty_at.map(|at| at.text).as_deref(),
+        Some("r(X)")
+    );
 
     // With an aggregate whose sub-goal is *longer* than the outer body, the
     // shared cell used to push the mark past the end of the outer plan.
@@ -937,7 +940,10 @@ fn an_aggregate_does_not_steal_the_empty_literal() {
         )
         .expect("answers");
     assert!(counted.rows.is_empty());
-    assert_eq!(counted.stats.empty_at.as_deref(), Some("N > 99"));
+    assert_eq!(
+        counted.stats.empty_at.map(|at| at.text).as_deref(),
+        Some("N > 99")
+    );
 }
 
 /// Predicates that do not negate each other share a stratum.

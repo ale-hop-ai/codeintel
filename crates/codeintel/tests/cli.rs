@@ -222,6 +222,40 @@ fn an_empty_result_says_which_literal_matched_nothing() {
     );
 }
 
+/// The emptiness hint reads the literal the engine parsed, not its text (#81).
+///
+/// The host used to recover the arguments by splitting the literal's source on
+/// unquoted commas, counting an escaped `\"` as closing the string. One escape
+/// therefore split a single argument in two and shifted every column after it,
+/// so the hint named a value the caller never wrote and diagnosed it against
+/// the wrong column — while the constant that actually matched nothing went
+/// unexamined. A diagnosis that names the wrong cause is worse than none: the
+/// caller goes and fixes a literal that was matching fine.
+#[test]
+fn an_escaped_quote_does_not_shift_the_diagnosed_column() {
+    let dir = tree();
+    index(dir.path());
+
+    // The Kind constant holds an escaped quote and a comma. The hint must
+    // quote it whole; the old split reported `"x\"y` and stopped there.
+    let (rows, stderr) = query(dir.path(), r#"?- def(S, F, "x\"y, function", N)."#);
+    assert!(rows.is_empty(), "{rows:?}");
+    assert!(
+        stderr.contains(r#""x\"y, function" is not one of this column's values"#),
+        "{stderr}"
+    );
+
+    // An escape in the *first* argument used to push the path constant out
+    // from under the Path column, which lost the path diagnosis entirely and
+    // left only the relation total.
+    let (rows, stderr) = query(dir.path(), r#"?- def("s\"a, b", "nosuch/file.rs", K, N)."#);
+    assert!(rows.is_empty(), "{rows:?}");
+    assert!(
+        stderr.contains("no indexed file is `nosuch/file.rs`"),
+        "{stderr}"
+    );
+}
+
 #[test]
 fn a_non_empty_answer_carries_no_empty_hint() {
     let dir = tree();

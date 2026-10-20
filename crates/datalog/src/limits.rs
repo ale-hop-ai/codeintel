@@ -4,6 +4,8 @@
 //! cap reads as a complete answer, which is worse than an error
 //! (`specs/00-overview.md` invariant 7).
 
+use crate::ast::Literal;
+
 /// Caps on one query.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -144,6 +146,33 @@ impl std::fmt::Display for Demand {
     }
 }
 
+/// The body literal that stopped a join, for a host that must explain why an
+/// answer is empty.
+///
+/// Both halves are carried because they answer different questions. `text` is
+/// what the caller wrote and is the only form worth showing back to them;
+/// `literal` is what the engine evaluated, and is what a host must read when it
+/// needs an argument rather than a sentence. Re-deriving the second from the
+/// first means re-parsing Datalog outside the parser, which silently mis-splits
+/// a string holding an escaped quote and then diagnoses the wrong column
+/// (#81). The engine already holds the parsed form, so handing it over costs a
+/// clone and removes the only reason to parse program text twice.
+///
+/// This widens nothing about what [`crate`] knows: [`Literal`] and [`Term`]
+/// are terms and atoms, carry no notion of code, and are already public
+/// (`specs/00-overview.md` invariant 6).
+///
+/// [`Term`]: crate::Term
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct EmptyAt {
+    /// The literal exactly as the caller wrote it, sliced from the source.
+    pub text: String,
+    /// The same literal, parsed. Constants are interned atoms, which the host
+    /// resolves through its own dictionary.
+    pub literal: Literal,
+}
+
 /// What one evaluation cost. Not part of the answer, so timings here do not
 /// break the byte-identical-output invariant.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -169,15 +198,15 @@ pub struct Stats {
     pub demand: Demand,
     /// Stdlib rules a query-local rule shadowed. Never silent.
     pub shadowed: Vec<String>,
-    /// When the goal derived no rows, the body literal — quoted as the caller
-    /// wrote it — that matched nothing first.
+    /// When the goal derived no rows, the body literal that matched nothing
+    /// first.
     ///
     /// A valid query returning zero rows is indistinguishable from a typo, a
     /// wrong constant, and a base relation the host never populated.
     /// Evaluation already walks the body literal by literal, so the deepest
     /// position it reached is free, and the literal at that position is the one
     /// that stopped the join (`specs/05-surface.md` § Response contract).
-    pub empty_at: Option<String>,
+    pub empty_at: Option<EmptyAt>,
     /// The **base** relations the goal's dependency closure reaches, sorted.
     ///
     /// The closure, not the literal syntax of the goal. A caller that must know
