@@ -1191,6 +1191,28 @@ read. That is why a recount sat in three baselines unnoticed, and it is #94 seen
 from the other side: there the check runs too rarely, here there is no check at
 all.
 
+**Where a warm call's time goes, measured 2026-10-20 (#28).** On deno at
+`336da420f4` — 4,711 files, 84,068 defs — a warm no-change call is 174 ms p50,
+and **136 ms of it is the walk**. `open` is 27 ms, of which `open_dict` is 24;
+sweep is 3.9, evaluate 4.5, the per-file stale check 2.2, `manifest_compare`
+0.15, `locate` 0.00.
+
+So the thing that scales with the tree is the gitignore-aware traversal, five
+to one over `Store::open` — which M6 had named as the co-candidate and which is
+not the problem. The walk is already parallel at four threads, so that is 136 ms
+with the obvious fix in hand. `open_dict` is the only other phase that grows: it
+is `fs::read` of the dictionary per call, the cost [research.md](research.md) §6
+accepted when the mmap was dropped.
+
+Not fixed, because every call refreshing is the contract and refresh means
+walking. The options are directory-mtime pruning, caching the walk for the life
+of one warm process, or accepting 174 ms on 1M LOC and saying so — the success
+criteria are stated against ~100k LOC, where the warm p50 is 18.7 ms. The third
+is today's behaviour and the only one that is free; it is also the only one
+nobody has written down. Measured on a machine at 0.65 load per core against the
+harness limit of 0.50, so the absolute numbers are inflated and the proportions
+are the result.
+
 **Cold page cache is not measured.** Dropping it needs root (`purge`,
 `/proc/sys/vm/drop_caches`), which a bench should not ask for. The JSON carries
 `"cold_page_cache": null`, and the done-when bullet above stays open.
