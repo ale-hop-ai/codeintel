@@ -601,7 +601,7 @@ fn measure_coverage(
     let matched = ingest.docs.keys().filter(|p| seen.contains(*p)).count() as u64;
     report.scip_matched = Some(matched);
     // Carried, not just placed: a document refused before it was placed still
-    // named a path, and a wrong root refuses all of them (#117).
+    // named a path, and a wrong root refuses all of them (#123).
     let docs: BTreeSet<String> = ingest
         .docs
         .keys()

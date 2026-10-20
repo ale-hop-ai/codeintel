@@ -1023,7 +1023,7 @@ fn scip_root_rebases_and_the_facts_land() {
     );
 }
 
-/// #117. `scip-go` declares no position encoding, so every document needs its
+/// #123. `scip-go` declares no position encoding, so every document needs its
 /// source to be transcoded; under a wrong root the source is not at the path and
 /// every document is refused *before* it is counted. The count read `0 of 0`,
 /// so no summary line, no `status`, and no query answer reported a degradation.

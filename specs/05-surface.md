@@ -160,7 +160,7 @@ cosmetic. An indexer that declares no position encoding (`scip-go`) needs the
 source to transcode columns; under a wrong root the source is not at the path, so
 *every* document is refused there, and a count taken after the refusal read
 `0 of 0`: no degradation reported, `status: ok` on every query, and the summary
-line `0 documents` the only trace (#117). `0 of 0` is now reachable only by an
+line `0 documents` the only trace (#123). `0 of 0` is now reachable only by an
 index that genuinely carries no documents. The unmatched paths and the root
 suggestion are computed over the carried set, refused documents included.
 
