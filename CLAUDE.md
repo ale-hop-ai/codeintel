@@ -91,9 +91,30 @@ the ones that get broken by a well-meaning commit:
 ## Language support
 
 Nine out of the box, in two tiers ([docs/plan.md](docs/plan.md) M5). Adding one
-is a grammar crate, two vendored `.scm` files, and a `lang.rs` row — **if you
-find yourself writing per-language Rust, the extractor is wrong.** Fix the
+is a grammar crate, two **authored** `.scm` files, and a `lang.rs` row — **if
+you find yourself writing per-language Rust, the extractor is wrong.** Fix the
 extractor.
+
+**The one exception, and its bar.** `Export` in `lang.rs` is a closed
+vocabulary of visibility *mechanisms* — a vocabulary the way `Kind` and `Role`
+are. A language picks a variant in its row; it does not get code. A language
+whose visibility none of the four describe needs a fifth variant, and that is
+the only Rust a new language may add. The bar, all four:
+
+1. It cannot be a `tags.scm` capture. A tree-sitter predicate filters a match,
+   it cannot label one, so the query form needs each pattern written twice and
+   double-matches the node — which emits two `def` rows.
+2. It is parameterized by data on the row, not by the language's name. A
+   `match lang.name` anywhere in `crates/extract` is the thing this rule
+   forbids, and there is none today.
+3. It is usable by a language other than the one that motivated it.
+4. [specs/02-extraction.md](specs/02-extraction.md) § `Export` gains its row in
+   the same commit.
+
+Nothing else is exempt. `@scope.impl` is a reserved capture suffix, not Rust
+leaking in — any language with implementation blocks uses the same three
+captures (`@scope.impl`, `@trait`, `@target`) and the same language-neutral
+code path.
 
 ## Testing expectations
 

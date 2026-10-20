@@ -81,6 +81,11 @@ ours, because the questions they answer are ones upstream does not ask.
 | `@owner` | an identifier **naming** this definition's owner, for a language where the owner does not enclose it |
 | `@doc` | the node whose text **is** this definition's documentation, for a language that keeps it inside the definition rather than in comments before it |
 | `@value` | the node a binding is initialized with. A definition whose `@value` has one of the language's `function_values` node kinds is a `function` |
+| `@trait` | the implemented interface, on a `@scope.impl` node. The grammar's final identifier, as written |
+| `@target` | the implementing type, on a `@scope.impl` node, when it says more than `@name` does |
+
+`impl` is a **reserved `@scope` suffix** and the only capture suffix the
+extractor reads by name (§ `@scope.impl`); every other suffix is a `Kind`.
 
 Every node carries at most one `@definition.*` or `@scope.*` capture, asserted
 by a test over every registered language.
@@ -164,6 +169,72 @@ and the language's `function_values` row in `lang.rs` names the node kinds that
 make the definition a `function`. The rule is in the extractor once, and the
 kinds are data. A class field with an arrow value stays a `field`: `@value` is
 captured only on bindings.
+
+#### `Export`, and why a query predicate is not enough
+
+A tree-sitter predicate *filters a match*; it cannot *label* one. There is no
+"capture this if the text matches" operator, so expressing visibility in
+`tags.scm` means writing each definition pattern twice — once with the
+public-making child and a `#eq?`, once without — and two patterns matching one
+node emit two `def` rows for it. That is the upstream defect this file already
+names twice (§ `@doc`, and `promote` in `tier_a.rs`), and the reason `@name` is
+read by the extractor rather than asserted by the query.
+
+So the predicate lives in the extractor once, as a closed vocabulary of
+*mechanisms*, and which mechanism a language uses is data in its `lang.rs` row
+([`Export`](../crates/extract/src/lang.rs)). It is a vocabulary in the sense
+`Kind` and `Role` are: new languages pick from it, they do not extend it by
+default.
+
+| Variant | What it reads | Languages |
+|---|---|---|
+| `ChildWord { kind, words }` | a direct child of the definition node whose **text** is one of `words` | Rust (`visibility_modifier` = `pub`); Java, C#, Kotlin, Swift would reuse it unchanged |
+| `Capitalized` | the first character of `@name` | Go |
+| `NotUnderscored` | `@name`'s leading `_`, dunders excepted | Python |
+| `Statement { .. }` | the definition's own **enclosing** statement, through a bounded set of `through` kinds, plus a class member's modifier child | TypeScript, TSX |
+
+The first three are predicates over text the query already captures, and a
+language that needs one adds a row, not code. `Statement` is the one that could
+not be a query at all: tree-sitter patterns match **downward**, and
+`export const a = 1` puts the exported-ness two or three ancestors above the
+declarator that carries `@name`. Writing it downward enumerates
+wrapper × `through`-chain × declaration shape, which is why that section of
+`queries/typescript/tags.scm` is already the longest in the tree.
+
+**This is the exception to "adding a language is data".** A language whose
+visibility is stated by a mechanism none of the four describe — a Ruby
+`private` section, which is a statement that changes the *default* for
+everything after it — needs a fifth variant, and that is a Rust change. The
+bar: a new variant must be parameterized by data and usable by more than the
+language that motivated it, and it is added **here** in the same commit. A
+`match lang.name` is still forbidden, and none exists.
+
+#### `@scope.impl`, `@trait` and `@target`
+
+`impl` is a **reserved `@scope` suffix**, not a Rust keyword that leaked. A
+`@scope.impl` node is a *qualified* scope: it owns definitions, it is not one,
+and two of them over the same type must give their members different symbols.
+Three things follow from the suffix alone, in language-neutral code:
+
+1. `@trait` and `@target`, both read as the grammar's final identifier, become
+   `name_impl(F, Type, Trait, Line)` — unresolved, both as written.
+2. The qualifier is pushed into the members' descriptor chains and not into the
+   scope's own, so `parent` still names the type
+   ([01-facts.md](01-facts.md) § Symbol identity).
+3. A member of a qualified scope gets `visibility` = `inherited`: the language
+   gives it no slot to state one. This is why the suffix exists apart from
+   `@scope.type` — an inherent `impl` carries the same `Kind` and its members
+   *may* state a visibility.
+
+Any language with trait-like implementation blocks uses the same three
+captures. Only Rust's query uses them today.
+
+**Known defect.** The qualifier's two-name form is spelled with Rust's own
+syntax — `` [`Handler for &Key`] `` — by a `format!` in `tier_a.rs`. The
+separator is surface syntax, not a fact, and no other language spells it that
+way. It is recorded here rather than fixed because the qualifier is part of a
+symbol string: changing it moves rows, not counts, and is its own change with
+its own golden analysis.
 
 #### TypeScript and TSX: two grammars, one query
 
