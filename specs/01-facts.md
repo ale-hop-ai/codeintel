@@ -958,6 +958,24 @@ ref_outside_exact(S, F) :- def(S, F, _, _),
                            ref(S, G, _, _, _, _, "exact"), G != F.
 ```
 
+**What a `dead_export` row asks of its reader (#114).** A row says the *export*
+is unnecessary: `S` is exported and nothing outside its file references it. For
+a definition that can state a visibility, the edit is to narrow it. For an
+`inherited` one — a Rust enum variant, trait item or trait-impl method, a
+TypeScript interface or enum member — the grammar has no slot to narrow, so a
+row is listed with **no edit available**. Measured on this repository with
+fresh SCIP (`scip coverage: 89 of 89`, `anchored: 2302/2796`): 98 rows of
+`dead_export_exact` over non-test files, 35 `inherited` (25 methods, 8
+variants, 2 type aliases), 63 `public`; plain `dead_export` 138 / 35 / 103. In
+8 of the 35 the parent is itself listed, and that row is the actionable one; in
+27 it is not and nothing can be done. The filter that removes exactly this
+class is `!visibility(S, "inherited")`, **not** `visibility(S, "public")`: a
+TypeScript `export { x }` is `restricted` and exported through `name_export`,
+is narrowable, and `public` drops it (three rows on the TypeScript fixture:
+`outer`, `retries`, `sealed`). It is a filter the caller writes and not a rule:
+whether an unreferenced trait-impl method is a finding is a judgment the
+stdlib does not take, which is #111's reading of `entrypoint_exact`.
+
 That distinction is the entire point of the `Prov` column. **Every rule that
 reads `calls` or `ref` is contaminated by it.** The roster of `_exact` twins is
 exhaustive and is stated here rather than implied, because an earlier draft

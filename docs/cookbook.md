@@ -233,6 +233,13 @@ them.
   `status: no-scip` when there is none — it never silently returns zero rows.
 - `dead_export` **over**-reports on `name` provenance: an unresolved call is an
   invisible call, so a symbol can look unreferenced when it is not.
+- A `dead_export` row means the *export* is unnecessary, and for an `inherited`
+  definition (a Rust enum variant, trait item or trait-impl method; a TypeScript
+  interface or enum member) there is no slot to narrow, so the row has no edit
+  (#114). On this repository 35 of 98 `dead_export_exact` rows are those. The
+  filter is `!visibility(S, "inherited")`; `visibility(S, "public")` is wrong,
+  it also drops a TypeScript `export { x }`, which is narrowable:
+  `?- dead_export_exact(S), def(S, F, _, N), !is_test(F), !visibility(S, "inherited").`
 - `entrypoint` **inverts**: a callable looks like an entrypoint precisely when
   its callers were not resolved.
 - `entrypoint_exact` is a **candidate list, not a dead-code list**, and `_exact`

@@ -370,7 +370,13 @@ undocumented_export(S) :- exported(S), !def_doc(S, _).
 uses_package(F, P) :- ref(S, F, _, _, _, _, _), extern(S, _, P, _).
 
 % === the precise forms =================================================
-%% dead_export_exact(S)  dead_export, SCIP-resolved refs only.
+% What a row asks of its reader (#114). The edit a row invites is narrowing the
+% export, and an `inherited` S (variant, trait item, trait-impl method) has no
+% slot to narrow: on this repository 35 of 98 rows. `!visibility(S, "inherited")`
+% removes exactly those; `visibility(S, "public")` also drops a TypeScript
+% `export { x }`, which is `restricted` and narrowable. A filter the caller
+% writes, not a rule: see specs/01-facts.md.
+%% dead_export_exact(S)  dead_export, SCIP refs only. Variants, trait-impl members cannot be narrowed: !visibility(S, "inherited").
 dead_export_exact(S) :- exported(S), resolved(S), def(S, F, _, _),
                         !ref_outside_exact(S, F).
 %% ref_outside_exact(S, F)  ref_outside, SCIP-resolved refs only.

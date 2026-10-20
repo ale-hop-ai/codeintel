@@ -639,3 +639,39 @@ fn a_documents_own_symbol_is_a_module_not_an_unknown() {
         "the document symbol is not a module: {rows:?}"
     );
 }
+
+/// #114: the filter that makes `dead_export_exact` actionable is
+/// `!visibility(S, "inherited")`, not `visibility(S, "public")`. A TypeScript
+/// `export { x }` is `restricted` and exported through `name_export`; it can be
+/// narrowed, and `public` silently drops it.
+#[test]
+fn public_is_the_wrong_dead_export_filter_because_it_drops_name_exports() {
+    let dir = tree();
+    index(dir.path());
+    let names = |filter: &str| -> BTreeSet<String> {
+        let program = format!("?- dead_export_exact(S), def(S, F, K, N){filter}.");
+        let (rows, _) = query(dir.path(), &program);
+        rows.iter()
+            .filter(|r| !r.starts_with("status=") && !r.starts_with("elapsed_ms="))
+            .filter_map(|r| r.split('\t').nth(3).map(str::to_string))
+            .collect()
+    };
+    let all = names("");
+    let narrowable = names(r#", !visibility(S, "inherited")"#);
+    let public = names(r#", visibility(S, "public")"#);
+
+    for inherited in ["Fast", "Slow"] {
+        assert!(all.contains(inherited), "{inherited} must list: {all:?}");
+        assert!(!narrowable.contains(inherited), "{narrowable:?}");
+    }
+    for exported_by_clause in ["outer", "retries", "sealed"] {
+        assert!(
+            narrowable.contains(exported_by_clause),
+            "{exported_by_clause} is narrowable and must survive: {narrowable:?}"
+        );
+        assert!(
+            !public.contains(exported_by_clause),
+            "if `public` keeps {exported_by_clause} the cookbook's warning is stale: {public:?}"
+        );
+    }
+}
