@@ -327,7 +327,9 @@ impl Warm {
         answer.root = Some(adopted.display().to_string());
         let note = discover::adopted_hint(requested, adopted);
         answer.hint = Some(match answer.hint.take() {
-            Some(existing) => format!("{note} also: {existing}"),
+            // The note ends in a chain and `existing` follows it, so this is
+            // the third #104 site and the only one with no stop at all.
+            Some(existing) => compose(&note, &existing, " also: "),
             None => note,
         });
         Ok(answer)
@@ -633,9 +635,7 @@ fn evaluate(
             // is the one fact nowhere else in the response
             // (`specs/05-surface.md` § Status taxonomy).
             hint = Some(match hint {
-                Some(condition) if status != Status::Ok => {
-                    format!("{condition}. also: {cut}")
-                }
+                Some(condition) if status != Status::Ok => compose(&condition, &cut, ". also: "),
                 _ => {
                     status = Status::Truncated;
                     cut
@@ -656,7 +656,7 @@ fn evaluate(
         if rows.is_empty() && !truncated {
             let empty = empty_hint(&result, &loaded.relations, &loaded.engine);
             hint = Some(match hint {
-                Some(condition) => format!("{condition}. also: {empty}"),
+                Some(condition) => compose(&condition, &empty, ". also: "),
                 None => empty,
             });
         }
@@ -717,6 +717,97 @@ fn evaluate(
 /// (`wire::json`), and the workaround goes with it.
 fn sent(answer: &mut Answer, options: &Options) -> usize {
     options.wire.bytes(answer, options.raw)
+}
+
+/// How a composed hint separates its clauses from the runnable chain one of
+/// them may end in (#104, #102).
+///
+/// **An experiment, not an adoption.** The default is what ships today, so
+/// this branch changes no behaviour unless asked; `CODEINTEL_HINT_SHAPE`
+/// selects an outcome so the owner can read one rather than imagine it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shape {
+    /// Today: `condition. also: emptiness`, with the chain left wherever the
+    /// condition put it — which is mid-hint, so `. also: ` glues onto the last
+    /// command and `scip-python index .` becomes `scip-python index ..`
+    /// (#104). `..` is a valid path, so it runs, against the parent directory.
+    Glued,
+    /// A: the chain moves to the end of the composed hint, still one line.
+    /// Nothing can follow it, so the defect becomes impossible rather than
+    /// fixed. `specs/05-surface.md`'s "one complete line" survives verbatim.
+    ChainLast,
+    /// B: the chain gets its own line. Also terminal, and it gives #102
+    /// somewhere to put a polyglot block — at the cost of a hint that is no
+    /// longer one line, which several readers assume.
+    OwnLine,
+}
+
+impl Shape {
+    /// `CODEINTEL_HINT_SHAPE`, defaulting to what ships.
+    #[must_use]
+    pub fn current() -> Self {
+        match std::env::var("CODEINTEL_HINT_SHAPE").as_deref() {
+            Ok("chain-last") => Self::ChainLast,
+            Ok("own-line") => Self::OwnLine,
+            _ => Self::Glued,
+        }
+    }
+}
+
+/// Where a hint's runnable tail starts.
+///
+/// Every producer of one writes it last — `discover::index_chain`, `census`'s
+/// stale and scip-stale lines, the `no-scip` indexer list — so the **last**
+/// `run: ` opens it and everything before it is prose. Composing under
+/// [`Shape::ChainLast`] or [`Shape::OwnLine`] keeps that true, so the split
+/// stays idempotent however many clauses are added.
+const RUN: &str = "run: ";
+
+fn split_run(hint: &str) -> (&str, Option<&str>) {
+    match hint.rfind(RUN) {
+        Some(at) => (hint.get(..at).unwrap_or(hint).trim_end(), hint.get(at..)),
+        None => (hint, None),
+    }
+}
+
+/// Add `extra` to `hint` as a second clause, per [`Shape`].
+///
+/// `separator` is what the caller would have written between the two, because
+/// the three composition sites do not agree: two write `. also: ` and the
+/// adopted note writes ` also: ` with no full stop at all — which is how it
+/// produces `codeintel index . also:`, where `.` is the shell's source builtin
+/// taking `also:` as its argument.
+fn compose(hint: &str, extra: &str, separator: &str) -> String {
+    let (prose, run) = split_run(hint);
+    let (Some(run), shape @ (Shape::ChainLast | Shape::OwnLine)) = (run, Shape::current()) else {
+        // `Glued` is what ships, byte for byte: this branch is the thing the
+        // other two are being compared against, so it is not re-derived.
+        return format!("{hint}{separator}{extra}");
+    };
+    let clause = sentence(prose, &format!("also: {extra}"));
+    match shape {
+        Shape::OwnLine => format!("{clause}\n{run}"),
+        _ => sentence(&clause, run),
+    }
+}
+
+/// Join two clauses with exactly one full stop between them.
+///
+/// Moving the chain means re-punctuating: the prose the chain was lifted off
+/// already ends in `.` where the old separator supplied its own, and the
+/// clause it now follows may end in none at all. Without this the two shapes
+/// read `can see.. also:` and `matched run:`, which would be a worse hint
+/// arguing for a better one.
+fn sentence(left: &str, right: &str) -> String {
+    let left = left.trim_end();
+    if left.is_empty() {
+        return right.to_string();
+    }
+    if left.ends_with(['.', ';', ',', ':']) {
+        format!("{left} {right}")
+    } else {
+        format!("{left}. {right}")
+    }
 }
 
 /// What a hint cut to fit `max_result_bytes` ends with.
@@ -1284,6 +1375,51 @@ fn refresh(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A byte cut lands inside the runnable chain, under **every** shape.
+    ///
+    /// Measured while comparing the two #104 candidates, and the result is
+    /// that this is not a cost of either: `fit_hint` is chain-unaware today
+    /// too. It cuts the longest prefix that fits, and when that prefix ends
+    /// mid-chain the user is shown a command that is *almost* the right one —
+    /// `rust-analyzer scip . ` plus the cut marker is the #104 class all over
+    /// again, with the marker's words as arguments.
+    ///
+    /// The shapes differ only in which end loses: with the chain mid-hint it
+    /// keeps a head and loses its tail, with the chain last it is dropped
+    /// whole at budgets where the prose alone overflows. Dropped whole is the
+    /// safer of the two — unhelpful rather than wrong — but neither is right,
+    /// and whichever shape is adopted, `fit_hint` has to cut prose and keep
+    /// the chain entire or drop it entirely. Filed separately.
+    #[test]
+    fn a_byte_cut_can_land_inside_the_runnable_chain_whatever_the_shape() {
+        let prose = "this query depends on scip_ref, which only a SCIP index populates; \
+                     the answer above is what tier A alone can see. also: \
+                     `scip_ref(S,F,_,_,_,_)` matched 0 rows; the index holds 0 rows";
+        let chain = "run: cd /repo && codeintel index . && rust-analyzer scip . && \
+                     scip-go && scip-python index . && codeintel index .";
+        let (head, tail) = prose.split_once("also:").expect("a composed hint");
+        let shapes = [
+            ("glued", format!("{head}{chain} also:{tail}")),
+            ("chain-last", format!("{prose}. {chain}")),
+            ("own-line", format!("{prose}\n{chain}")),
+        ];
+        for (name, hint) in shapes {
+            let cut_mid_chain = (380..=560).step_by(20).any(|budget| {
+                let mut answer = Answer::of(Status::NoScip, hint.clone());
+                fit_hint(&mut answer, budget, |a| Wire::McpJson.bytes(a, false));
+                let got = answer.hint.unwrap_or_default();
+                let kept = got.strip_suffix(HINT_CUT).unwrap_or(&got);
+                kept.contains("run: ") && !kept.contains(chain)
+            });
+            assert!(
+                cut_mid_chain,
+                "{name}: no budget in the sweep cut the chain. If `fit_hint` learned \
+                 to keep a chain whole, this is the test that says so — delete it \
+                 and keep the one that asserts it never cuts one"
+            );
+        }
+    }
 
     #[test]
     fn a_hint_over_the_budget_is_cut_on_a_char_boundary_and_the_status_kept() {
