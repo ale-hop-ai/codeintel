@@ -1,0 +1,458 @@
+% The fact set the WORKING and HELD-OUT eval banks are scored against.
+%
+% `facts.dl` next door is the M1 fixture and is frozen with the M1 bank. It no
+% longer loads: `exported` and `implements` are asserted there as facts, and
+% both became RULE heads in schema 2/3, which safety rule 8 refuses. That file
+% is a record of what M1 measured, so it is left exactly as it was and this one
+% is written against the vocabulary that ships today.
+%
+% Nothing here comes from an extractor. Every row is a row a real index would
+% hold, written by hand so the banks test the schema and the rule layer rather
+% than the extractors. It is deliberately richer than `facts.dl`, because the
+% frozen 30 leave most of `rules/stdlib.dl` untouched. What it adds, and why:
+%
+%   * `visibility` + `name_export` instead of asserted `exported`, so all three
+%     `exported` clauses fire — including the recursive `inherited` one.
+%   * `scip_impl` + `name_impl`, so `implements` has both provenances and the
+%     `trait_sym` and `S != T` guards each have a row they refuse.
+%   * a Rust file the indexer never saw (`src/legacy.rs`), which is what makes
+%     the `_exact` twins DIVERGE rather than agree.
+%   * `module` definitions, so `calls_at`'s `FromKind != "module"` guard is
+%     exercised instead of advertised.
+%   * a tier-B opaque placeholder (`local web/app.ts 7`), so `scip_claim`'s
+%     "emitted but not resolved" case is real.
+%   * four `Role` values, one of them `test`, so every `is_test` clause has a
+%     file and the role vocabulary is not all `unknown`.
+%   * a layered `src/` tree with one real layering violation and one policy
+%     that holds, so the conformance shape of `docs/cookbook.md` § 1 has both
+%     a question that answers and a question that correctly answers nothing.
+%
+% Tiers, by language:
+%   rust       SCIP, except `src/legacy.rs` which the indexer skipped
+%   typescript SCIP, with one unresolved placeholder occurrence
+%   go         tree-sitter only
+%   python     tree-sitter only
+
+% === files =============================================================
+file("src/lib.rs", "rust").
+file("src/kinds.rs", "rust").
+file("src/legacy.rs", "rust").
+file("src/core/store.rs", "rust").
+file("src/core/cache.rs", "rust").
+file("src/db/conn.rs", "rust").
+file("src/ui/render.rs", "rust").
+file("tests/store_test.rs", "rust").
+file("qa/smoke.rs", "rust").
+file("cmd/server/main.go", "go").
+file("cmd/server/main_test.go", "go").
+file("web/app.ts", "typescript").
+file("web/app.test.ts", "typescript").
+file("web/util.ts", "typescript").
+file("py/pipeline.py", "python").
+file("py/test_pipeline.py", "python").
+
+% === definitions =======================================================
+% Rust, SCIP-resolved. Three files carry their document's module symbol.
+def("scip demo lib/", "src/lib.rs", "module", "lib").
+def("scip demo lib/init().", "src/lib.rs", "function", "init").
+
+def("scip demo kinds/Mode#", "src/kinds.rs", "enum", "Mode").
+def("scip demo kinds/Mode#Fast.", "src/kinds.rs", "constant", "Fast").
+def("scip demo kinds/Mode#Slow.", "src/kinds.rs", "constant", "Slow").
+def("scip demo kinds/Error#", "src/kinds.rs", "enum", "Error").
+
+def("scip demo store/", "src/core/store.rs", "module", "store").
+def("scip demo store/Backend#", "src/core/store.rs", "trait", "Backend").
+def("scip demo store/Backend#get().", "src/core/store.rs", "method", "get").
+def("scip demo store/Store#", "src/core/store.rs", "struct", "Store").
+def("scip demo store/Store#get().", "src/core/store.rs", "method", "get").
+def("scip demo store/Store#put().", "src/core/store.rs", "method", "put").
+def("scip demo store/Store#evict().", "src/core/store.rs", "method", "evict").
+def("scip demo store/open().", "src/core/store.rs", "function", "open").
+
+def("scip demo cache/", "src/core/cache.rs", "module", "cache").
+def("scip demo cache/Cache#", "src/core/cache.rs", "struct", "Cache").
+def("scip demo cache/Cache#warm().", "src/core/cache.rs", "method", "warm").
+def("scip demo cache/hash().", "src/core/cache.rs", "function", "hash").
+
+def("scip demo conn/Conn#", "src/db/conn.rs", "struct", "Conn").
+def("scip demo conn/connect().", "src/db/conn.rs", "function", "connect").
+
+def("scip demo render/Page#", "src/ui/render.rs", "struct", "Page").
+def("scip demo render/render().", "src/ui/render.rs", "function", "render").
+
+def("scip demo tests/test_get().", "tests/store_test.rs", "function", "test_get").
+def("scip demo tests/test_put().", "tests/store_test.rs", "function", "test_put").
+def("scip demo smoke/smoke_open().", "qa/smoke.rs", "function", "smoke_open").
+
+% Rust the indexer never reached: tier A ids, no `resolved` row.
+def("local src/legacy.rs Entry#", "src/legacy.rs", "struct", "Entry").
+def("local src/legacy.rs migrate().", "src/legacy.rs", "function", "migrate").
+
+% TypeScript, SCIP-resolved.
+def("scip ts app/", "web/app.ts", "module", "app").
+def("scip ts app/App#", "web/app.ts", "class", "App").
+def("scip ts app/App#render().", "web/app.ts", "method", "render").
+def("scip ts app/boot().", "web/app.ts", "function", "boot").
+def("scip ts util/retry().", "web/util.ts", "function", "retry").
+def("scip ts util/sleep().", "web/util.ts", "function", "sleep").
+def("scip ts apptest/test_render().", "web/app.test.ts", "function", "test_render").
+
+% Go and Python: tree-sitter only, so the SymId is path-keyed.
+def("local cmd/server/main.go Server#", "cmd/server/main.go", "struct", "Server").
+def("local cmd/server/main.go Server#Start().", "cmd/server/main.go", "method", "Start").
+def("local cmd/server/main.go serve().", "cmd/server/main.go", "function", "serve").
+def("local cmd/server/main.go main().", "cmd/server/main.go", "function", "main").
+def("local cmd/server/main_test.go TestServe().", "cmd/server/main_test.go", "function", "TestServe").
+
+def("local py/pipeline.py Pipeline#", "py/pipeline.py", "class", "Pipeline").
+def("local py/pipeline.py Pipeline#run().", "py/pipeline.py", "method", "run").
+def("local py/pipeline.py load().", "py/pipeline.py", "function", "load").
+def("local py/test_pipeline.py test_run().", "py/test_pipeline.py", "function", "test_run").
+
+% === spans (full definition, including doc comment and attributes) ======
+def_span("scip demo lib/", 1, 40, 0, 900).
+def_span("scip demo lib/init().", 8, 20, 120, 420).
+
+def_span("scip demo kinds/Mode#", 4, 12, 60, 240).
+def_span("scip demo kinds/Mode#Fast.", 6, 6, 90, 100).
+def_span("scip demo kinds/Mode#Slow.", 7, 7, 110, 120).
+def_span("scip demo kinds/Error#", 15, 22, 300, 520).
+
+def_span("scip demo store/", 1, 110, 0, 2400).
+def_span("scip demo store/Backend#", 5, 10, 80, 220).
+def_span("scip demo store/Backend#get().", 7, 7, 140, 180).
+def_span("scip demo store/Store#", 14, 100, 260, 2100).
+def_span("scip demo store/Store#get().", 20, 28, 400, 640).
+def_span("scip demo store/Store#put().", 30, 42, 660, 980).
+def_span("scip demo store/Store#evict().", 44, 52, 1000, 1240).
+def_span("scip demo store/open().", 64, 74, 1460, 1700).
+
+def_span("scip demo cache/", 1, 52, 0, 1100).
+def_span("scip demo cache/Cache#", 6, 40, 90, 860).
+def_span("scip demo cache/Cache#warm().", 12, 26, 200, 560).
+def_span("scip demo cache/hash().", 44, 50, 900, 1060).
+
+def_span("scip demo conn/Conn#", 5, 18, 70, 330).
+def_span("scip demo conn/connect().", 20, 34, 350, 700).
+
+def_span("scip demo render/Page#", 4, 14, 50, 260).
+def_span("scip demo render/render().", 16, 30, 280, 620).
+
+def_span("scip demo tests/test_get().", 5, 14, 60, 280).
+def_span("scip demo tests/test_put().", 16, 26, 300, 600).
+def_span("scip demo smoke/smoke_open().", 4, 12, 40, 240).
+
+def_span("local src/legacy.rs Entry#", 3, 9, 30, 180).
+def_span("local src/legacy.rs migrate().", 11, 90, 200, 1900).
+
+def_span("scip ts app/", 1, 60, 0, 1300).
+def_span("scip ts app/App#", 8, 40, 100, 880).
+def_span("scip ts app/App#render().", 18, 32, 240, 700).
+def_span("scip ts app/boot().", 46, 58, 960, 1260).
+def_span("scip ts util/retry().", 3, 14, 20, 300).
+def_span("scip ts util/sleep().", 16, 22, 320, 460).
+def_span("scip ts apptest/test_render().", 4, 12, 40, 260).
+
+def_span("local cmd/server/main.go Server#", 12, 16, 180, 300).
+def_span("local cmd/server/main.go Server#Start().", 18, 30, 320, 700).
+def_span("local cmd/server/main.go serve().", 32, 45, 720, 1100).
+def_span("local cmd/server/main.go main().", 5, 10, 60, 160).
+def_span("local cmd/server/main_test.go TestServe().", 5, 12, 50, 240).
+
+def_span("local py/pipeline.py Pipeline#", 4, 20, 40, 460).
+def_span("local py/pipeline.py Pipeline#run().", 10, 18, 160, 420).
+def_span("local py/pipeline.py load().", 22, 30, 480, 720).
+def_span("local py/test_pipeline.py test_run().", 3, 10, 20, 200).
+
+% === signatures ========================================================
+def_sig("scip demo lib/init().", "pub fn init() -> Result<()>").
+def_sig("scip demo kinds/Mode#", "pub enum Mode").
+def_sig("scip demo store/Backend#", "pub trait Backend").
+def_sig("scip demo store/Backend#get().", "fn get(&self, k: &str) -> Option<Entry>").
+def_sig("scip demo store/Store#", "pub struct Store").
+def_sig("scip demo store/Store#get().", "pub fn get(&self, k: &str) -> Option<Entry>").
+def_sig("scip demo store/Store#put().", "pub fn put(&mut self, k: &str, v: Entry)").
+def_sig("scip demo store/Store#evict().", "fn evict(&mut self)").
+def_sig("scip demo store/open().", "pub fn open(path: &Path) -> Result<Store>").
+def_sig("scip demo cache/Cache#warm().", "pub fn warm(&mut self, keys: &[String])").
+def_sig("scip demo cache/hash().", "fn hash(k: &str) -> u64").
+def_sig("scip demo conn/connect().", "pub fn connect(url: &str) -> Result<Conn>").
+def_sig("scip demo render/render().", "pub fn render(page: &Page) -> String").
+def_sig("local src/legacy.rs migrate().", "fn migrate(old: &Path) -> Result<()>").
+def_sig("scip ts app/App#render().", "render(props: Props): Node").
+def_sig("scip ts util/retry().", "function retry<T>(f: () => T, n: number): T").
+def_sig("local cmd/server/main.go Server#Start().", "func (s *Server) Start(addr string) error").
+def_sig("local py/pipeline.py Pipeline#run().", "def run(self, batch: list) -> int").
+
+% === doc comments ======================================================
+def_doc("scip demo lib/init().", "Initializes the process-wide store.").
+def_doc("scip demo kinds/Mode#", "How aggressively the cache warms.").
+def_doc("scip demo store/Backend#", "A pluggable storage backend.").
+def_doc("scip demo store/Store#", "An on-disk key-value store.").
+def_doc("scip demo store/Store#get().", "Reads one entry. Returns None when the key is absent.").
+def_doc("scip demo cache/Cache#", "An in-memory read cache in front of a Store.").
+def_doc("scip demo conn/connect().", "Opens a connection to the metadata database.").
+def_doc("scip ts util/retry().", "Retries f up to n times.").
+
+% === semantic containment ==============================================
+parent("scip demo lib/", "src/lib.rs").
+parent("scip demo lib/init().", "scip demo lib/").
+
+parent("scip demo kinds/Mode#", "src/kinds.rs").
+parent("scip demo kinds/Mode#Fast.", "scip demo kinds/Mode#").
+parent("scip demo kinds/Mode#Slow.", "scip demo kinds/Mode#").
+parent("scip demo kinds/Error#", "src/kinds.rs").
+
+parent("scip demo store/", "src/core/store.rs").
+parent("scip demo store/Backend#", "scip demo store/").
+parent("scip demo store/Backend#get().", "scip demo store/Backend#").
+parent("scip demo store/Store#", "scip demo store/").
+parent("scip demo store/Store#get().", "scip demo store/Store#").
+parent("scip demo store/Store#put().", "scip demo store/Store#").
+parent("scip demo store/Store#evict().", "scip demo store/Store#").
+parent("scip demo store/open().", "scip demo store/").
+
+parent("scip demo cache/", "src/core/cache.rs").
+parent("scip demo cache/Cache#", "scip demo cache/").
+parent("scip demo cache/Cache#warm().", "scip demo cache/Cache#").
+parent("scip demo cache/hash().", "scip demo cache/").
+
+parent("scip demo conn/Conn#", "src/db/conn.rs").
+parent("scip demo conn/connect().", "src/db/conn.rs").
+
+parent("scip demo render/Page#", "src/ui/render.rs").
+parent("scip demo render/render().", "src/ui/render.rs").
+
+parent("scip demo tests/test_get().", "tests/store_test.rs").
+parent("scip demo tests/test_put().", "tests/store_test.rs").
+parent("scip demo smoke/smoke_open().", "qa/smoke.rs").
+
+parent("local src/legacy.rs Entry#", "src/legacy.rs").
+parent("local src/legacy.rs migrate().", "src/legacy.rs").
+
+parent("scip ts app/", "web/app.ts").
+parent("scip ts app/App#", "scip ts app/").
+parent("scip ts app/App#render().", "scip ts app/App#").
+parent("scip ts app/boot().", "scip ts app/").
+parent("scip ts util/retry().", "web/util.ts").
+parent("scip ts util/sleep().", "web/util.ts").
+parent("scip ts apptest/test_render().", "web/app.test.ts").
+
+parent("local cmd/server/main.go Server#", "cmd/server/main.go").
+parent("local cmd/server/main.go Server#Start().", "local cmd/server/main.go Server#").
+parent("local cmd/server/main.go serve().", "cmd/server/main.go").
+parent("local cmd/server/main.go main().", "cmd/server/main.go").
+parent("local cmd/server/main_test.go TestServe().", "cmd/server/main_test.go").
+
+parent("local py/pipeline.py Pipeline#", "py/pipeline.py").
+parent("local py/pipeline.py Pipeline#run().", "local py/pipeline.py Pipeline#").
+parent("local py/pipeline.py load().", "py/pipeline.py").
+parent("local py/test_pipeline.py test_run().", "py/test_pipeline.py").
+
+% === visibility ========================================================
+% `exported` is derived from these, so the three clauses are all live:
+% `public` directly, `inherited` through `parent`, and `name_export` for the
+% TypeScript `export { ... }` clause a declaration never sees.
+visibility("scip demo lib/", "public").
+visibility("scip demo lib/init().", "public").
+visibility("scip demo kinds/Mode#", "public").
+visibility("scip demo kinds/Mode#Fast.", "inherited").
+visibility("scip demo kinds/Mode#Slow.", "inherited").
+visibility("scip demo kinds/Error#", "public").
+visibility("scip demo store/", "public").
+visibility("scip demo store/Backend#", "public").
+visibility("scip demo store/Backend#get().", "inherited").
+visibility("scip demo store/Store#", "public").
+visibility("scip demo store/Store#get().", "public").
+visibility("scip demo store/Store#put().", "public").
+visibility("scip demo store/Store#evict().", "restricted").
+visibility("scip demo store/open().", "public").
+visibility("scip demo cache/", "public").
+visibility("scip demo cache/Cache#", "public").
+visibility("scip demo cache/Cache#warm().", "public").
+visibility("scip demo cache/hash().", "restricted").
+visibility("scip demo conn/Conn#", "public").
+visibility("scip demo conn/connect().", "public").
+visibility("scip demo render/Page#", "public").
+visibility("scip demo render/render().", "public").
+visibility("scip demo tests/test_get().", "restricted").
+visibility("scip demo tests/test_put().", "restricted").
+visibility("scip demo smoke/smoke_open().", "restricted").
+visibility("local src/legacy.rs Entry#", "restricted").
+visibility("local src/legacy.rs migrate().", "restricted").
+visibility("scip ts app/", "public").
+visibility("scip ts app/App#", "public").
+visibility("scip ts app/App#render().", "inherited").
+visibility("scip ts app/boot().", "public").
+visibility("scip ts util/retry().", "restricted").
+visibility("scip ts util/sleep().", "restricted").
+visibility("scip ts apptest/test_render().", "restricted").
+visibility("local cmd/server/main.go Server#", "public").
+visibility("local cmd/server/main.go Server#Start().", "public").
+visibility("local cmd/server/main.go serve().", "restricted").
+visibility("local cmd/server/main.go main().", "restricted").
+visibility("local cmd/server/main_test.go TestServe().", "restricted").
+visibility("local py/pipeline.py Pipeline#", "public").
+visibility("local py/pipeline.py Pipeline#run().", "inherited").
+visibility("local py/pipeline.py load().", "public").
+visibility("local py/test_pipeline.py test_run().", "restricted").
+
+% === TypeScript export clauses =========================================
+% `export { retry }` at the bottom of web/util.ts. The declaration itself says
+% nothing, so `visibility` reads `restricted` and this row is the only thing
+% that makes `retry` exported. `sleep` is not listed, and stays private.
+name_export("web/util.ts", "retry").
+
+% === SCIP-grade identity ===============================================
+resolved("scip demo lib/").
+resolved("scip demo lib/init().").
+resolved("scip demo kinds/Mode#").
+resolved("scip demo kinds/Mode#Fast.").
+resolved("scip demo kinds/Mode#Slow.").
+resolved("scip demo kinds/Error#").
+resolved("scip demo store/").
+resolved("scip demo store/Backend#").
+resolved("scip demo store/Backend#get().").
+resolved("scip demo store/Store#").
+resolved("scip demo store/Store#get().").
+resolved("scip demo store/Store#put().").
+resolved("scip demo store/Store#evict().").
+resolved("scip demo store/open().").
+resolved("scip demo cache/").
+resolved("scip demo cache/Cache#").
+resolved("scip demo cache/Cache#warm().").
+resolved("scip demo cache/hash().").
+resolved("scip demo conn/Conn#").
+resolved("scip demo conn/connect().").
+resolved("scip demo render/Page#").
+resolved("scip demo render/render().").
+resolved("scip demo tests/test_get().").
+resolved("scip demo tests/test_put().").
+resolved("scip demo smoke/smoke_open().").
+resolved("scip ts app/").
+resolved("scip ts app/App#").
+resolved("scip ts app/App#render().").
+resolved("scip ts app/boot().").
+resolved("scip ts util/retry().").
+resolved("scip ts util/sleep().").
+resolved("scip ts apptest/test_render().").
+
+% === imports ===========================================================
+% `Module` is the specifier as the SOURCE wrote it, per language. It is not a
+% package name and does not convert to one: compare `uses_package` below, where
+% `web/app.ts`'s `react` is attributed to `@types/react`.
+import("src/lib.rs", "crate::core::store", "").
+import("src/lib.rs", "crate::core::cache", "").
+import("src/lib.rs", "crate::kinds", "").
+import("src/lib.rs", "crate::db::conn", "").
+import("src/core/store.rs", "serde", "").
+import("src/core/store.rs", "std::collections", "").
+import("src/core/cache.rs", "crate::core::store", "").
+import("src/db/conn.rs", "crate::core::store", "").
+import("src/db/conn.rs", "libpq", "").
+import("src/ui/render.rs", "crate::core::store", "").
+import("src/ui/render.rs", "crate::db::conn", "").
+import("src/legacy.rs", "legacy_http", "").
+import("src/legacy.rs", "crate::core::cache", "").
+import("tests/store_test.rs", "crate::core::store", "").
+import("qa/smoke.rs", "crate::core::store", "").
+import("cmd/server/main.go", "net/http", "").
+import("cmd/server/main.go", "fmt", "").
+import("cmd/server/main_test.go", "testing", "").
+import("web/app.ts", "./util", "").
+import("web/app.ts", "react", "React").
+import("web/app.test.ts", "./app", "").
+import("py/pipeline.py", "os", "").
+import("py/pipeline.py", "pandas", "pd").
+import("py/test_pipeline.py", "pipeline", "").
+
+% === third-party packages ==============================================
+% `@types/react` is the #58 case: the indexer attributes a DefinitelyTyped
+% symbol to the types package, and the source imports `react`. Both rows are
+% true and neither converts into the other.
+extern("scip cargo serde 1.0.0 serde/Serialize#", "cargo", "serde", "1.0.0").
+extern("scip cargo serde 1.0.0 serde/Deserialize#", "cargo", "serde", "1.0.0").
+extern("scip cargo libpq 0.9.0 libpq/Connection#", "cargo", "libpq", "0.9.0").
+extern("scip npm @types/react 18.2.0 react/useState().", "npm", "@types/react", "18.2.0").
+
+% === implementations ===================================================
+% Tier B states it at METHOD granularity, which is what rust-analyzer would
+% emit if it emitted anything.
+scip_impl("scip demo store/Store#get().", "scip demo store/Backend#get().").
+
+% Tier A states it at TYPE granularity, from the `impl T for S` syntax. The
+% two are different granularities, so both rows stand.
+name_impl("src/core/store.rs", "Store", "Backend", 14).
+% resolved repo-wide: `Backend` has no definition in cache.rs
+name_impl("src/core/cache.rs", "Cache", "Backend", 6).
+% REFUSED by `trait_sym`: `Error` is an enum, not a trait. Without that guard
+% `impl core::error::Error for Entry` would resolve onto this repository's own
+% `Error` enum.
+name_impl("src/legacy.rs", "Entry", "Error", 6).
+% REFUSED by `S != T`: `impl std::error::Error for Error` writes the same bare
+% identifier on both sides, and same-file resolution collapses them onto one
+% symbol. That is a name-tier miss, not a fact.
+name_impl("src/kinds.rs", "Error", "Error", 15).
+
+% === resolved occurrences (tier B) =====================================
+% Definition sites do NOT appear here: a SCIP occurrence carrying the
+% Definition bit is routed to `def`/`at`, and there is no `def` role (#44).
+
+% module-scope `use` lines. `From` is the document's module symbol, or the file
+% where no module symbol encloses the line. Neither can call, which is what
+% `calls_at`'s `def(From, ...)` and `FromKind != "module"` guards say.
+scip_ref("scip demo store/open().", "src/lib.rs", 3, 5, "scip demo lib/", "import").
+scip_ref("scip cargo serde 1.0.0 serde/Serialize#", "src/core/store.rs", 3, 10, "scip demo store/", "import").
+scip_ref("scip cargo serde 1.0.0 serde/Deserialize#", "src/core/store.rs", 3, 22, "scip demo store/", "import").
+scip_ref("scip cargo libpq 0.9.0 libpq/Connection#", "src/db/conn.rs", 4, 5, "src/db/conn.rs", "import").
+scip_ref("scip npm @types/react 18.2.0 react/useState().", "web/app.ts", 5, 10, "scip ts app/", "import").
+
+% real call sites
+scip_ref("scip demo store/open().", "src/lib.rs", 12, 14, "scip demo lib/init().", "read").
+scip_ref("scip demo conn/connect().", "src/lib.rs", 14, 9, "scip demo lib/init().", "read").
+scip_ref("scip demo store/Store#evict().", "src/core/store.rs", 36, 14, "scip demo store/Store#put().", "write").
+scip_ref("scip demo cache/hash().", "src/core/cache.rs", 18, 20, "scip demo cache/Cache#warm().", "read").
+scip_ref("scip demo cache/hash().", "src/core/cache.rs", 47, 12, "scip demo cache/hash().", "read").
+scip_ref("scip demo store/Store#put().", "src/db/conn.rs", 28, 11, "scip demo conn/connect().", "write").
+scip_ref("scip demo store/Store#get().", "src/ui/render.rs", 22, 16, "scip demo render/render().", "read").
+scip_ref("scip demo conn/Conn#", "src/ui/render.rs", 24, 20, "scip demo render/render().", "read").
+scip_ref("scip demo store/Store#get().", "tests/store_test.rs", 9, 13, "scip demo tests/test_get().", "read").
+scip_ref("scip demo store/Store#put().", "tests/store_test.rs", 20, 13, "scip demo tests/test_put().", "write").
+scip_ref("scip demo store/open().", "qa/smoke.rs", 7, 9, "scip demo smoke/smoke_open().", "test").
+scip_ref("scip ts app/App#render().", "web/app.ts", 52, 10, "scip ts app/boot().", "read").
+scip_ref("scip ts util/retry().", "web/app.ts", 26, 12, "scip ts app/App#render().", "read").
+scip_ref("scip ts util/sleep().", "web/util.ts", 8, 6, "scip ts util/retry().", "read").
+scip_ref("scip ts app/boot().", "web/app.test.ts", 6, 6, "scip ts apptest/test_render().", "read").
+scip_ref("scip ts app/App#render().", "web/app.test.ts", 9, 6, "scip ts apptest/test_render().", "read").
+% an occurrence the indexer emitted with an empty role bitset
+scip_ref("scip demo kinds/Mode#", "src/core/cache.rs", 14, 22, "scip demo cache/Cache#warm().", "unknown").
+% scip-typescript's opaque placeholder: a row at a position, naming a symbol
+% with no `def` and no `extern`. It is NOT a claim, so tier A still resolves
+% this position — see `scip_claim` in rules/stdlib.dl.
+scip_ref("local web/app.ts 7", "web/app.ts", 30, 4, "scip ts app/App#render().", "read").
+
+% === unresolved occurrences (tier A) ===================================
+% Go and Python have no indexer here. `src/legacy.rs` is Rust the indexer never
+% reached, which is what makes the `_exact` twins diverge on real rows rather
+% than on language boundaries.
+name_ref("serve", "cmd/server/main.go", 9, 4, "local cmd/server/main.go main().").
+name_ref("Start", "cmd/server/main.go", 41, 6, "local cmd/server/main.go serve().").
+% `serve` is lowercase, so not exported, so the repo-wide clause refuses it:
+% an honest tier-A miss from another file.
+name_ref("serve", "cmd/server/main_test.go", 7, 4, "local cmd/server/main_test.go TestServe().").
+name_ref("Start", "cmd/server/main_test.go", 8, 6, "local cmd/server/main_test.go TestServe().").
+name_ref("load", "py/pipeline.py", 14, 8, "local py/pipeline.py Pipeline#run().").
+name_ref("Pipeline", "py/test_pipeline.py", 5, 10, "local py/test_pipeline.py test_run().").
+name_ref("run", "py/test_pipeline.py", 6, 4, "local py/test_pipeline.py test_run().").
+name_ref("Entry", "src/legacy.rs", 15, 12, "local src/legacy.rs migrate().").
+% the only reference to `Cache::warm` anywhere, and it is name-tier. This one
+% row is why `entrypoint` and `entrypoint_exact` DISAGREE about `warm`.
+name_ref("warm", "src/legacy.rs", 20, 8, "local src/legacy.rs migrate().").
+% `get` names two definitions, so name matching cannot pick and emits nothing.
+name_ref("get", "src/legacy.rs", 25, 10, "local src/legacy.rs migrate().").
+% TypeScript emits names too. 52:10 is covered by a tier-B row that names a
+% known symbol, so tier A is suppressed there. 30:4 is covered only by the
+% opaque placeholder, so tier A answers.
+name_ref("render", "web/app.ts", 52, 10, "scip ts app/boot().").
+name_ref("boot", "web/app.ts", 30, 4, "scip ts app/App#render().").
