@@ -299,7 +299,7 @@ def main():
     # A build command must not be able to delete the record (#112). Ignored by
     # git today; committing them is one .gitignore line away once the question
     # of whether raw agent transcripts belong in the record is settled.
-    ap.add_argument("--out", type=Path, default=HERE / "runs")
+    ap.add_argument("--out", type=Path, default=HERE / "artifacts")
     a = ap.parse_args()
 
     if a.mode == "probe":

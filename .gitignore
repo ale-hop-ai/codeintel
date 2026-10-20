@@ -18,5 +18,7 @@ __pycache__/
 # evidence every number on `docs/agent-eval.md` rests on, and a `cargo clean`
 # deleted four runs' worth on 2026-10-20 (#112). Ignored for now only because
 # whether raw agent transcripts belong in a committed record is unsettled --
-# 60 KB a run, so size is not what is stopping it.
-tests/fixtures/eval/runs/
+# 60 KB a run, so size is not what is stopping it. NOT `runs/`, which
+# already holds committed recorded answers (`round*.tsv`) -- an ignored
+# directory and a tracked record must not share a name.
+tests/fixtures/eval/artifacts/
