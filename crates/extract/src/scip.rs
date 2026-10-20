@@ -390,14 +390,20 @@ impl Ingest {
 /// Put a SCIP document path under `under`, the `--scip-root` directory.
 ///
 /// `under` is repo-relative with `/` separators; empty means the repository
-/// root and the path is returned unchanged. Nothing here validates `under` —
+/// root and the path is returned unchanged, and so does `.`: it is the root
+/// spelled as a directory, and `./src/lib.rs` is a path no walk emits (#102).
+/// Nothing here validates `under` —
 /// a root that climbs out of the tree produces a path that `escapes_root` then
 /// refuses, which is the one place that judgement belongs
 /// (`specs/02-extraction.md` § Document paths, and `--scip-root`).
 #[must_use]
 pub fn rebase(under: &str, path: &str) -> String {
     let under = under.replace('\\', "/");
-    let under = under.trim_matches('/');
+    let under = under
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect::<Vec<_>>()
+        .join("/");
     if under.is_empty() {
         return path.to_string();
     }
@@ -1218,6 +1224,9 @@ mod tests {
         assert_eq!(rebase("daemon", "src/lib.rs"), "daemon/src/lib.rs");
         assert_eq!(rebase("/daemon/", "src/lib.rs"), "daemon/src/lib.rs");
         assert_eq!(rebase("a\\b", "src/lib.rs"), "a/b/src/lib.rs");
+        assert_eq!(rebase(".", "src/lib.rs"), "src/lib.rs");
+        assert_eq!(rebase("./", "src/lib.rs"), "src/lib.rs");
+        assert_eq!(rebase("./daemon", "src/lib.rs"), "daemon/src/lib.rs");
         // Judged by `escapes_root`, not here.
         assert_eq!(rebase("..", "src/lib.rs"), "../src/lib.rs");
     }

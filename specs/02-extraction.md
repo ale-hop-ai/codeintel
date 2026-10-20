@@ -531,6 +531,8 @@ zero `scip_ref`, zero `resolved` — a tier-A-only index wearing a SCIP input
 
 **`--scip-root <DIR>`** declares, repo-relative, the directory an input's
 document paths are relative to: `daemon` + `src/lib.rs` = `daemon/src/lib.rs`.
+`.` is the repository root itself, the right value for the one input in a
+polyglot set that was run from there (#102).
 The re-based path is what § Position normalization reads source from, what the
 anchor join keys on, and what every emitted fact carries. `escapes_root` is
 checked **after** re-basing, so a root that climbs out of the repository is
