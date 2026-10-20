@@ -722,14 +722,45 @@ fn sent(answer: &mut Answer, options: &Options) -> usize {
 /// What a hint cut to fit `max_result_bytes` ends with.
 const HINT_CUT: &str = " ... [hint cut to fit max_result_bytes]";
 
+/// What a hint whose runnable chain would not fit ends with instead.
+///
+/// The chain is dropped whole rather than cut, so the marker has to say the
+/// actionable half is missing — a hint that quietly loses the command is a
+/// silent degradation (invariant 5), and the caller cannot tell a hint that
+/// never had one from a hint that lost it.
+const HINT_CUT_NO_CHAIN: &str = " ... [hint cut to fit max_result_bytes; recovery command dropped]";
+
+/// Where a hint's runnable tail begins.
+///
+/// Every producer writes it last — `discover::index_chain`, `census`'s stale
+/// and `scip-stale` lines, the `no-scip` indexer list — so the **last** `run: `
+/// opens it and everything before is prose.
+const RUN: &str = "run: ";
+
 /// Cut the hint to the longest prefix, on a character boundary, with which
-/// `answer` fits `budget` as `measure` counts it.
+/// `answer` fits `budget` as `measure` counts it — **never cutting into, or
+/// appending to, a runnable chain** (#108).
 ///
 /// Rows are cut first, in [`evaluate`]; this is for an answer whose envelope
 /// is over budget on its own. Only the hint is cut: `status`, `truncated` and
 /// `cap` are what a consumer branches on, `columns` echoes the caller's own
 /// goal, and `stats` is bounded by the rule set (`specs/05-surface.md`
 /// § Symbol rendering).
+///
+/// A plain prefix cut lands wherever the budget runs out, and the two places
+/// that can be are both wrong. Inside a command it leaves half of one. Just
+/// *after* one it is worse, because the marker's own words become arguments —
+/// `rust-analyzer scip . ... [hint cut to fit max_result_bytes]` runs, against
+/// whatever `...` and `[hint` glob to. That is #104's failure reached through
+/// the cut rather than through composition, and `specs/05-surface.md`
+/// § Response contract already forbids it: nothing may be appended to the line
+/// a runnable chain ends, and a marker is an append.
+///
+/// So the chain is **atomic**: kept whole with the prose cut around it, or
+/// dropped whole and reported. Keeping it is tried first because the chain is
+/// the actionable half — the prose says what is wrong and the chain says what
+/// to type, and under pressure the second is worth more. The budget is still
+/// the budget: when the chain alone will not fit, it goes.
 fn fit_hint(answer: &mut Answer, budget: usize, mut measure: impl FnMut(&mut Answer) -> usize) {
     if measure(answer) <= budget {
         return;
@@ -737,25 +768,70 @@ fn fit_hint(answer: &mut Answer, budget: usize, mut measure: impl FnMut(&mut Ans
     let Some(full) = answer.hint.take() else {
         return;
     };
-    let cut = |n: usize| {
-        let mut n = n.min(full.len());
-        while !full.is_char_boundary(n) {
-            n = n.saturating_sub(1);
+    // The tail runs to the end of the chain's own line. Under a composition
+    // that glued prose onto it that line is the rest of the hint, which is
+    // exactly the boundary #104 lost — so the whole remainder is treated as
+    // the chain. Conservative in the only safe direction: this never cuts
+    // something that might be a command, at the price of sometimes dropping
+    // prose that followed one.
+    let tail = full.rfind(RUN).map(|at| {
+        let end = full
+            .get(at..)
+            .and_then(|rest| rest.find('\n'))
+            .map_or(full.len(), |n| at + n);
+        let prose = full.get(..at).unwrap_or_default().trim_end();
+        let separator = full.get(prose.len()..at).unwrap_or_default();
+        (prose, separator, full.get(at..end).unwrap_or_default())
+    });
+
+    // Longest prefix of `prose` that fits once `assemble` has put it back
+    // together. `None` when not even the empty prose fits.
+    let mut longest = |prose: &str, assemble: &dyn Fn(&str) -> String, answer: &mut Answer| {
+        let at = |n: usize| {
+            let mut n = n.min(prose.len());
+            while !prose.is_char_boundary(n) {
+                n = n.saturating_sub(1);
+            }
+            assemble(prose.get(..n).unwrap_or_default())
+        };
+        answer.hint = Some(at(0));
+        if measure(answer) > budget {
+            return None;
         }
-        format!("{}{HINT_CUT}", full.get(..n).unwrap_or_default())
+        // The size grows with the prefix: bisect for the longest that fits.
+        let (mut lo, mut hi) = (0, prose.len());
+        while lo < hi {
+            let mid = lo + (hi - lo).div_ceil(2);
+            answer.hint = Some(at(mid));
+            if measure(answer) <= budget {
+                lo = mid;
+            } else {
+                hi = mid.saturating_sub(1);
+            }
+        }
+        Some(at(lo))
     };
-    // The size grows with the prefix: bisect for the longest one that fits.
-    let (mut lo, mut hi) = (0, full.len());
-    while lo < hi {
-        let mid = lo + (hi - lo).div_ceil(2);
-        answer.hint = Some(cut(mid));
-        if measure(answer) <= budget {
-            lo = mid;
-        } else {
-            hi = mid.saturating_sub(1);
+
+    if let Some((prose, separator, chain)) = tail {
+        let keep = |cut: &str| {
+            if cut.is_empty() {
+                chain.to_string()
+            } else {
+                format!("{cut}{HINT_CUT}{separator}{chain}")
+            }
+        };
+        if let Some(hint) = longest(prose, &keep, answer) {
+            answer.hint = Some(hint);
+            return;
         }
+        // The chain alone is over budget. It goes, and the marker says so.
+        let drop = |cut: &str| format!("{cut}{HINT_CUT_NO_CHAIN}");
+        answer.hint = Some(longest(prose, &drop, answer).unwrap_or_else(|| drop("")));
+        return;
     }
-    answer.hint = Some(cut(lo));
+
+    let cut = |p: &str| format!("{p}{HINT_CUT}");
+    answer.hint = Some(longest(&full, &cut, answer).unwrap_or_else(|| cut("")));
 }
 
 /// What this host adds to an engine diagnostic: the verb or the rule that
@@ -1284,6 +1360,82 @@ fn refresh(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The shapes a composed hint can take, as #102/#104 are weighing them.
+    ///
+    /// Strings and not a mode, because this must hold for whichever of them is
+    /// adopted — and for today's, which is `glued`. A fix that protected only
+    /// the shape its author had in mind would pass on one of these and fail on
+    /// the other two.
+    fn composed_hints() -> Vec<(&'static str, String)> {
+        let prose = "this query depends on scip_ref, which only a SCIP index populates; \
+                     the answer above is what tier A alone can see. also: \
+                     `scip_ref(S,F,_,_,_,_)` matched 0 rows; the index holds 0 rows";
+        let chain = "run: cd /repo && codeintel index . && rust-analyzer scip . && \
+                     scip-go && scip-python index . && codeintel index .";
+        let (head, tail) = prose.split_once("also:").expect("a composed hint");
+        vec![
+            ("glued", format!("{head}{chain} also:{tail}")),
+            ("chain-last", format!("{prose}. {chain}")),
+            ("own-line", format!("{prose}\n{chain}")),
+        ]
+    }
+
+    /// A cut never leaves a runnable chain with words after it, at any budget.
+    ///
+    /// The sweep is what found #108 — a plain prefix cut lands wherever the
+    /// budget runs out, and just after a complete command it hands the marker's
+    /// own words to it as arguments. So the assertion is the one
+    /// `specs/05-surface.md` § Response contract states: whatever survives the
+    /// cut either carries no chain at all, or carries one that is byte-identical
+    /// to the chain it started with and is the last thing on its line.
+    #[test]
+    fn a_cut_never_appends_to_a_runnable_chain_whatever_the_shape() {
+        // The smallest hint this can produce, envelope included.
+        let floor = Wire::McpJson.bytes(&Answer::of(Status::NoScip, HINT_CUT_NO_CHAIN), false);
+        for (name, hint) in composed_hints() {
+            let original = hint
+                .get(hint.rfind("run: ").expect("a chain")..)
+                .and_then(|tail| tail.split('\n').next())
+                .expect("a chain line");
+            for budget in (120..=620).step_by(4) {
+                let mut answer = Answer::of(Status::NoScip, hint.clone());
+                fit_hint(&mut answer, budget, |a| Wire::McpJson.bytes(a, false));
+                let got = answer.hint.clone().unwrap_or_default();
+
+                // Below the floor nothing complies: the envelope plus the
+                // shortest marker this can emit is already over, and that is
+                // true of any cut, including the one before #108. Above it,
+                // keeping a chain whole is not a licence to overrun.
+                let bytes = Wire::McpJson.bytes(&answer, false);
+                assert!(
+                    bytes <= budget.max(floor),
+                    "{name} at {budget}: {bytes} bytes, floor {floor}"
+                );
+
+                let Some(at) = got.rfind("run: ") else {
+                    // Dropped whole, and said so: that is the other legal
+                    // outcome, never a silent loss.
+                    assert!(
+                        got.ends_with(HINT_CUT_NO_CHAIN),
+                        "{name} at {budget}: the chain is gone and the hint does \
+                         not say so: {got}"
+                    );
+                    continue;
+                };
+                let kept = got
+                    .get(at..)
+                    .and_then(|tail| tail.split('\n').next())
+                    .expect("a chain line");
+                assert_eq!(
+                    kept, original,
+                    "{name} at {budget}: the chain's line changed. Everything after \
+                     the last command is read as more arguments to it, and the cut \
+                     marker is no exception (#108)"
+                );
+            }
+        }
+    }
 
     #[test]
     fn a_hint_over_the_budget_is_cut_on_a_char_boundary_and_the_status_kept() {
