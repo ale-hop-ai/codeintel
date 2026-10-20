@@ -1143,6 +1143,21 @@ pub(crate) fn indexers(manifest: &facts::Manifest) -> Vec<&'static str> {
     out
 }
 
+/// Refresh `store` as `query` would, so a catalog counted from it describes the
+/// database `query` is about to answer from. No index, or one written for
+/// another schema, is left alone: `query` answers those before it refreshes.
+///
+/// # Errors
+/// An I/O failure that is not a refusal; refusals are statuses.
+pub fn refresh_store(store: &mut Store, root: &Path) -> std::io::Result<(Status, Option<String>)> {
+    if !store.has_index() || stale_schema(store.manifest(), root).is_some() {
+        return Ok((Status::Ok, None));
+    }
+    refresh(store, root, &Options::default())
+        .map(|(status, hint, _)| (status, hint))
+        .map_err(std::io::Error::other)
+}
+
 /// Bring the index up to date, within the refresh budget.
 ///
 /// A reader that cannot take the writer lock does not fail: it reads the

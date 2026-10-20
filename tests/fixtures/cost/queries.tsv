@@ -1,0 +1,26 @@
+# The fixed query set behind `crates/codeintel/tests/cost.rs`.
+# id<TAB>fixture<TAB>query[<TAB>limit]. Lines starting with `#` are comments.
+# `limit` is the row cap (`--limit`); omit it for the default. Query 15 raises it
+# so the byte cap, not the row cap, is what cuts the answer.
+#
+# Chosen for cost shape, not for evaluation shape: the floor an empty answer
+# still pays, a one-row answer, answers whose columns are symbols (where the
+# `Name path:line` expansion is what the context window buys), answers whose
+# columns are plain strings, a two-symbol-column answer, and the widest row
+# count the fixtures offer. A query added here costs four golden rows — one
+# per wire — not a test function.
+1	rust	?- def(S, _, _, "no_such_symbol_exists").
+2	rust	?- innermost_at("src/store.rs", 23, S).
+3	rust	?- def(S, _, _, "get"), impact_of(S, C).
+4	rust	?- def(S, F, "function", N).
+5	rust	?- calls(A, B).
+6	rust	?- calls_exact(A, B).
+7	rust	?- dead_export(S).
+8	rust	?- entrypoint(S).
+9	rust	?- depends(F, G).
+10	rust	?- within(C, P).
+11	rust	?- def(S, _, "function", N), C = count{ X : calls(X, S) }.
+12	go	?- def(S, F, K, N).
+13	go	?- calls(A, B).
+14	go	?- dead_export(S).
+15	rust	?- def(A, F, K, N), def(B, G, L, M).	100000

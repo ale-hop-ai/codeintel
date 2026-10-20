@@ -403,3 +403,269 @@ and `about(S, "parent", ...)` join to nothing for any method in an `impl`, and
 `tests/stdlib.rs`'s containment test sailed past it because it used module
 nesting. Recorded in [plan.md](plan.md); not fixed inside M4, because parent
 precedence is tier-B ingest and has blast radius.
+
+---
+
+# The bank, split three ways — 2026-10-20
+
+[docs/50-self-improvement.md](50-self-improvement.md) § 5 splits this eval into
+three banks, for the reason this page keeps arriving at from the other
+direction: a score that is re-run after every copy change stops measuring the
+tool and starts measuring how many times you re-rolled. The rule is kept by
+splitting the bank rather than by weakening it.
+
+| Bank | Where | Size | Facts | Re-run |
+|---|---|---:|---|---|
+| **Frozen** | `tests/fixtures/eval/`, `tests/fixtures/eval-m4/` | 30 + 45 | `facts.dl`, the rust fixture, this repo at `8471824` | only on a signature change |
+| **Working** | `tests/fixtures/eval/working/` | 75 | `tests/fixtures/eval/bank.dl` | freely, every Tier 3 |
+| **Held-out** | `tests/fixtures/eval/heldout/` | 30 | `tests/fixtures/eval/bank.dl` | merge only |
+
+**No measurement is recorded here yet.** The two new banks are apparatus: 105
+questions, their reference queries, and a scorer. The first scored run is a
+separate piece of work and it gets its own section, with its tree, its agents,
+its partition and its prompt, the way § Set A, re-run does.
+
+**An experimenting agent never sees the held-out bank.** If it did, the set
+would measure memorization.
+
+## No stored reference answers
+
+The working and held-out banks' reference answers are **recomputed from their
+reference queries on every run**. `score.py --bank working <answers>` computes
+them first and scores against what it just computed; `expected.tsv` in each
+bank directory is a diffable record that the scorer compares against and warns
+about, never an input it trusts.
+
+That is this eval's own hardest-won lesson, and it has now been learned three
+times — ten empty set-A answers, set B's moving target, and Q14's wrong answer
+that the scorer confirmed as a pass. Every one was invisible until something
+forced a recomputation. *A reference answer nobody recomputes is an assertion
+nobody checks.* These two banks are built so there is nothing to forget to
+recompute.
+
+The scorer also refuses to run a bank where any reference answer is empty,
+unless that question is named in `KNOWN_EMPTY` with the reason. A question
+answered by no rows is passed by any query that returns nothing, including a
+broken one. Two questions are named there, one per bank, and both for the same
+honest reason: a conformance question asserts a policy *holds*, so "no rows" is
+the answer you want.
+
+## What the frozen 30 do not ask
+
+`rules/stdlib.dl` defines **41 rule heads**. The frozen 30 name **17** of them.
+The 24 they never name are not a random tail — they are, almost exactly, the
+precision apparatus:
+
+```
+at  callable  calls_at  calls_exact  dead_export_exact  def_lines
+depends_exact  entrypoint_exact  file_of  impl_sym  local_def  named
+reach_of_exact  reaches  reaches_exact  recursive  recursive_exact  ref
+ref_outside  ref_outside_exact  scip_claim  tighter_at  trait_sym
+uses_package_exact
+```
+
+Nine of the ten `_exact` twins are in that list. The frozen bank asks
+`impact_of_exact` once and nothing else, so the one property
+[50-self-improvement.md](50-self-improvement.md) § 2 says the whole scoreboard
+rests on — that an agent picks the right tier, and that the two tiers *differ*
+— has never been in an eval question. The working and held-out banks name
+**35** of the 41 heads between them. The five still unnamed — `impl_sym`,
+`ref_outside_exact`, `scip_claim`, `tighter_at`, `trait_sym` — are internal
+helpers, reached through the rules that name them.
+
+## The fixture is new, and `facts.dl` is left broken
+
+The two new banks run against `tests/fixtures/eval/bank.dl`, not against
+`facts.dl`.
+
+`facts.dl` **no longer loads at all**. It asserts `exported` and `implements`
+as facts, and schema 2 and 3 made both of them rule heads, which safety rule 8
+refuses outright:
+
+```
+stdlib: invalid-query: `exported` is a base relation supplied by the fact store
+and cannot also be defined by a rule (safety rule 8); pick a different head name
+```
+
+So every question in the frozen M1 bank currently fails to run, and
+`expected.tsv`'s Q18 still records an answer for `long_def/2`, a rule deleted
+at schema 3. **None of that is repaired here.** The frozen bank is the record
+of what M1 measured, and editing its fixture would change the world a recorded
+run was scored in without changing the record — the same move this page
+withdrew a score for. It is written down instead.
+
+`bank.dl` is a fresh 16-file polyglot fixture written against the vocabulary
+that ships today, and it is deliberately shaped to make the `_exact` twins
+*disagree*, which `facts.dl` never did:
+
+- `src/legacy.rs` is Rust the indexer never reached. The only reference to
+  `Cache::warm` anywhere is a name-tier row in it, so `entrypoint_exact` calls
+  `warm` an entrypoint and `entrypoint` does not — the INVERSION its doc line
+  warns about, as a row rather than as a hedge. `dead_export` and
+  `dead_export_exact` split on the same symbol.
+- 22 `calls` rows, 15 of them `calls_exact`. Three definitions sit on a cycle;
+  one of those cycles survives into `recursive_exact`.
+- `visibility` and `name_export` instead of asserted `exported`, so all three
+  `exported` clauses fire, including the recursive `inherited` one.
+- `scip_impl` at method granularity and `name_impl` at type granularity, plus
+  two `name_impl` rows that `implements` correctly refuses — one for the
+  `trait_sym` guard, one for `S != T`.
+- `module` definitions, so `calls_at`'s `FromKind != "module"` guard is
+  exercised; a tier-B opaque placeholder, so `scip_claim`'s "emitted but not
+  resolved" case is real; and a `test` role, so the fifth `is_test` clause has
+  a file.
+
+## The count{} trap, as a question
+
+`count{X : goal}` groups by every variable bound **outside** the aggregate, not
+only by the ones the author meant ([specs/03-datalog.md](../specs/03-datalog.md)
+safety rule 4). So
+
+```prolog
+?- def(S, _, _, _), A = count{ S : def(S, _, _, _) }.
+```
+
+returns `A = 1`, once per definition, with `status: "ok"`. There is no
+truncation flag, no provenance hedge and no diagnostic — it is the cheapest way
+to get a confidently wrong number out of this tool, and nothing in the surface
+warns about it. Working Q59 and held-out Q26 ask for exactly that total, and
+the form above scores wrong against them.
+
+## Running them
+
+```sh
+python3 tests/fixtures/eval/score.py --bank working check        # recompute only
+python3 tests/fixtures/eval/score.py --bank working expected     # refresh the record
+python3 tests/fixtures/eval/score.py --bank working answers.tsv  # score a run
+python3 tests/fixtures/eval/score.py --bank heldout answers.tsv
+```
+
+`score.py` with no `--bank` still means the frozen M1 bank and still reads
+`expected.tsv`, so every command recorded above means what it meant.
+`cargo run -p codeintel --example eval` gained a `--facts <path>` argument for
+the second fixture and defaults to the embedded `facts.dl`.
+
+---
+
+# Tier 3 runner — 2026-10-20
+
+`tests/fixtures/eval/run.py` is [docs/50-self-improvement.md](50-self-improvement.md)
+§ 4's Tier 3, automated. Everything above was run by hand; this is the same
+method with the manual steps written down and the "instruction, not a sandbox"
+caveat removed.
+
+```sh
+python3 tests/fixtures/eval/run.py --bank working --dry-run   # the plan and the cost bound
+python3 tests/fixtures/eval/run.py probe                      # prove the isolation (one agent, ~$0.01)
+python3 tests/fixtures/eval/run.py --bank working             # 75 questions x 3 rounds
+python3 tests/fixtures/eval/run.py --bank working --questions 6 --rounds 3 --per-agent 2   # a small sample
+python3 tests/fixtures/eval/run.py --bank heldout --merge     # the merge gate; aggregates only
+```
+
+Sample size is `--questions` (seeded subset, 0 = whole bank), `--rounds`
+(samples per question) and `--per-agent`; agents = rounds x ceil(questions /
+per-agent). `--max-usd` stops *launching* agents past a total and says so in the
+report — a truncated run is labelled, never presented as a full one.
+
+## Why headless, and not tally
+
+Both were evaluated. **Headless `claude -p`, one process per agent.**
+
+| | headless `claude -p` | `tally spawn` |
+|---|---|---|
+| Isolation | `--tools ""` removes every tool; `--safe-mode` removes CLAUDE.md, hooks, skills, MCP, memory; fresh empty cwd | a pad is a full interactive session in a worktree: this repo's CLAUDE.md, hooks and memory load, and the agent has file tools. Isolation falls back to an instruction — the caveat this runner exists to remove |
+| Collecting answers | one JSON object on stdout | scrape a TUI |
+| Cost accounting | `total_cost_usd` and token usage per agent | none |
+| Footprint | a process | a pad. The grid is 5 x 8 and ~16 pads were running when this was built; a 75-agent run would not fit, and it is a shared surface the user presses to jump between sessions |
+
+Tally is the right home for the *experimenter* running `run.py`, and for nothing
+the eval agents do. The runner never touches the grid.
+
+## What an agent sees
+
+The system prompt is replaced, not appended to, and says one sentence. The user
+message is the instructions of the M4 prompt, the **page inline** (the original
+had agents read it with a tool — with no tools the same text arrives in the
+prompt), and its questions as `Q<id>: <text>`. The page is
+`cargo run --example eval -- --facts bank.dl --schema`: the real `Schema`
+renderer over a census of the bank's own facts. `codeintel schema` itself cannot
+be used, because the bank is a fact file with no tree to index, and the no-index
+page ends "THERE IS NO INDEX HERE", which would be a different measurement. The
+page is the one this tree's rules produce, so a change to a rule signature or a
+doc line changes what the next run reads. Never the reference query, the answer
+variables, the facts, or any other group.
+
+**Isolation is measured, not asserted.** `run.py probe` puts a random canary in
+the agent's cwd, asks it to read it and describe its situation, and passes only
+if the canary is absent, it took one turn, and its input was <= 600 tokens (a
+CLAUDE.md, memory or tool schema is thousands). Findings from building it:
+
+- With the **default system prompt** and `--tools ""` the model is still told it
+  has tools, writes a `Read` call as text, and invents the contents of the file.
+  The canary read back as a different random string. Replacing the system
+  prompt fixed it, which is why `--system-prompt` is there.
+- The agent still receives the account email, the date and a budget note as a
+  context note (~250 tokens, constant across agents). `--safe-mode` does not
+  drop them. They cannot carry the answer; they are a residual, not a leak.
+- `--bare` was the obvious flag and is unusable here: it ignores OAuth and the
+  keychain and needs `ANTHROPIC_API_KEY`, which this host does not set.
+
+Agents run as separate processes, so they cannot see each other. Questions are
+re-partitioned each round from a seeded shuffle, retried until no two questions
+share a group twice; when that is arithmetically impossible `repeated pairs` in
+the report says by how much. The seed fixes the partition and the subset only.
+
+## What it reports
+
+Per-round score, total, the **pass-count histogram** (how many questions passed
+3, 2, 1, 0 rounds), and agreement as "questions that passed in a majority of
+rounds" — the 2-of-3 figure when rounds is 3. Plus agents run, tokens, cost,
+cost per agent, wall time split into agents and scoring, and an extrapolated
+cost for the full bank, labelled an estimate. Artifacts, in
+`target/eval/<bank>/<utc>/`: `report.txt`, `agents.jsonl` (raw replies and
+usage), `outcomes.json`, `schema.txt` and `answers.tsv`. Any agent that took
+more than one turn, hit a permission denial or errored is flagged `ANOMALY`.
+
+An unparseable or missing answer is a failure, not a skip. A transport failure
+(error, timeout, no JSON) is retried up to twice and the retry count recorded; a
+*wrong* answer is never retried.
+
+**Held-out.** `--bank heldout` needs `--merge`. It prints aggregates only — no
+question ids, queries or failure reasons — and keeps neither `answers.tsv` nor
+the raw replies, because a per-question breakdown handed to an experimenting
+agent is the held-out set leaking.
+
+## What it does not do
+
+- **It does not make the number stable.** It is an LLM measurement: the same
+  tree, seed and model give a different score on a different day. Compare
+  distributions across runs, not totals. Re-running to move a score is still the
+  failure this page opened with.
+- **Model is a parameter** (`--model`, default `claude-opus-5`, the M4 runs'
+  model). Scores across models do not compare.
+- **Scoring is slow.** `score.py` recomputes every reference query in the bank
+  with one `cargo run` each, ~2.5 minutes for the working bank regardless of how
+  many answers it scores. Fixed overhead per run, not per agent.
+- **Same-family blind spots** and **the small fixture** (43 definitions) are the
+  M1 caveats, unchanged.
+
+## Validated sample, not a score
+
+Built and checked on 2026-10-20 at `0291ac8` + this change: working bank,
+`--questions 4 --per-agent 2 --rounds 3`, seed 1 — 6 agents, 12 answers, on
+`claude-opus-5`.
+
+| Measured | |
+|---|---|
+| Isolation probe | canary absent, 1 turn, 372 input tokens |
+| Agents | 6/6 ran, 0 anomalies, 0 retries, every answer parsed |
+| Cost | $0.206 total, **$0.034 per agent**, 17,430 tokens in, 531 out |
+| Partition | 3 rounds, 0 repeated pairs (4 questions in pairs: the 3 perfect matchings) |
+| Scoring check | a deliberately wrong query and a malformed one were both caught as failures |
+| Extrapolation | the full working bank is 75 agents, about **$2.6** and ~25 minutes at 3 in flight |
+
+The sample's answers scored 12/12. **That is not a measurement of the schema.**
+Four questions out of 75 were chosen by seed, not for being representative, and
+no claim is made from them; they exist to show every stage of the pipeline ran.
+The first full-bank number is the user's call and gets its own section, with its
+tree, seed and report, the way § Set A, re-run does.

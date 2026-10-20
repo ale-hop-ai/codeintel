@@ -70,6 +70,15 @@ empty role bitset. Calling that a `read` would be the extractor guessing
 (invariant 1), and dropping the occurrence would lose a reference the compiler
 did resolve, so it gets its own atom — as `Kind` does for the same reason.
 
+**Role is only as populated as the indexer makes it.** Measured: rust-analyzer
+emits no role on any reference (all `unknown`); scip-go emits `ReadAccess` on
+every reference regardless of use, so `read` there is "a reference", not a
+read; scip-typescript emits none. No indexer measured emits `write`, `import`,
+`test`, `generated` or `forward`. The vocabulary is the SCIP protocol's, not a
+promise about any indexer; `codeintel schema`'s per-role counts say what this
+index holds. A non-`unknown` share is not a measure of information: Go reaches
+1.0 with none (`docs/50-self-improvement.md` § 2, `role_known`).
+
 **`Prov`** — resolution provenance. Exactly two values, forever:
 ```
 exact    from SCIP. type-resolved by a real compiler front-end.
@@ -968,6 +977,58 @@ than illustrative. Over a `name`-provenance graph it does not degrade, it
 **inverts**: an unresolved call is an invisible call, so almost every function
 in the repo reports as an entrypoint. That is why it carries a twin even though
 nothing in the cookbook asks for one.
+
+### Row provenance — `tier/4`
+
+The promise is that every answer says which tier produced it. `ref/7`,
+`calls_at/5` and `implements/3` keep it: `Prov` is a column. The five
+contaminated rules above do not: `calls(From, S)`, `dead_export(S)`,
+`entrypoint(S)`, `depends(F, G)` and `uses_package(F, P)` carry **no `Prov` in
+their tuples**, so a wrong row from any of them could not say it was a guess,
+and the only defence was knowing to ask the `_exact` twin. Measured on the
+first scoreboard, calibration (`docs/50-self-improvement.md` § 2) was 0.50 on
+fd and 0.4944 on tokio, and every row it counted as flagged was a `ref` row.
+
+`tier/4` closes it, as **one added relation and no changed head**. It reuses
+`about`'s heterogeneous-rows idiom: a discriminator column, then the row.
+
+```prolog
+% tier(Rel, A, B, Prov): the row `Rel(A, B)` and which tier it rests on.
+% Unary rules put "" in B.
+tier("calls", A, B, "exact")        :- calls_exact(A, B).
+tier("calls", A, B, "name")         :- calls(A, B), !calls_exact(A, B).
+tier("depends", A, B, "exact")      :- depends_exact(A, B).
+tier("depends", A, B, "name")       :- depends(A, B), !depends_exact(A, B).
+tier("uses_package", A, B, "exact") :- uses_package_exact(A, B).
+tier("uses_package", A, B, "name")  :- uses_package(A, B),
+                                       !uses_package_exact(A, B).
+tier("dead_export", S, "", "exact") :- dead_export(S), dead_export_exact(S).
+tier("dead_export", S, "", "name")  :- dead_export(S), !dead_export_exact(S).
+tier("entrypoint", S, "", "exact")  :- entrypoint(S), entrypoint_exact(S).
+tier("entrypoint", S, "", "name")   :- entrypoint(S), !entrypoint_exact(S).
+```
+
+Four properties, each load-bearing:
+
+1. **A tag, never a filter.** For each `Rel`, the `(A, B)` pairs in `tier` are
+   exactly the rows of `Rel`. `tier` adds a column and removes nothing, so no
+   precision or recall figure moves. A test asserts the equality for all five.
+2. **Two values, never blended.** A row is `exact` when its `_exact` twin also
+   yields it, `name` otherwise. The two clauses partition: no row carries both.
+   There is no third value and no number (invariant 2).
+3. **What `name` means differs per rule, and is the honest reading.** For
+   `calls`, `depends` and `uses_package` it is "no SCIP-resolved evidence for
+   this edge". For `dead_export` and `entrypoint` it is "no evidence of use /
+   of a caller, and `S` is not `resolved`" — the row is asserted on silence, not
+   on a compiler's answer.
+4. **Why not mutate the heads.** `calls/2` is read by every closure, by `about`
+   and by `entrypoint`; `dead_export/1` and `depends/2` are in the fixed query
+   set whose answer bytes are a judged metric. Appending a `Prov` column to
+   them changes every recorded query that mentions them and every answer's
+   size. `tier/4` leaves all of that byte-identical.
+
+`tier` is **not** a ranking and carries no confidence: it is the same two-valued
+`Prov` that `ref` already speaks, applied to the rules that had dropped it.
 
 ---
 

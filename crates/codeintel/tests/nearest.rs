@@ -281,18 +281,23 @@ fn the_mcp_server_rooted_at_the_repository_answers_from_the_subdirectory() {
         .expect("the server starts");
     {
         let stdin = child.stdin.as_mut().expect("stdin");
+        let init = serde_json::json!({
+            "jsonrpc": "2.0", "id": 0, "method": "initialize",
+            "params": { "protocolVersion": "2025-06-18" }
+        });
         let call = serde_json::json!({
             "jsonrpc": "2.0", "id": 1, "method": "tools/call",
             "params": { "name": "code_query", "arguments": {
-                "query": "?- def(S, F, K, N).", "format": "json"
+                "query": "?- def(S, F, K, N)."
             }}
         });
+        writeln!(stdin, "{init}").expect("write");
         writeln!(stdin, "{call}").expect("write");
     }
     let out = child.wait_with_output().expect("the server exits");
     let stdout = String::from_utf8_lossy(&out.stdout);
     let response: serde_json::Value =
-        serde_json::from_str(stdout.lines().next().expect("one response"))
+        serde_json::from_str(stdout.lines().nth(1).expect("a second response"))
             .expect("a JSON-RPC response");
 
     let structured = &response["result"]["structuredContent"];

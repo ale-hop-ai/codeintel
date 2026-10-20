@@ -262,8 +262,13 @@ fn schema_cmd(
         .canonicalize()
         .with_context(|| format!("{} does not exist", path.display()))?;
     let dir = facts::store::locate(&root, index_dir).context("locating the index")?;
-    let store = match Store::open(&root, &dir, &extract::fingerprint()) {
+    let mut store = match Store::open(&root, &dir, &extract::fingerprint()) {
         Ok(store) => store,
+        Err(e) => return refusal(e, format),
+    };
+    // Refresh as `query` does: the counts are what `query` will see.
+    let refreshed = match query::refresh_store(&mut store, &root) {
+        Ok(refreshed) => refreshed,
         Err(e) => return refusal(e, format),
     };
     let census = match Census::of(&store) {
@@ -276,13 +281,15 @@ fn schema_cmd(
             // stdout is the catalog the size budget measures; the status goes
             // where `query` puts it.
             out(&schema.to_string())?;
-            let (status, hint) = wire::schema_status(&census, &root, index_dir);
+            let (status, hint) = wire::schema_status(&census, &root, index_dir, &refreshed);
             eprintln!("status={status}");
             if let Some(hint) = hint {
                 eprintln!("hint: {hint}");
             }
         }
-        Format::Json => outln(&wire::schema_json(&schema, &census, &root, index_dir).to_string())?,
+        Format::Json => {
+            outln(&wire::schema_json(&schema, &census, &root, index_dir, &refreshed).to_string())?;
+        }
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -614,7 +621,7 @@ fn query_cmd(
     let answer = query::run(path, &source, options)?;
 
     match format {
-        Format::Json => outln(&wire::json(&answer).to_string())?,
+        Format::Json => outln(&wire::json(&answer, options.raw).to_string())?,
         Format::Text => {
             // The same rows an MCP result carries, `true` for a ground goal
             // included: one function writes both (`specs/05-surface.md` § MCP).
