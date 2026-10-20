@@ -31,7 +31,7 @@ pub use atom::{Atom, Term};
 pub use db::Db;
 pub use diag::{Diagnostic, Status};
 pub use engine::{Engine, QueryResult};
-pub use limits::{Cap, Demand, Limits, Stats};
+pub use limits::{Cap, Demand, EmptyAt, Limits, Stats};
 pub use matcher::{Matcher, Regexes};
 pub use parse::parse;
 pub use relation::Relation;

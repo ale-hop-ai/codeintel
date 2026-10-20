@@ -957,6 +957,18 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
     This is the footgun the `NOTES` block already warns about, which is
     evidence a warning in the preamble is not where an agent reads it.
 
+  **The host reads the literal the engine parsed, never its text.** `Stats`
+  carries the failing literal in both forms — the source slice, which is the
+  only form worth showing the caller, and the parsed literal, whose constants
+  are interned atoms. Recovering the arguments by splitting the source on
+  unquoted commas is parsing Datalog outside the parser, and it is wrong on
+  real input: an escaped `\"` reads as closing the string, so one argument
+  splits in two, every column after it shifts, and the hint diagnoses a value
+  the caller never wrote against a column it never occupied — while the
+  constant that actually matched nothing goes unexamined (#81). Naming the
+  wrong cause is worse than naming none, which is the whole reason this slot
+  exists.
+
   This stays a `hint` on an `ok` result rather than becoming `invalid-query`.
   The query is well-formed and the answer — no rows — is true. Promoting it to
   an error would make the taxonomy claim a malformed program where there is

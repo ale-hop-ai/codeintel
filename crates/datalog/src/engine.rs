@@ -14,7 +14,7 @@ use crate::atom::{Atom, Term, is_int};
 use crate::check::{Schema, check};
 use crate::db::Db;
 use crate::diag::{Diagnostic, Result, Status};
-use crate::limits::{Cap, Demand, Limits, Stats};
+use crate::limits::{Cap, Demand, EmptyAt, Limits, Stats};
 use crate::matcher::{Matcher, Regexes};
 use crate::parse::parse;
 use crate::relation::Relation;
@@ -347,9 +347,13 @@ impl Engine {
                     .and_then(|i| goal.body.get(*i))
                     .map(|lit| {
                         let (lo, hi) = lit.span();
-                        src.get(lo..hi).unwrap_or_default().trim().to_string()
+                        let text = src.get(lo..hi).unwrap_or_default().trim().to_string();
+                        EmptyAt {
+                            text,
+                            literal: lit.clone(),
+                        }
                     })
-                    .filter(|text| !text.is_empty());
+                    .filter(|at| !at.text.is_empty());
             }
         }
         rows.settle();

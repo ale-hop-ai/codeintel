@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use datalog::{Engine, Limits, Relation};
+use datalog::ast::Literal;
+use datalog::atom::is_int;
+use datalog::{EmptyAt, Engine, Limits, Relation, Term};
 use facts::{Lock, Store};
 
 use crate::discover::{self, Nearby};
@@ -771,32 +773,70 @@ fn empty_hint(
     relations: &BTreeMap<&str, Relation>,
     engine: &Engine,
 ) -> String {
-    let Some(literal) = &result.stats.empty_at else {
+    let Some(at) = &result.stats.empty_at else {
         return "the goal derived no rows: this is not true of your code as indexed".to_string();
     };
-    let name = literal
-        .trim_start_matches('!')
-        .split(['(', ' '])
-        .next()
-        .unwrap_or_default();
+    let text = &at.text;
+    let name = relation_of(&at.literal).unwrap_or_default();
     let held = relations.get(name).map_or(0, Relation::len);
     if facts::schema::by_name(name).is_some() {
         // A constant in a typed column is the agent's most likely error, and
         // the relation total says nothing about it
         // (`specs/05-surface.md` § Response contract).
-        if let Some(column) = column_hint(literal, name, relations, engine) {
-            return format!("`{literal}` matched 0 rows; {column}");
+        if let Some(column) = column_hint(at, name, relations, engine) {
+            return format!("`{text}` matched 0 rows; {column}");
         }
         return format!(
-            "`{literal}` matched 0 rows; the index holds {held} `{name}` row(s). \
+            "`{text}` matched 0 rows; the index holds {held} `{name}` row(s). \
              everything before it in the join matched{}",
-            integer_hint(literal)
+            integer_hint(at, engine)
         );
     }
     format!(
-        "`{literal}` matched 0 rows; everything before it in the join matched{}",
-        integer_hint(literal)
+        "`{text}` matched 0 rows; everything before it in the join matched{}",
+        integer_hint(at, engine)
     )
+}
+
+/// The relation a literal names, or `None` for a builtin that names none.
+///
+/// A comparison, an assignment, `between` and the string tests have no
+/// relation and no column schema, so they fall through to the hint that only
+/// reports what the join reached.
+fn relation_of(literal: &Literal) -> Option<&str> {
+    match literal {
+        Literal::Pos(pred) | Literal::Neg(pred) => Some(&pred.name),
+        _ => None,
+    }
+}
+
+/// The string constants of the literal that stopped the join, each with the
+/// argument position it sits in.
+///
+/// Read from the parsed literal the engine evaluated, never from its text. The
+/// text path split arguments on unquoted commas and counted an escaped `\"` as
+/// closing the string, so `def(S, F, "x\"y, function", "nosuchkind")` split
+/// into five arguments: every later column shifted by one, the hint diagnosed
+/// a fabricated value against the wrong column, and the constant that actually
+/// matched nothing was never examined (#81).
+///
+/// Integer constants are skipped. They are the correct form for an integer
+/// column, and in a vocabulary or path column there is nothing an index can
+/// say about them that the relation total does not already say.
+fn string_constants(at: &EmptyAt, engine: &Engine) -> Vec<(usize, String)> {
+    let (Literal::Pos(pred) | Literal::Neg(pred)) = &at.literal else {
+        return Vec::new();
+    };
+    pred.args
+        .iter()
+        .enumerate()
+        .filter_map(|(i, term)| match term {
+            Term::Const(atom) if !is_int(*atom) => {
+                engine.resolve(*atom).map(|value| (i, value.to_string()))
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// The int-vs-string trap, for a literal whose columns carry no type.
@@ -806,12 +846,12 @@ fn empty_hint(
 /// integer is a different atom from the integer and can never match it; that
 /// is the one case where naming the replacement is a statement about the atom
 /// space, not a guess about the code.
-fn integer_hint(literal: &str) -> String {
-    for arg in arguments(literal) {
-        let bare = arg.trim_matches('"');
-        if arg.starts_with('"') && bare.parse::<i64>().is_ok() {
+fn integer_hint(at: &EmptyAt, engine: &Engine) -> String {
+    for (_, bare) in string_constants(at, engine) {
+        if bare.parse::<i64>().is_ok() {
             return format!(
-                ". did you mean {bare}? {arg} is a string, and a string never matches an integer"
+                ". did you mean {bare}? {bare:?} is a string, and a string never \
+                 matches an integer"
             );
         }
     }
@@ -825,27 +865,26 @@ fn integer_hint(literal: &str) -> String {
 /// a *replacement* value: listing what the column holds is a fact about the
 /// index, proposing what the agent meant is a guess (invariant 1).
 fn column_hint(
-    literal: &str,
+    at: &EmptyAt,
     relation: &str,
     relations: &BTreeMap<&str, Relation>,
     engine: &Engine,
 ) -> Option<String> {
     let columns = schema::columns(relation);
-    for (i, arg) in arguments(literal).iter().enumerate() {
+    for (i, bare) in string_constants(at, engine) {
         match columns.get(i) {
-            Some(schema::Column::Int) if arg.starts_with('"') => {
-                let bare = arg.trim_matches('"');
+            Some(schema::Column::Int) => {
                 return Some(format!(
-                    "that column holds integers and {arg} is a string — they are \
+                    "that column holds integers and {bare:?} is a string — they are \
                      different atoms and can never match. write {bare} unquoted"
                 ));
             }
-            Some(schema::Column::Path) if arg.starts_with('"') => {
-                if let Some(said) = path_hint(arg.trim_matches('"'), relations, engine) {
+            Some(schema::Column::Path) => {
+                if let Some(said) = path_hint(&bare, relations, engine) {
                     return Some(said);
                 }
             }
-            Some(schema::Column::Vocab(values)) if arg.starts_with('"') => {
+            Some(schema::Column::Vocab(values)) => {
                 let counts = vocabulary(relation, i, values, relations, engine);
                 let listed = counts
                     .iter()
@@ -857,12 +896,11 @@ fn column_hint(
                 // be the hint contradicting its own evidence, and a literal
                 // constrains more than one column: a value with rows of its own
                 // means the emptiness came from somewhere else in the literal.
-                let bare = arg.trim_matches('"');
                 let lead = match counts.iter().find(|(value, _)| *value == bare) {
-                    None => format!("{arg} is not one of this column's values"),
-                    Some((_, 0)) => format!("{arg} has 0 rows in this index"),
+                    None => format!("{bare:?} is not one of this column's values"),
+                    Some((_, 0)) => format!("{bare:?} has 0 rows in this index"),
                     Some((_, n)) => format!(
-                        "{arg} has {n} row(s) here, so another constant in this \
+                        "{bare:?} has {n} row(s) here, so another constant in this \
                          literal is what matched nothing"
                     ),
                 };
@@ -973,44 +1011,6 @@ fn vocabulary(
         .iter()
         .map(|v| (*v, counts.get(v).copied().unwrap_or(0)))
         .collect()
-}
-
-/// The argument text of `name(a, b, c)`, split on commas that are not inside a
-/// quoted string — a symbol id contains commas often enough that a naive
-/// `split(',')` misreads the column positions and diagnoses the wrong one.
-fn arguments(literal: &str) -> Vec<String> {
-    let inner = literal
-        .split_once('(')
-        .map(|(_, rest)| rest.trim_end_matches(')'))
-        .unwrap_or_default();
-    if inner.is_empty() {
-        return Vec::new();
-    }
-    // Accumulated character by character rather than sliced at byte offsets: a
-    // quoted name can hold any UTF-8, and an offset into the middle of a
-    // character panics.
-    let mut args = vec![String::new()];
-    let mut quoted = false;
-    for c in inner.chars() {
-        match c {
-            '"' => {
-                quoted = !quoted;
-                push_char(&mut args, c);
-            }
-            ',' if !quoted => args.push(String::new()),
-            _ => push_char(&mut args, c),
-        }
-    }
-    args.iter().map(|a| a.trim().to_string()).collect()
-}
-
-/// Append to the argument being accumulated. Split out because `args` is never
-/// empty by construction and the `else` branch is unreachable, which is clearer
-/// stated once than as an `expect` at three call sites.
-fn push_char(args: &mut [String], c: char) {
-    if let Some(last) = args.last_mut() {
-        last.push(c);
-    }
 }
 
 /// What the index knows about its SCIP inputs, and what that means for an
