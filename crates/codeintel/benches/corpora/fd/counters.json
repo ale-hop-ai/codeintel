@@ -1,0 +1,89 @@
+{
+  "corpus": {
+    "name": "fd",
+    "rev": "b422e5d8c9cffaa1ae43ba68e7b97a60fb3e8ae5"
+  },
+  "queries": [
+    {
+      "demand": "nothing to seed: no derived literal has a bound argument",
+      "derived": 235,
+      "digest": "6505810e843de4253b59da1284cde4c551b090e2b5f4b41aac3691ec412205b2",
+      "id": "1",
+      "rows": 231,
+      "status": "ok",
+      "truncated": false
+    },
+    {
+      "demand": "nothing to seed: no derived literal has a bound argument",
+      "derived": 1364,
+      "digest": "8172ad9e5a26ff496e6a7a32fac9338d0ee07cf6201ba2ca720bbe79cd38dcc7",
+      "id": "2",
+      "rows": 51,
+      "status": "ok",
+      "truncated": false
+    },
+    {
+      "demand": "applied",
+      "derived": 1986,
+      "digest": "df4ecae76c5d8bd3225d03d78be1853a8fc594caa2db80c3c81fe081dac047ee",
+      "id": "3",
+      "rows": 4,
+      "status": "no-scip",
+      "truncated": false
+    },
+    {
+      "demand": "applied",
+      "derived": 2314,
+      "digest": "1a3f2208a4c191140a2a61e4021d3b3f65bdb4bc814efd089a6cd5eb10ea4342",
+      "id": "4",
+      "rows": 24,
+      "status": "no-scip",
+      "truncated": false
+    },
+    {
+      "demand": "applied",
+      "derived": 2056,
+      "digest": "06aa79aeb5f5795503bc798fe8e201e12575bac60911472c562a954895883c73",
+      "id": "5",
+      "rows": 12,
+      "status": "no-scip",
+      "truncated": false
+    },
+    {
+      "demand": "nothing to seed: no derived literal has a bound argument",
+      "derived": 5,
+      "digest": "8a7ca3fb9b8c04643958cf68bc83880166bc99ffb571669142c0f509042c3688",
+      "id": "6",
+      "rows": 1,
+      "status": "ok",
+      "truncated": false
+    },
+    {
+      "demand": "nothing to seed: no derived literal has a bound argument",
+      "derived": 3832,
+      "digest": "22a056795d7f6940b46f96a2f2e58fb6ae119cf77c78e84a6fa1466c75137272",
+      "id": "7",
+      "rows": 176,
+      "status": "no-scip",
+      "truncated": false
+    },
+    {
+      "demand": "nothing to seed: no derived literal has a bound argument",
+      "derived": 4981,
+      "digest": "38acd9fcce5b11d0c63e49d2d3bf5358634ceee176432bb5da14fd82b628ed16",
+      "id": "8",
+      "rows": 231,
+      "status": "no-scip",
+      "truncated": false
+    },
+    {
+      "demand": "nothing to seed: no derived literal has a bound argument",
+      "derived": 3521,
+      "digest": "8f31ae33d4726f851d7658e73014aefd29e927dd805c593ee8375610aff2374e",
+      "id": "9",
+      "rows": 44,
+      "status": "no-scip",
+      "truncated": false
+    }
+  ]
+}

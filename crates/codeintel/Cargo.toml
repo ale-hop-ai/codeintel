@@ -22,6 +22,7 @@ regex.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+blake3.workspace = true
 tempfile.workspace = true
 
 # Wall clock over a pinned corpus, `docs/plan.md` M6. Not a CLI verb, and not in
