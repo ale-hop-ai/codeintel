@@ -41,9 +41,27 @@ fn root() -> PathBuf {
 
 /// Built here, not assumed: `cargo test --test eval_commands` does not build
 /// examples, and a plain `cargo test` that does is not a thing to depend on.
+///
+/// **Under a file lock, because `OnceLock` shares nothing across processes.**
+/// `nextest` runs every test in its own process, so each one reaches this and
+/// each one shells out to `cargo build`. Concurrently: one process's `cargo`
+/// returned success while the binary was not yet at the path the other
+/// computed, and the test failed with exit 127 — `No such file or directory` —
+/// four tests into the gate (#110, reproduced under load after six green runs
+/// on an idle host). The same misreading the gate-cost audit found in
+/// `documented_queries.rs`, where a per-process `OnceLock` was rebuilding the
+/// repository index once per test.
+///
+/// So the first process builds and the rest wait, and the path is checked
+/// rather than assumed: a future failure should say "built, but not where I
+/// looked" instead of 127.
 fn example() -> &'static Path {
     static BIN: OnceLock<PathBuf> = OnceLock::new();
     BIN.get_or_init(|| {
+        let home = Path::new(env!("CARGO_TARGET_TMPDIR")).join("eval-commands");
+        std::fs::create_dir_all(&home).expect("a scratch directory");
+        let lock = std::fs::File::create(home.join("build.lock")).expect("a lock file");
+        lock.lock().expect("takes the lock");
         let built = Command::new(env!("CARGO"))
             .args(["build", "-q", "-p", "codeintel", "--example", "eval"])
             .current_dir(root())
@@ -51,11 +69,19 @@ fn example() -> &'static Path {
             .expect("cargo runs");
         assert!(built.success(), "cargo build --example eval failed");
         let exe = std::env::current_exe().expect("test binary path");
-        exe.parent()
+        let path = exe
+            .parent()
             .and_then(Path::parent)
             .expect("target/<profile>/deps")
             .join("examples")
-            .join(format!("eval{}", std::env::consts::EXE_SUFFIX))
+            .join(format!("eval{}", std::env::consts::EXE_SUFFIX));
+        assert!(
+            path.exists(),
+            "cargo reported success but {} is not there; the computed path or \
+             the build's output directory has moved",
+            path.display()
+        );
+        path
     })
 }
 
