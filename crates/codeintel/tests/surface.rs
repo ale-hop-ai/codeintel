@@ -599,7 +599,7 @@ fn the_mcp_answer_carries_the_status_taxonomy() {
     // must stay distinguishable from every failure (invariant 6).
     let dir = tree();
     run(dir.path(), &["index", "."]);
-    let out = rpc(
+    let out = rpc_structured(
         dir.path(),
         &[
             serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
@@ -620,8 +620,9 @@ fn the_mcp_answer_carries_the_status_taxonomy() {
     let rows = &out[0]["result"];
     assert_eq!(rows["isError"], false);
     assert_eq!(rows["structuredContent"]["status"], "ok");
-    let text = rows["content"][0]["text"].as_str().expect("text");
-    assert!(text.contains("status=ok"), "{text}");
+    // One body: a client that takes `structuredContent` gets nothing in
+    // `content`.
+    assert_eq!(rows["content"], serde_json::json!([]), "{rows}");
 
     // `ok` and empty, with a hint saying which literal matched nothing.
     let empty = &out[1]["result"];
@@ -671,9 +672,24 @@ fn the_mcp_schema_call_works_with_no_index() {
         .expect("text");
     assert!(text.contains("innermost_at"), "{text}");
     assert!(text.contains("THERE IS NO INDEX HERE"), "{text}");
-    // The status is structural, not only a sentence in the text (#52), and the
-    // call is still no error: the catalog was delivered.
+    // The call is still no error: the catalog was delivered. And it was
+    // delivered in `content` only — a client that declared nothing gets the
+    // field every client reads.
     let result = &out[0]["result"];
+    assert_eq!(result["isError"], false, "{result}");
+    assert!(result.get("structuredContent").is_none(), "{result}");
+
+    // The status is structural for a client that takes `structuredContent`
+    // (#52), and the text is not sent a second time beside it.
+    let structured = rpc_structured(
+        dir.path(),
+        &[
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+            "name":"code_query","arguments":{"schema":true}}}),
+        ],
+    );
+    let result = &structured[0]["result"];
+    assert_eq!(result["content"], serde_json::json!([]), "{result}");
     assert_eq!(
         result["structuredContent"]["status"], "no-index",
         "{result}"
@@ -684,10 +700,33 @@ fn the_mcp_schema_call_works_with_no_index() {
             .is_some_and(|h| h.starts_with("no index for") && h.contains("codeintel index .")),
         "{result}"
     );
+    assert_eq!(
+        result["structuredContent"]["text"].as_str(),
+        Some(text),
+        "{result}"
+    );
     assert_eq!(result["isError"], false, "{result}");
 
     // Both modes at once names the two rather than silently picking one.
     assert!(out[1]["error"]["message"].is_string(), "{:?}", out[1]);
+}
+
+/// The `initialize` a client sends, declaring the revision it speaks.
+fn initialize(version: &str) -> serde_json::Value {
+    serde_json::json!({"jsonrpc":"2.0","id":0,"method":"initialize",
+        "params":{"protocolVersion":version,"capabilities":{},
+                  "clientInfo":{"name":"test","version":"0"}}})
+}
+
+/// [`rpc`] as a client that takes `structuredContent` (Claude Code): the
+/// `initialize` is sent and its response dropped, so `out[i]` answers
+/// `requests[i]`.
+fn rpc_structured(root: &Path, requests: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    let mut all = vec![initialize("2025-06-18")];
+    all.extend(requests.iter().cloned());
+    let mut out = rpc(root, &all);
+    out.remove(0);
+    out
 }
 
 /// Raw bytes in, the responses out — for lines no `serde_json::Value` can be.
@@ -799,7 +838,7 @@ fn an_mcp_error_result_still_carries_a_status() {
     // The promise is that a consumer never parses prose to find the status.
     // The error paths are exactly where it would otherwise have to.
     let dir = tempfile::tempdir().expect("tempdir");
-    let out = rpc(
+    let out = rpc_structured(
         dir.path(),
         &[
             serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
@@ -877,63 +916,46 @@ fn escaping_tree(rows: usize) -> tempfile::TempDir {
 
 /// Invariant 9 on the MCP wire: the result object, not the printed text, is
 /// what `max_result_bytes` bounds. Measured on the text alone, a capped answer
-/// went out several times over the budget in both formats (#49). Since
-/// `structuredContent` was made self-sufficient (`specs/05-surface.md` §
-/// MCP — a client that reads only `content` or only `structuredContent` must
-/// see the same answer), the cap has to hold with both fields carrying rows.
+/// went out several times over the budget (#49). The cap holds for both bodies:
+/// the text in `content` for a client that declared nothing, the JSON in
+/// `structuredContent` for one that takes it.
 #[test]
 fn an_mcp_result_fits_max_result_bytes_as_sent() {
     let dir = escaping_tree(2500);
     run(dir.path(), &["index", "."]);
     let budget = datalog::Limits::default().max_result_bytes;
-    let call = |id: u64, format: &str| {
+    let call = |id: u64| {
         serde_json::json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{
             "name":"code_query",
-            "arguments":{"query":"?- def_doc(S, D).","limit":5000,"format":format}}})
+            "arguments":{"query":"?- def_doc(S, D).","limit":5000}}})
     };
-    let out = rpc(dir.path(), &[call(1, "text"), call(2, "json")]);
-    assert_eq!(out.len(), 2, "{out:?}");
+    let text_out = rpc(dir.path(), &[call(1)]);
+    let json_out = rpc_structured(dir.path(), &[call(1)]);
 
-    for response in &out {
-        let result = &response["result"];
-        let sent = result.to_string().len();
+    for response in text_out.iter().chain(&json_out) {
+        let sent = response["result"].to_string().len();
         assert!(sent <= budget, "{sent} bytes sent against {budget}");
-        let structured = &result["structuredContent"];
-        assert_eq!(structured["status"], "truncated", "{structured}");
-        assert_eq!(structured["truncated"], true);
-        assert_eq!(structured["cap"], "max_result_bytes");
-        // A client reading only `structuredContent` (Claude Code drops
-        // `content` whenever `structuredContent` is present — confirmed
-        // against `anthropics/claude-code#55677`) still gets rows, not a
-        // bare status.
-        let kept = structured["rows"].as_array().map_or(0, Vec::len);
-        assert!(
-            (10..2500).contains(&kept),
-            "{kept} rows in structuredContent"
-        );
-        assert_eq!(structured["display"].as_array().map(Vec::len), Some(kept));
     }
 
-    // A cut keeps a prefix, not nothing.
-    let text = out[0]["result"]["content"][0]["text"]
-        .as_str()
-        .expect("text");
-    assert!(text.lines().count() > 10, "{text}");
-    let body: serde_json::Value = serde_json::from_str(
-        out[1]["result"]["content"][0]["text"]
-            .as_str()
-            .expect("text"),
-    )
-    .expect("the json body parses");
-    let kept = body["rows"].as_array().map_or(0, Vec::len);
+    let structured = &json_out[0]["result"]["structuredContent"];
+    assert_eq!(structured["status"], "truncated", "{structured}");
+    assert_eq!(structured["truncated"], true);
+    assert_eq!(structured["cap"], "max_result_bytes");
+    // A cut keeps a prefix, not nothing, and one notation of it.
+    let kept = structured["rows"].as_array().map_or(0, Vec::len);
     assert!((10..2500).contains(&kept), "{kept} rows");
-    assert_eq!(body["display"].as_array().map(Vec::len), Some(kept));
-    // `content` and `structuredContent` agree on exactly which rows survived
-    // the cut — they are the same document, not two independent cuts.
-    assert_eq!(
-        out[1]["result"]["structuredContent"]["rows"], body["rows"],
-        "content and structuredContent must cut to the same rows"
+    assert!(structured.get("display").is_none(), "{structured}");
+    assert!(
+        json_out[0]["result"]["content"]
+            .as_array()
+            .is_some_and(Vec::is_empty)
     );
+
+    let result = &text_out[0]["result"];
+    assert!(result.get("structuredContent").is_none(), "{result}");
+    let text = result["content"][0]["text"].as_str().expect("text");
+    assert!(text.lines().count() > 10, "{text}");
+    assert!(text.contains("status=truncated"), "{text}");
 }
 
 /// One answer, one text: a ground goal that holds prints `true` in an MCP
@@ -963,46 +985,123 @@ fn an_mcp_ground_goal_prints_true_like_the_cli() {
     assert!(text(1).starts_with("status=ok\n"), "{}", text(1));
 }
 
-/// The catalog reaches a client whichever field it reads. `content` carries it
-/// in the format asked for; `structuredContent` carries the same catalog as
-/// JSON always, so a client that only reads `structuredContent` (Claude Code
-/// drops `content` whenever `structuredContent` is present — confirmed
-/// against `anthropics/claude-code#55677`) still gets the whole thing, not a
-/// bare `{status, hint}` (#51, revised).
+/// The catalog reaches a client in the one field it reads, and only that one.
+/// `content` for a client that declared nothing; `structuredContent` for one
+/// that takes it, carrying the catalog text once rather than a second time as
+/// rules, relations and counts (`specs/05-surface.md` § The consumer).
 #[test]
-fn the_mcp_schema_reaches_content_and_structured_content_alike() {
+fn the_mcp_schema_reaches_the_field_the_client_reads_once() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let call = |id: u64, format: &str| {
-        serde_json::json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{
-            "name":"code_query","arguments":{"schema":true,"format":format}}})
-    };
-    let out = rpc(dir.path(), &[call(1, "text"), call(2, "json")]);
-    assert_eq!(out.len(), 2, "{out:?}");
-    for response in &out {
-        let structured = &response["result"]["structuredContent"];
-        // No index in this tempdir: the status says so (#52).
-        assert_eq!(structured["status"], "no-index", "{structured}");
-        assert!(structured["relations"].is_array(), "{structured}");
-        assert!(
-            structured["text"]
-                .as_str()
-                .is_some_and(|t| t.contains("innermost_at"))
-        );
-    }
-    let text = out[0]["result"]["content"][0]["text"]
-        .as_str()
-        .expect("text");
+    let call = serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+        "name":"code_query","arguments":{"schema":true}}});
+    let plain = rpc(dir.path(), std::slice::from_ref(&call));
+    let structured = rpc_structured(dir.path(), std::slice::from_ref(&call));
+
+    let result = &plain[0]["result"];
+    assert!(result.get("structuredContent").is_none(), "{result}");
+    let text = result["content"][0]["text"].as_str().expect("text");
     assert!(text.contains("innermost_at"), "{text}");
-    let doc: serde_json::Value = serde_json::from_str(
-        out[1]["result"]["content"][0]["text"]
-            .as_str()
-            .expect("text"),
-    )
-    .expect("the json catalog parses");
-    assert!(doc["relations"].is_array(), "{doc}");
-    assert_eq!(doc["text"].as_str(), Some(text));
-    // content (json format) and structuredContent are the same document.
-    assert_eq!(out[1]["result"]["structuredContent"], doc);
+
+    let result = &structured[0]["result"];
+    assert_eq!(result["content"], serde_json::json!([]), "{result}");
+    assert_eq!(result["structuredContent"]["status"], "no-index");
+    assert_eq!(result["structuredContent"]["text"].as_str(), Some(text));
+    assert!(
+        result["structuredContent"].get("relations").is_none(),
+        "the catalog was sent twice: {result}"
+    );
+}
+
+/// Which body a client gets is decided at `initialize`, and a client that
+/// declared nothing, or something older than `structuredContent`, gets
+/// `content`.
+#[test]
+fn the_body_follows_what_the_client_declared_at_initialize() {
+    let dir = tree();
+    run(dir.path(), &["index", "."]);
+    let call = serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+        "name":"code_query","arguments":{"query":"?- def(S, F, \"function\", N)."}}});
+    let bare_init = serde_json::json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{}});
+    let non_date = initialize("latest");
+    let sessions = [
+        ("no initialize", vec![call.clone()], false),
+        ("empty params", vec![bare_init, call.clone()], false),
+        (
+            "2024-11-05",
+            vec![initialize("2024-11-05"), call.clone()],
+            false,
+        ),
+        (
+            "2025-03-26",
+            vec![initialize("2025-03-26"), call.clone()],
+            false,
+        ),
+        ("not a date", vec![non_date, call.clone()], false),
+        (
+            "2025-06-18",
+            vec![initialize("2025-06-18"), call.clone()],
+            true,
+        ),
+        (
+            "2025-11-25",
+            vec![initialize("2025-11-25"), call.clone()],
+            true,
+        ),
+    ];
+    for (name, requests, structured) in sessions {
+        let out = rpc(dir.path(), &requests);
+        let result = &out[out.len() - 1]["result"];
+        assert_eq!(
+            result.get("structuredContent").is_some(),
+            structured,
+            "{name}: {result}"
+        );
+        let content = result["content"].as_array().expect("content is required");
+        assert_eq!(content.is_empty(), structured, "{name}: {result}");
+        if requests.len() == 2 {
+            let negotiated = out[0]["result"]["protocolVersion"].as_str();
+            let expected = if structured {
+                "2025-06-18"
+            } else {
+                "2024-11-05"
+            };
+            assert_eq!(negotiated, Some(expected), "{name}");
+        }
+    }
+}
+
+/// `raw` selects the one notation of `rows`, in the text body and the JSON one,
+/// and `format` is no longer an argument: the client decided.
+#[test]
+fn raw_selects_the_one_notation_and_format_is_gone() {
+    let dir = tree();
+    run(dir.path(), &["index", "."]);
+    let call = |raw: bool| {
+        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+            "name":"code_query",
+            "arguments":{"query":"?- def(S, F, \"function\", N).","raw":raw}}})
+    };
+    let shown = rpc_structured(dir.path(), &[call(false)]);
+    let raw = rpc_structured(dir.path(), &[call(true)]);
+    let (shown, raw) = (
+        &shown[0]["result"]["structuredContent"],
+        &raw[0]["result"]["structuredContent"],
+    );
+    assert_ne!(shown["rows"], raw["rows"], "raw changed nothing");
+    assert_eq!(
+        shown["rows"].as_array().map(Vec::len),
+        raw["rows"].as_array().map(Vec::len)
+    );
+
+    let refused = rpc(
+        dir.path(),
+        &[
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+            "name":"code_query","arguments":{"query":"?- file(F, L).","format":"json"}}}),
+        ],
+    );
+    let message = refused[0]["error"]["message"].as_str().expect("an error");
+    assert!(message.contains("no argument `format`"), "{message}");
 }
 
 /// The same on the CLI's JSON: both notations of every row, escaped, are what
@@ -1181,7 +1280,7 @@ fn an_argument_the_tool_does_not_have_is_refused() {
             serde_json::json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{
                 "name":"code_query",
                 "arguments":{"query":"?- def(S, F, \"function\", N).",
-                             "limit": 2, "format": "json", "raw": true}}}),
+                             "limit": 2, "raw": true}}}),
         ],
     );
 
@@ -1196,7 +1295,13 @@ fn an_argument_the_tool_does_not_have_is_refused() {
     assert!(message.contains("no argument `bogus`"), "{message}");
 
     assert!(out[2]["error"].is_null(), "{}", out[2]);
-    assert_eq!(out[2]["result"]["structuredContent"]["status"], "truncated");
+    assert!(
+        out[2]["result"]["content"][0]["text"]
+            .as_str()
+            .is_some_and(|t| t.contains("status=truncated")),
+        "{}",
+        out[2]
+    );
 
     // And the declaration a validating client reads says the same thing.
     let tools = rpc(

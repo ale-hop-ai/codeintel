@@ -263,36 +263,42 @@ fn a_condition_and_an_empty_result_both_reach_the_hint() {
 }
 
 #[test]
-fn json_carries_the_raw_atoms_and_the_display_form() {
-    // A programmatic consumer must never have to parse the pretty form back
-    // apart (`specs/05-surface.md` § Symbol rendering).
+fn json_carries_one_notation_of_the_rows_chosen_by_raw() {
+    // One notation per answer (`specs/05-surface.md` § The consumer): the
+    // expanded form by default, the raw atoms under `--raw`, never both.
     let dir = tree();
     index(dir.path());
-    let out = run(
-        dir.path(),
-        &[
+    let query = |extra: &[&str]| {
+        let mut args = vec![
             "query",
             r#"?- def(S, F, "function", N)."#,
             "--format",
             "json",
-        ],
-    );
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("the answer is JSON");
-    let rows = json["rows"].as_array().expect("rows");
-    let display = json["display"].as_array().expect("display");
-    let columns = json["columns"].as_array().expect("columns").len();
-    assert_eq!(rows.len(), display.len());
-    assert!(!rows.is_empty());
-    assert_ne!(rows[0], display[0], "display is not expanded");
+        ];
+        args.extend_from_slice(extra);
+        let out = run(dir.path(), &args);
+        serde_json::from_slice::<serde_json::Value>(&out.stdout).expect("the answer is JSON")
+    };
+    let shown = query(&[]);
+    let raw = query(&["--raw"]);
+    assert!(shown.get("display").is_none() && raw.get("display").is_none());
 
-    // The two arrays are one answer in two notations. Rendering each
-    // separately and sorting both gives arrays whose `i`th rows are different
-    // tuples — and a consumer that shows `display[i]` then feeds `rows[i]`
-    // into its next query binds the wrong symbol. `?- def(S, F, "function", N)`
-    // returns S, F and N, so the display of S must start with that row's own N.
-    for (raw, shown) in rows.iter().zip(display) {
-        let raw = raw.as_array().expect("a row is an array of values");
+    let (shown_rows, raw_rows) = (
+        shown["rows"].as_array().expect("rows"),
+        raw["rows"].as_array().expect("rows"),
+    );
+    let columns = shown["columns"].as_array().expect("columns").len();
+    assert_eq!(shown_rows.len(), raw_rows.len());
+    assert!(!raw_rows.is_empty());
+    assert_ne!(shown_rows[0], raw_rows[0], "the default is not expanded");
+
+    // The two answers are one answer in two notations, row for row: the
+    // sort key is the rendered row whichever notation is sent, so the `i`th
+    // rows are the same tuple. `?- def(S, F, "function", N)` returns S, F and
+    // N, so the display of S must start with that row's own N.
+    for (shown, raw) in shown_rows.iter().zip(raw_rows) {
         let shown = shown.as_array().expect("a row is an array of values");
+        let raw = raw.as_array().expect("a row is an array of values");
         assert_eq!(raw.len(), columns, "one value per column");
         assert_eq!(shown.len(), columns, "one value per column");
 

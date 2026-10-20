@@ -18,9 +18,11 @@ pub enum Wire {
     Text,
     /// `codeintel query --format json`: one JSON document on stdout.
     Json,
-    /// An MCP `tools/call` result in the default text format.
+    /// An MCP `tools/call` result for a client that reads `content`: the text
+    /// body, and nothing in `structuredContent`.
     McpText,
-    /// An MCP `tools/call` result with `format: "json"`.
+    /// An MCP `tools/call` result for a client that reads `structuredContent`:
+    /// the JSON body, and nothing in `content`.
     McpJson,
 }
 
@@ -33,7 +35,7 @@ impl Wire {
     pub fn bytes(self, answer: &Answer, raw: bool) -> usize {
         match self {
             Self::Text => body(answer, raw).len(),
-            Self::Json => json(answer).to_string().len() + 1,
+            Self::Json => json(answer, raw).to_string().len() + 1,
             Self::McpText | Self::McpJson => tool_result(answer, self == Self::McpJson, raw)
                 .to_string()
                 .len(),
@@ -42,27 +44,23 @@ impl Wire {
 }
 
 /// The full JSON answer, in the shape `specs/05-surface.md` § Response contract
-/// specifies: `status`, `columns`, the rows in both notations, `truncated`,
-/// `cap`, `hint`, `stats`. This is what `content` carries in JSON format, and
-/// what `structuredContent` carries always — the two are the same document
-/// (`specs/05-surface.md` § MCP).
+/// specifies: `status`, `columns`, `rows`, `truncated`, `cap`, `hint`, `stats`.
+/// `rows` is one notation, chosen by `raw`: the expanded form by default, the
+/// raw atoms under `raw` (`specs/05-surface.md` § The consumer).
 #[must_use]
-pub fn json(answer: &Answer) -> serde_json::Value {
+pub fn json(answer: &Answer, raw: bool) -> serde_json::Value {
     let mut map = serde_json::Map::new();
     map.insert("status".into(), answer.status.as_str().into());
     map.insert("columns".into(), serde_json::json!(answer.columns));
-    // The raw atoms, always: a programmatic consumer must never have to parse
-    // the pretty form back apart (`specs/05-surface.md` § Symbol rendering).
-    // `display` is the same rows, in the same order, with symbols expanded —
-    // so `rows[i]` and `display[i]` are one tuple in two notations.
-    //
     // Values are carried structurally rather than tab-joined and split back
     // apart: a doc comment containing a tab would otherwise arrive as more
     // values than there are columns.
-    let raw: Vec<&Vec<String>> = answer.rows.iter().map(|r| &r.raw).collect();
-    let display: Vec<&Vec<String>> = answer.rows.iter().map(|r| &r.display).collect();
-    map.insert("rows".into(), serde_json::json!(raw));
-    map.insert("display".into(), serde_json::json!(display));
+    let rows: Vec<&Vec<String>> = answer
+        .rows
+        .iter()
+        .map(|r| if raw { &r.raw } else { &r.display })
+        .collect();
+    map.insert("rows".into(), serde_json::json!(rows));
     map.insert("truncated".into(), answer.truncated.into());
     // The wire form of the cap is its limit's name, unchanged by `Cap`
     // becoming an enum: a consumer reads it to look the number up in
@@ -222,23 +220,28 @@ fn counted(
     )
 }
 
-/// One `code_query` result.
+/// One `code_query` result: **one body**, in the field the client reads
+/// (`specs/05-surface.md` § The consumer).
 ///
-/// `content` carries the answer in the notation asked for: text, or the JSON
-/// document. `structuredContent` carries the same JSON document always,
-/// regardless of what `content`'s format is — not a smaller envelope. A
-/// client that reads only one of the two fields still gets the whole answer
-/// (`specs/05-surface.md` § MCP).
+/// `structured` is what the client declared at `initialize`. A client that
+/// takes `structuredContent` gets the JSON document there and an empty
+/// `content` (the field is required by the result schema, so it is present and
+/// carries nothing); any other client gets the text in `content` and no
+/// `structuredContent`. Sending both put every row on the wire two or three
+/// times.
 #[must_use]
-pub fn tool_result(answer: &Answer, json_format: bool, raw: bool) -> serde_json::Value {
-    let body = if json_format {
-        json(answer).to_string()
+pub fn tool_result(answer: &Answer, structured: bool, raw: bool) -> serde_json::Value {
+    let is_error = !answer.status.answered();
+    if structured {
+        serde_json::json!({
+            "content": [],
+            "structuredContent": json(answer, raw),
+            "isError": is_error,
+        })
     } else {
-        text(answer, raw)
-    };
-    serde_json::json!({
-        "content": [{ "type": "text", "text": body }],
-        "structuredContent": json(answer),
-        "isError": !answer.status.answered(),
-    })
+        serde_json::json!({
+            "content": [{ "type": "text", "text": text(answer, raw) }],
+            "isError": is_error,
+        })
+    }
 }
