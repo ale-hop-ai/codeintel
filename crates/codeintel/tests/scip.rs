@@ -1033,8 +1033,11 @@ fn a_go_index_from_a_subdirectory_reports_the_documents_it_carried() {
     let dir = tempfile::tempdir().expect("tempdir");
     copy(&go, &dir.path().join("svc"));
     drop(std::fs::remove_file(dir.path().join("svc/expected.facts")));
-    std::fs::rename(dir.path().join("svc/index.scip"), dir.path().join("index.scip"))
-        .expect("the index moves to the top");
+    std::fs::rename(
+        dir.path().join("svc/index.scip"),
+        dir.path().join("index.scip"),
+    )
+    .expect("the index moves to the top");
     backdate(dir.path(), SOURCE_MTIME);
     set_mtime(&dir.path().join("index.scip"), SOURCE_MTIME + 60);
 
