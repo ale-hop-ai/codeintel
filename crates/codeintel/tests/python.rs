@@ -18,6 +18,19 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+/// An answer that is JSON. A process that printed nothing fails `from_slice`
+/// with "EOF while parsing", which says nothing about why it printed nothing.
+#[track_caller]
+fn stdout_json(out: &Output) -> serde_json::Value {
+    let why = format!(
+        "exited {:?} and printed {} byte(s) of stdout, not JSON. stderr: {}",
+        out.status.code(),
+        out.stdout.len(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout).expect(&why)
+}
+
 fn binary() -> &'static str {
     env!("CARGO_BIN_EXE_codeintel")
 }
@@ -417,8 +430,7 @@ fn an_undeclared_column_after_a_non_ascii_character_is_skipped_not_misplaced() {
 
     // The count survives into the bug-report artifact, not only the summary.
     let status = run(dir.path(), &["status", "--format", "json"]);
-    let json: serde_json::Value =
-        serde_json::from_slice(&status.stdout).expect("status --format json is JSON");
+    let json: serde_json::Value = stdout_json(&status);
     let ambiguous: u64 = json["scip"]
         .as_array()
         .expect("scip inputs")

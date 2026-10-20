@@ -11,6 +11,19 @@
 use std::path::Path;
 use std::process::{Command, Output};
 
+/// An answer that is JSON. A process that printed nothing fails `from_slice`
+/// with "EOF while parsing", which says nothing about why it printed nothing.
+#[track_caller]
+fn stdout_json(out: &Output) -> serde_json::Value {
+    let why = format!(
+        "exited {:?} and printed {} byte(s) of stdout, not JSON. stderr: {}",
+        out.status.code(),
+        out.stdout.len(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout).expect(&why)
+}
+
 fn binary() -> &'static str {
     env!("CARGO_BIN_EXE_codeintel")
 }
@@ -194,7 +207,7 @@ fn a_pinned_index_dir_turns_discovery_off() {
         .env("CODEINTEL_INDEX_DIR", &pinned)
         .output()
         .expect("the binary runs");
-    let answer: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    let answer: serde_json::Value = stdout_json(&out);
     assert_eq!(answer["status"], "no-index", "{answer}");
     assert!(answer["root"].is_null(), "{answer}");
     let hint = answer["hint"].as_str().expect("a hint");
@@ -249,7 +262,7 @@ fn status_reports_the_neighbour_but_never_answers_for_it() {
 
     let out = sandbox.run(sandbox.root(), &["status", "--format", "json"]);
     assert!(out.status.success(), "{:?}", out.status);
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    let json: serde_json::Value = stdout_json(&out);
     // `status` is a statement about the directory on its command line
     // (`specs/05-surface.md` § The nearest index).
     assert_eq!(json["status"], "no-index", "{json}");

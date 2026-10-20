@@ -12,6 +12,19 @@ use std::process::{Command, Output};
 use codeintel::census::{Census, LangCount};
 use codeintel::schema;
 
+/// An answer that is JSON. A process that printed nothing fails `from_slice`
+/// with "EOF while parsing", which says nothing about why it printed nothing.
+#[track_caller]
+fn stdout_json(out: &Output) -> serde_json::Value {
+    let why = format!(
+        "exited {:?} and printed {} byte(s) of stdout, not JSON. stderr: {}",
+        out.status.code(),
+        out.stdout.len(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout).expect(&why)
+}
+
 fn binary() -> &'static str {
     env!("CARGO_BIN_EXE_codeintel")
 }
@@ -296,7 +309,7 @@ fn schema_with_no_index_says_so_rather_than_reading_as_an_inventory() {
 
     let out = run(dir.path(), &["schema", "--format", "json"]);
     assert!(out.status.success(), "{:?}", out.status);
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    let json: serde_json::Value = stdout_json(&out);
     assert_eq!(json["status"], "no-index", "{json}");
     assert!(json["hint"].is_string(), "{json}");
 }
@@ -1133,7 +1146,7 @@ fn query_json_fits_max_result_bytes_with_escaping_counted() {
         "{} bytes on stdout against {budget}",
         out.stdout.len()
     );
-    let body: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    let body: serde_json::Value = stdout_json(&out);
     assert_eq!(body["truncated"], true, "{body}");
     assert_eq!(body["cap"], "max_result_bytes");
     let kept = body["rows"].as_array().map_or(0, Vec::len);
@@ -1256,7 +1269,7 @@ fn status_reports_a_store_that_will_not_load_as_corrupt() {
 
     let out = run(dir.path(), &["status", "--format", "json"]);
     assert_eq!(out.status.code(), Some(2));
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    let json: serde_json::Value = stdout_json(&out);
     assert_eq!(json["status"], "corrupt", "{json}");
 }
 

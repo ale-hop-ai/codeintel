@@ -13,6 +13,19 @@ use std::process::{Command, Output};
 use datalog::atom::is_int;
 use facts::{RELATIONS, Store};
 
+/// An answer that is JSON. A process that printed nothing fails `from_slice`
+/// with "EOF while parsing", which says nothing about why it printed nothing.
+#[track_caller]
+fn stdout_json(out: &Output) -> serde_json::Value {
+    let why = format!(
+        "exited {:?} and printed {} byte(s) of stdout, not JSON. stderr: {}",
+        out.status.code(),
+        out.stdout.len(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout).expect(&why)
+}
+
 fn binary() -> &'static str {
     env!("CARGO_BIN_EXE_codeintel")
 }
@@ -317,7 +330,7 @@ fn json_carries_one_notation_of_the_rows_chosen_by_raw() {
         ];
         args.extend_from_slice(extra);
         let out = run(dir.path(), &args);
-        serde_json::from_slice::<serde_json::Value>(&out.stdout).expect("the answer is JSON")
+        stdout_json(&out)
     };
     let shown = query(&[]);
     let raw = query(&["--raw"]);
@@ -526,8 +539,7 @@ fn json_carries_the_response_contract() {
         dir.path(),
         &["query", r#"?- def(S, F, "method", N)."#, "--format", "json"],
     );
-    let body: serde_json::Value =
-        serde_json::from_slice(&out.stdout).expect("stdout is one JSON object");
+    let body: serde_json::Value = stdout_json(&out);
     assert_eq!(body.get("status").and_then(|v| v.as_str()), Some("ok"));
     assert_eq!(
         body.get("truncated").and_then(serde_json::Value::as_bool),
@@ -637,7 +649,7 @@ fn truncation_is_reported_with_the_cap_that_fired() {
             "json",
         ],
     );
-    let body: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    let body: serde_json::Value = stdout_json(&out);
     assert_eq!(
         body.get("status").and_then(|v| v.as_str()),
         Some("truncated")
@@ -680,7 +692,7 @@ fn when_both_caps_fire_the_one_that_cut_the_rows_is_reported() {
             "json",
         ],
     );
-    let body: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    let body: serde_json::Value = stdout_json(&out);
     assert_eq!(
         body.get("status").and_then(|v| v.as_str()),
         Some("truncated")
@@ -903,7 +915,7 @@ fn a_ground_goal_says_true_rather_than_printing_nothing_visible() {
             "json",
         ],
     );
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    let json: serde_json::Value = stdout_json(&out);
     assert_eq!(json["rows"].as_array().map(Vec::len), Some(1));
     assert_eq!(json["columns"].as_array().map(Vec::len), Some(0));
 }
@@ -1283,7 +1295,7 @@ fn no_timing_travels_in_the_answer() {
             "json",
         ],
     );
-    let body: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    let body: serde_json::Value = stdout_json(&out);
     let stats = body.get("stats").and_then(serde_json::Value::as_object);
     let stats = stats.expect("stats is an object");
     assert!(
@@ -1328,7 +1340,7 @@ fn a_rule_file_that_widens_a_stdlib_predicate_is_never_silent() {
             "json",
         ],
     );
-    let base: serde_json::Value = serde_json::from_slice(&base.stdout).expect("JSON");
+    let base: serde_json::Value = stdout_json(&base);
     let before = base["rows"].as_array().expect("rows").len();
     assert!(
         base["stats"]["widened"]
@@ -1349,7 +1361,7 @@ fn a_rule_file_that_widens_a_stdlib_predicate_is_never_silent() {
             &collides.to_string_lossy(),
         ],
     );
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    let json: serde_json::Value = stdout_json(&out);
     let after = json["rows"].as_array().expect("rows").len();
     assert!(
         after > before,
@@ -1393,7 +1405,7 @@ fn a_rule_file_that_widens_a_stdlib_predicate_is_never_silent() {
             &clean.to_string_lossy(),
         ],
     );
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    let json: serde_json::Value = stdout_json(&out);
     assert!(
         json["stats"]["widened"]
             .as_array()
@@ -1448,7 +1460,7 @@ fn a_rule_file_that_widens_an_earlier_rule_file_is_reported() {
             &second.to_string_lossy(),
         ],
     );
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    let json: serde_json::Value = stdout_json(&out);
     let widened = json["stats"]["widened"].as_array().expect("widened");
     assert_eq!(
         widened.len(),
@@ -1487,7 +1499,7 @@ fn an_aborted_query_reports_what_it_measured_not_defaults() {
             "json",
         ],
     );
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    let json: serde_json::Value = stdout_json(&out);
     let status = json["status"].as_str().unwrap_or_default();
     assert!(
         matches!(status, "budget-exceeded" | "timeout"),

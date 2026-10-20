@@ -9,6 +9,19 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{Duration, SystemTime};
 
+/// An answer that is JSON. A process that printed nothing fails `from_slice`
+/// with "EOF while parsing", which says nothing about why it printed nothing.
+#[track_caller]
+fn stdout_json(out: &Output) -> serde_json::Value {
+    let why = format!(
+        "exited {:?} and printed {} byte(s) of stdout, not JSON. stderr: {}",
+        out.status.code(),
+        out.stdout.len(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout).expect(&why)
+}
+
 fn binary() -> &'static str {
     env!("CARGO_BIN_EXE_codeintel")
 }
@@ -212,7 +225,7 @@ fn index_with(root: &Path, scip: &[&str]) -> String {
 
 fn status_json(root: &Path) -> serde_json::Value {
     let out = run(root, &["status", "--format", "json"]);
-    serde_json::from_slice(&out.stdout).expect("status is JSON")
+    stdout_json(&out)
 }
 
 /// Drop a second SCIP input into the tree, stamped like `index.scip`.
@@ -464,7 +477,7 @@ fn a_truncated_answer_that_needs_scip_still_says_no_scip() {
             "json",
         ],
     );
-    let body: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    let body: serde_json::Value = stdout_json(&out);
     assert_eq!(body["status"], "no-scip", "{body}");
     assert_eq!(body["truncated"], true, "{body}");
     assert_eq!(body["cap"], "max_result_rows", "{body}");
