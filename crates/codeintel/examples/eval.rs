@@ -6,9 +6,17 @@
 //! not one of them.
 //!
 //! ```sh
-//! cargo run -p codeintel --example eval -- '?- def(S, F, "function", N).'
 //! cargo run -p codeintel --example eval -- --facts tests/fixtures/eval/bank.dl '?- file(F, L).'
 //! cargo run -p codeintel --example eval -- --facts tests/fixtures/eval/bank.dl --schema
+//! ```
+//!
+//! Historical, and it does not run: with no `--facts` the example embeds the
+//! frozen M1 fixture, which has not loaded since schema 2 (#87). The command is
+//! kept because `docs/agent-eval.md` records it, and it fails with exit 3 and a
+//! message that says so.
+//!
+//! ```sh
+//! cargo run -p codeintel --example eval -- '?- def(S, F, "function", N).'
 //! ```
 //!
 //! `--schema` prints the page `codeintel schema` would print for an index
@@ -19,11 +27,8 @@
 //!
 //! `--facts` exists because the eval has more than one fact set: `facts.dl` is
 //! frozen with the M1 bank, and `bank.dl` carries the working and held-out
-//! ones. The default is still the embedded M1 fixture, but that fixture has not
-//! loaded since schema 2 made `exported` a rule (#87), so the default-fixture
-//! commands recorded in `docs/agent-eval.md` do NOT run. `tests/eval_commands.rs`
-//! executes every command above and every `.dl` fixture, and holds the dead one
-//! to its recorded failure until #87 is decided.
+//! ones. `tests/eval_commands.rs` executes every command above and every `.dl`
+//! fixture, and holds the frozen one to its recorded failure (#87).
 
 use std::process::ExitCode;
 
@@ -33,6 +38,9 @@ use codeintel::{Regexes, STDLIB, load_facts, render_row};
 use datalog::{Engine, Limits, Strings};
 
 const FACTS: &str = include_str!("../../../tests/fixtures/eval/facts.dl");
+
+const FROZEN: &str = "the default fixture is the frozen M1 fixture, unloadable since schema 2 \
+(#87): pass --facts tests/fixtures/eval/bank.dl";
 
 const USAGE: &str = "usage: eval [--facts <path>] ('<datalog query>' | --schema)";
 
@@ -62,6 +70,7 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     }
 
+    let frozen = facts_path.is_none();
     let read;
     let facts = match facts_path {
         None => FACTS,
@@ -80,10 +89,16 @@ fn main() -> ExitCode {
     let mut engine = Engine::new(Box::new(Strings::new())).with_regexes(Box::new(Regexes::new()));
     if let Err(diagnostic) = load_facts(&mut engine, facts) {
         eprintln!("fixture: {diagnostic}");
+        if frozen {
+            eprintln!("{FROZEN}");
+        }
         return ExitCode::from(3);
     }
     if let Err(diagnostic) = engine.load_rules(STDLIB) {
         eprintln!("stdlib: {diagnostic}");
+        if frozen {
+            eprintln!("{FROZEN}");
+        }
         return ExitCode::from(3);
     }
 
