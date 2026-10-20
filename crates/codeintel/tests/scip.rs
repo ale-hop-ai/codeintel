@@ -1023,6 +1023,52 @@ fn scip_root_rebases_and_the_facts_land() {
     );
 }
 
+/// #117. `scip-go` declares no position encoding, so every document needs its
+/// source to be transcoded; under a wrong root the source is not at the path and
+/// every document is refused *before* it is counted. The count read `0 of 0`,
+/// so no summary line, no `status`, and no query answer reported a degradation.
+#[test]
+fn a_go_index_from_a_subdirectory_reports_the_documents_it_carried() {
+    let go = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/go");
+    let dir = tempfile::tempdir().expect("tempdir");
+    copy(&go, &dir.path().join("svc"));
+    drop(std::fs::remove_file(dir.path().join("svc/expected.facts")));
+    std::fs::rename(dir.path().join("svc/index.scip"), dir.path().join("index.scip"))
+        .expect("the index moves to the top");
+    backdate(dir.path(), SOURCE_MTIME);
+    set_mtime(&dir.path().join("index.scip"), SOURCE_MTIME + 60);
+
+    let stderr = index(dir.path());
+    assert!(
+        stderr.contains("0 of 8 document(s) matched an indexed file"),
+        "the carried count is missing: {stderr}"
+    );
+    // The committed index carries one stray document under the Go build cache,
+    // which no root can re-base, so detection correctly suggests nothing.
+    assert!(!stderr.contains("re-run with"), "{stderr}");
+
+    let out = run(dir.path(), &["status", "."]);
+    let status = String::from_utf8_lossy(&out.stdout).to_string();
+    assert!(status.contains("0 of 8 document(s)"), "{status}");
+
+    let out = run(
+        dir.path(),
+        &["query", "?- calls_exact(A, B).", "--format", "json"],
+    );
+    let body = stdout_json(&out);
+    assert_eq!(body["status"], "no-scip", "{body}");
+    assert!(
+        body["hint"].as_str().is_some_and(|h| h.contains("0 of 8")),
+        "{body}"
+    );
+
+    // Declared, the root lands the documents it carried.
+    let out = run(dir.path(), &["index", ".", "--scip-root", "svc"]);
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "{stderr}");
+    assert!(!stderr.contains("0 of 8"), "{stderr}");
+}
+
 /// Two subtrees re-base every document equally well, so the evidence picks
 /// nothing and the report must say that rather than choose
 /// (`specs/02-extraction.md` § Detection suggests; it never re-bases).
