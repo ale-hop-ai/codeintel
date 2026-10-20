@@ -136,10 +136,12 @@ impl fmt::Display for Schema<'_> {
 
         f.write_str(
             "\nBUILTINS  = != < <= > >= + - * / between/3 match/2 prefix/2 suffix/2\n            \
-             contains/2 count{X:goal}\n\n\
+             contains/2 N = count{X:goal}\n\n\
              NOTES\n  \
              lines 1-based, columns 0-based UTF-8 bytes. < and > are integers only.\n  \
              an integer and its string differ: Line = \"42\" never matches. line 0 = n/a.\n  \
+             count binds, it does not compare: `N = count{..}, N > 3`, never\n    \
+             `count{..} > 3`. It groups by every variable bound OUTSIDE it.\n  \
              a symbol column prints `Name path:line`, not the SymId; --raw prints it.\n  \
              Prov \"name\" is text matching: method calls x.f() are mostly MISSING.\n    \
              For precision use the _exact rules; `codeintel status` says if SCIP\n    \

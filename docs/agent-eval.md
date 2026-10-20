@@ -738,3 +738,43 @@ schema teaches, and a retry budget would measure the error message instead.
 Expected to recover up to four samples. It changes the schema page, so it is
 measured by re-running this bank and reporting both numbers — which is an
 experiment, not a re-roll, as long as the before number stays on this page.
+
+### The `count` fix, measured — 2026-10-20
+
+Both changes the run above called for, and the re-run that priced them.
+
+| | before | after |
+|---|---|---|
+| first-attempt | 210/225 (93%) | **216/225 (96%)** |
+| majority of 3 | 70/75 | **72/75** |
+| never passed (0x) | 2 | **0** |
+| rounds | 71, 71, 68 | 71, 70, **75** |
+| `schema_bytes` (fd) | 5,356 | 5,495 |
+| cost | $2.836 | $2.882 |
+
+**The aggregate failures are gone.** Q60 does not appear in the re-run's failure
+list at all, and Q26 recovered to 2/3 — its one remaining miss is an engine
+error, not the binding form. That was the whole prediction: four samples lost to
+a line of documentation that taught the builtin without teaching that it binds.
+
+**The price was 139 bytes of `schema_bytes`**, declared in advance under § 6's
+*A declared price*. Charged once per session; it bought back a class of question
+an agent could not previously write. No other cost metric moved —
+`answer_bytes_total` is unchanged at 38,985 and 93,905 — and no confirmation
+rate moved, which is the half of the gate that is not spendable.
+
+**Q20 is reconciled, not refreshed into agreement.** Its reference query is now
+`?- visibility(A, V), V != "public".`, which answers the question as worded
+rather than its first half. The bank guard caught the moved answer and refused
+to accept it silently, which is the first time that guard has fired on something
+real.
+
+Three of the four surviving failures are empty answers on Q14, Q19, Q34 and
+Q68 — the same shape as the old frozen bank's two failures: a signature read as
+something it is not. Q19 asks for `name_export`, a relation with three rows in
+the whole corpus. Whether a schema can teach a relation that rare is the next
+question, and it is not obviously yes.
+
+**This run is not comparable to the 85/90 frozen bank**, and the 93% above is
+kept rather than replaced: the before number stays on the page, which is the
+condition under which re-running is an experiment and not a re-roll.

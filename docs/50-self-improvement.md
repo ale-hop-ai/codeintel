@@ -265,12 +265,30 @@ measure memorization and the number would be worthless.
 ### The gate — automated, never self-assessed
 
 1. `provision apply tasks/ci.yml` green
-2. no scoreboard metric regresses
+2. no scoreboard metric regresses, **except a declared price** (below)
 3. at least one target metric improves
 4. the surface budget is unchanged — 5 CLI verbs, 1 MCP tool — unless the
    hypothesis says otherwise *and that was signed off before the work started*
 
 An agent reporting its own verdict is not a gate. The scoreboard diff is.
+
+### A declared price
+
+Rule 2 as first written could not express the trade the loop exists to make.
+Teaching the `count` builtin its binding form costs **~115 bytes of
+`schema_bytes`** — a gated, lower-is-better metric — and buys back aggregate
+questions an agent could not previously write. Flatly forbidding the regression
+would forbid the change; waiving it silently would make the gate decorative.
+
+So a metric may regress when **the hypothesis named it as the price before the
+work started**, and the capability it bought is measured, not asserted. The
+scoreboard records both numbers and the commit says which was the price.
+
+Two things this is not. It is not a licence to trade *any* metric: a
+confirmation rate is not currency, because an answer that is less true is not a
+cheaper answer, it is a worse one — only the cost family is spendable. And it is
+not retroactive: a price discovered after the fact is a regression, and the
+honest report is that the experiment cost more than it was budgeted.
 
 ### Reporting
 

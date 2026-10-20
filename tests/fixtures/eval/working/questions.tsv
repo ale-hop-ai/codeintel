@@ -17,7 +17,7 @@
 17	A	Which definitions are visible outside the crate? Bind the symbol id to A.	?- exported(A).
 18	A	Which definitions are exported without stating public visibility themselves? Bind the symbol id to A.	?- exported(A), !visibility(A, "public").
 19	A	Which definitions are exported by a TypeScript export clause rather than by their own declaration? Bind the symbol id to A.	?- name_export(F, N), def(A, F, _, N).
-20	A	Which definitions state a bounded visibility, or state none where the grammar offers the slot? Bind the symbol id to A.	?- visibility(A, "restricted").
+20	A	Which definitions state a bounded visibility, or state none where the grammar offers the slot? Bind the symbol id to A.	?- visibility(A, V), V != "public".
 21	A,B	Which definitions have no visibility slot of their own and inherit export from an exported container? Bind the definition to A and that container to B.	?- visibility(A, "inherited"), parent(A, B), exported(B).
 22	A,B	Which definitions implement "scip demo store/Backend#", and on what provenance? Bind the implementor to A and the provenance to B.	?- implements(A, "scip demo store/Backend#", B).
 23	A,B	Which implementation edges did the compiler confirm? Bind the implementor to A and the implemented symbol to B.	?- implements(A, B, "exact").

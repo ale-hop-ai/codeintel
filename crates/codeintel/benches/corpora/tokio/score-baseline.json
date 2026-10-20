@@ -54,7 +54,7 @@
     "answer_bytes_p95": 17912,
     "answer_bytes_total": 93905,
     "bytes_per_row": 72.9076,
-    "schema_bytes": 5397
+    "schema_bytes": 5536
   },
   "coverage": {
     "role_known": 0.0,
@@ -66,5 +66,5 @@
     "index": "blake3:8ebe48dc91053fec37448dd309882f668ab9a38a51b0b63610f5736234632ee9",
     "status": "ok"
   },
-  "tool": "391184cf74be-dirty"
+  "tool": "a13397cca1c0-dirty"
 }
