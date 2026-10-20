@@ -1213,6 +1213,23 @@ nobody has written down. Measured on a machine at 0.65 load per core against the
 harness limit of 0.50, so the absolute numbers are inflated and the proportions
 are the result.
 
+**Measured limit, stated (#28, 2026-10-21).** On a ~1M-LOC tree a warm call
+costs ~174 ms, of which the contract-required refresh walk is ~136 ms. The
+success criteria ([00-overview.md](../specs/00-overview.md) § Success criteria)
+are 100k-LOC numbers and this is outside them; it is not a regression and not
+a bug. Every call still walks the whole tree, because a changed file must never
+go unseen ([05-surface.md](../specs/05-surface.md) § Auto-refresh). Whether a
+cheaper refresh (directory-mtime pruning, a per-process walk cache) is worth its
+staleness risk is open on #28 and is the owner's call.
+
+One bound, **indicative and not evidence** (hand-run, host at load 11 on 10
+cores, no `tasks/bench.yml`): `stat` of the 3,876 directories that hold
+git-tracked files in the deno corpus takes 5-10 ms. That is the ceiling on what
+mtime pruning could leave behind, against 136 ms. It is not a claim that
+pruning is sound: a directory's mtime moves on add, remove and rename of an
+entry, not on an edit to a file in it, not on a changed `.gitignore`, and the
+manifest's mtimes are whole seconds.
+
 **Cold page cache is not measured.** Dropping it needs root (`purge`,
 `/proc/sys/vm/drop_caches`), which a bench should not ask for. The JSON carries
 `"cold_page_cache": null`, and the done-when bullet above stays open.
