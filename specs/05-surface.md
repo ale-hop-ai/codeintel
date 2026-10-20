@@ -152,6 +152,18 @@ an indexed file — `paths look relative to a subdirectory; re-run with
 that instead and suggests nothing. Detection never re-bases on its own
 ([02-extraction.md](02-extraction.md) § Detection suggests; it never re-bases).
 
+**`M` is the documents the input carried, not the documents that survived
+ingest.** A document refused before it is placed — `source unavailable for
+transcoding`, `path escapes the repository root` — is still a document the index
+carried, and it is counted in `M` and named in `scip skipped`. This is not
+cosmetic. An indexer that declares no position encoding (`scip-go`) needs the
+source to transcode columns; under a wrong root the source is not at the path, so
+*every* document is refused there, and a count taken after the refusal read
+`0 of 0`: no degradation reported, `status: ok` on every query, and the summary
+line `0 documents` the only trace (#123). `0 of 0` is now reachable only by an
+index that genuinely carries no documents. The unmatched paths and the root
+suggestion are computed over the carried set, refused documents included.
+
 This is invariant 5 at the only place it can be caught. "SCIP present, nothing
 matched" and "no SCIP at all" are different repairs, and a silent `anchored:
 0/2523 defs (0.0%)` names neither (#60).

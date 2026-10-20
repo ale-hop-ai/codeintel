@@ -600,10 +600,17 @@ fn measure_coverage(
     }
     let matched = ingest.docs.keys().filter(|p| seen.contains(*p)).count() as u64;
     report.scip_matched = Some(matched);
-    if matched > 0 || ingest.docs.is_empty() {
+    // Carried, not just placed: a document refused before it was placed still
+    // named a path, and a wrong root refuses all of them (#123).
+    let docs: BTreeSet<String> = ingest
+        .docs
+        .keys()
+        .cloned()
+        .chain(ingest.skipped.iter().map(|(path, _)| path.clone()))
+        .collect();
+    if matched > 0 || docs.is_empty() {
         return;
     }
-    let docs: BTreeSet<String> = ingest.docs.keys().cloned().collect();
     report.scip_root_suggestions = extract::scip::suggest_roots(&docs, seen);
     report.scip_unmatched = docs.into_iter().collect();
 }
@@ -671,7 +678,7 @@ fn read_scip(root: &Path, plan: &Plan) -> Result<(Ingest, BTreeMap<String, Own>)
             key(path),
             Own {
                 tool: one.tool,
-                documents: one.docs.len() as u64,
+                documents: (one.docs.len() + one.skipped.len()) as u64,
                 ambiguous: one.ambiguous as u64,
             },
         );
