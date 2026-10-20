@@ -157,8 +157,9 @@ pub fn schema_json(
     census: &crate::census::Census,
     root: &std::path::Path,
     index_dir: Option<&std::path::Path>,
+    refreshed: &(crate::status::Status, Option<String>),
 ) -> serde_json::Value {
-    let (status, hint) = schema_status(census, root, index_dir);
+    let (status, hint) = schema_status(census, root, index_dir, refreshed);
     serde_json::json!({
         "status": status.as_str(),
         "hint": hint,
@@ -181,16 +182,19 @@ pub fn schema_json(
     })
 }
 
-/// The status a catalog carries: `ok`, or `no-index` with the hint `query`
-/// gives when there is nothing to count (`specs/05-surface.md` § `schema`).
+/// The status a catalog carries: the refresh's own (`ok`, or `stale` when it
+/// ran out of budget or could not take the lock, which is what `query` says
+/// of the same index), or `no-index` with the hint `query` gives when there is
+/// nothing to count (`specs/05-surface.md` § `schema`).
 #[must_use]
 pub fn schema_status(
     census: &crate::census::Census,
     root: &std::path::Path,
     index_dir: Option<&std::path::Path>,
+    refreshed: &(crate::status::Status, Option<String>),
 ) -> (crate::status::Status, Option<String>) {
     if census.indexed {
-        (crate::status::Status::Ok, None)
+        refreshed.clone()
     } else {
         // `schema` reports on the directory it was given and never adopts
         // another (`specs/05-surface.md` § The nearest index), but its hint is
