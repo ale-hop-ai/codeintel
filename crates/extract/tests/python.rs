@@ -95,6 +95,11 @@ fn a_second_extraction_is_byte_identical() {
 }
 
 #[test]
+fn input_order_does_not_change_the_facts() {
+    common::assert_order_independent(&root());
+}
+
+#[test]
 fn kinds_are_faithful() {
     // The test upstream's query fails: it has no `@definition.method`, so
     // every method would be a `function` and `?- def(M,_,"method",N).` would

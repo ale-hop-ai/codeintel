@@ -15,8 +15,11 @@ use std::path::{Path, PathBuf};
 
 use datalog::atom::is_int;
 use extract::lang::{self, KINDS};
-use extract::{Anchors, Extractor, walk};
+use extract::scip::Ingest;
+use extract::{Anchors, Extractor, tier_b, walk};
 use facts::{Interner, RELATIONS, Segment};
+use protobuf::Message as _;
+use scip::types::Index;
 
 /// Where a fixture tree lives, relative to this crate.
 pub(crate) fn fixture(name: &str) -> PathBuf {
@@ -35,18 +38,111 @@ pub(crate) struct Extracted {
 
 /// Extract every file under `root` that has a registered language.
 pub(crate) fn extract_tree(root: &Path) -> Extracted {
+    extract_in(root, &Order::default())
+}
+
+/// How [`extract_in`] orders its inputs. The default is the walk's order and the
+/// index as written — the order the indexer itself uses, which sorts.
+#[derive(Default)]
+pub(crate) struct Order {
+    /// Permute the files with this seed before extracting them.
+    pub files: Option<u64>,
+    /// Join `<root>/index.scip` as tier B, and in which document order.
+    pub scip: Option<ScipOrder>,
+}
+
+/// The order a SCIP index is read in.
+pub(crate) enum ScipOrder {
+    /// As the indexer wrote it.
+    AsWritten,
+    /// Documents, and each document's occurrences and symbols, permuted.
+    Shuffled(u64),
+}
+
+/// A seeded Fisher-Yates over splitmix64, so a failing seed reproduces, and the
+/// suite takes no dependency to get one.
+struct Shuffler(u64);
+
+impl Shuffler {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+
+    /// Permute `items`. Returns whether any element moved: a shuffle that left
+    /// the order alone tests nothing, and the caller asserts it did not.
+    fn shuffle<T>(&mut self, items: &mut [T]) -> bool {
+        let mut at: Vec<usize> = (0..items.len()).collect();
+        for i in (1..items.len()).rev() {
+            let bound = u64::try_from(i + 1).expect("a slice index fits u64");
+            let j = usize::try_from(self.next() % bound).expect("below a usize bound");
+            items.swap(i, j);
+            at.swap(i, j);
+        }
+        at.iter().enumerate().any(|(i, from)| i != *from)
+    }
+}
+
+/// [`extract_tree`], with the inputs in the order `order` says — the other half
+/// of `CLAUDE.md`'s "shuffle file order -> identical facts". The indexer's walk
+/// sorts, so no order a filesystem hands back can reach the extractor; this
+/// goes under the walk and permutes what it returns.
+pub(crate) fn extract_in(root: &Path, order: &Order) -> Extracted {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut interner = Interner::open(dir.path()).expect("dictionary");
     let mut segments = BTreeMap::new();
     let walked = walk(root);
     let skips = &walked.skips;
     assert!(skips.unreadable.is_empty(), "{:?}", skips.unreadable);
-    for candidate in walked.files {
+    let mut files = walked.files;
+    if let Some(seed) = order.files {
+        assert!(
+            Shuffler(seed).shuffle(&mut files),
+            "seed {seed} left {} files where they were",
+            files.len()
+        );
+    }
+    let ingest = order.scip.as_ref().map(|how| {
+        let bytes = std::fs::read(root.join("index.scip")).expect("the fixture has an index.scip");
+        let mut index = Index::parse_from_bytes(&bytes).expect("a SCIP index");
+        if let ScipOrder::Shuffled(seed) = how {
+            let mut rng = Shuffler(*seed);
+            assert!(
+                rng.shuffle(&mut index.documents),
+                "seed {seed} left the documents where they were"
+            );
+            for document in &mut index.documents {
+                rng.shuffle(&mut document.occurrences);
+                rng.shuffle(&mut document.symbols);
+            }
+            rng.shuffle(&mut index.external_symbols);
+        }
+        Ingest::of(&index, root, "")
+    });
+    for candidate in files {
         let src = std::fs::read_to_string(&candidate.abs).expect("source is UTF-8");
         let mut extractor = Extractor::new(candidate.lang).expect("extractor");
-        let out = extractor
-            .file(&candidate.path, &src, &mut interner, &Anchors::default())
+        let saw = ingest
+            .as_ref()
+            .filter(|i| i.docs.contains_key(&candidate.path));
+        let anchors = saw.map_or_else(Anchors::default, |i| Anchors::of(i, &candidate.path));
+        let mut out = extractor
+            .file(&candidate.path, &src, &mut interner, &anchors)
             .expect("extracts");
+        if let Some(ingest) = saw {
+            tier_b::emit(
+                &mut out.segment,
+                ingest,
+                &candidate.path,
+                Some(&src),
+                &out.defs,
+                &mut interner,
+            )
+            .expect("tier B emits");
+        }
         segments.insert(candidate.path, out.segment);
     }
     Extracted {
@@ -482,4 +578,73 @@ pub(crate) fn assert_modules_undelimited(extracted: &Extracted) {
 /// Determinism: a second extraction of the same tree is byte-identical.
 pub(crate) fn assert_deterministic(root: &Path) {
     assert_eq!(extract_tree(root).render(), extract_tree(root).render());
+}
+
+/// Input order: the facts do not depend on the order files, or the documents of
+/// a SCIP index, are read in.
+///
+/// The same fixture is extracted in the walk's order and then in `SEEDS`
+/// permutations of it, tier A alone and then with the fixture's `index.scip`
+/// joined as tier B — whose ingest, anchor join and collision handling are where
+/// ordering freedom lives — and every rendering must equal the first. The
+/// renderings compare as resolved text, because atom ids legitimately follow
+/// insertion order.
+pub(crate) fn assert_order_independent(root: &Path) {
+    const SEEDS: [u64; 4] = [1, 2, 3, 4];
+    let sorted = extract_in(root, &Order::default()).render();
+    for seed in SEEDS {
+        let shuffled = extract_in(
+            root,
+            &Order {
+                files: Some(seed),
+                scip: None,
+            },
+        )
+        .render();
+        same_facts(
+            &sorted,
+            &shuffled,
+            &format!("tier A, files shuffled, seed {seed}"),
+        );
+    }
+
+    let joined = extract_in(
+        root,
+        &Order {
+            files: None,
+            scip: Some(ScipOrder::AsWritten),
+        },
+    )
+    .render();
+    assert_ne!(sorted, joined, "tier B added nothing, so it tests nothing");
+    for seed in SEEDS {
+        let shuffled = extract_in(
+            root,
+            &Order {
+                files: Some(seed),
+                scip: Some(ScipOrder::Shuffled(seed)),
+            },
+        )
+        .render();
+        same_facts(
+            &joined,
+            &shuffled,
+            &format!("tier A + B, files and SCIP documents shuffled, seed {seed}"),
+        );
+    }
+}
+
+/// Two renderings of the same facts, or the lines that differ: a whole
+/// rendering in a failure message buries the one fact that moved.
+fn same_facts(expected: &str, got: &str, what: &str) {
+    let (old, new): (BTreeSet<&str>, BTreeSet<&str>) =
+        (expected.lines().collect(), got.lines().collect());
+    let lost: Vec<&&str> = old.difference(&new).take(5).collect();
+    let gained: Vec<&&str> = new.difference(&old).take(5).collect();
+    assert!(
+        lost.is_empty() && gained.is_empty(),
+        "{what}: the facts depend on input order.\nonly in the first ({}): {lost:#?}\nonly in the second ({}): {gained:#?}",
+        old.difference(&new).count(),
+        new.difference(&old).count()
+    );
 }

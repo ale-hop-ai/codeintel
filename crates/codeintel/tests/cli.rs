@@ -387,8 +387,13 @@ fn indexing_twice_is_byte_identical() {
 
 #[test]
 fn file_order_does_not_change_the_facts() {
-    // Two trees with the same content, written in opposite order. The walk
-    // sorts, so the facts — and the atom ids behind them — must agree.
+    // Two trees with the same content, written in opposite order. This checks
+    // that the walk sorts, and nothing more: it can never see an extractor that
+    // depends on file order, because the sorted walk hands the extractor the
+    // same order whatever the creation order was. That claim is tested below the
+    // walk, in `crates/extract/tests/common/mod.rs` (`assert_order_independent`),
+    // and only the resolved facts are compared here — atom ids follow insertion
+    // order and are not claimed to agree.
     let first = tree();
     index(first.path());
 
