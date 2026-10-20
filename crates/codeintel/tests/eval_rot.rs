@@ -21,6 +21,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime};
 
+mod rot;
+
 use codeintel::Status;
 use codeintel::query::{self, Options};
 
@@ -28,39 +30,89 @@ fn eval() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/eval-m4")
 }
 
+/// Set A's one empty reference answer: Q17, `implements` of the fixture's
+/// `Store#`, which nothing implements.
+///
+/// Unadjudicated (#96): whether this is a legitimate empty answer or a
+/// defective question is the owner's call, since `docs/agent-eval.md` reports
+/// set A. It is listed so the guard can tell it from a reference that stopped
+/// working, and it is not a verdict.
+const KNOWN_EMPTY: &[&str] = &["17"];
+
 /// Every set-A reference query, re-run, reproduces `expectedA.tsv` exactly.
 #[test]
 fn set_a_reference_answers_still_hold() {
     let root = indexed();
-    let expected = std::fs::read_to_string(eval().join("expectedA.tsv")).expect("expectedA.tsv");
-    let expected: BTreeMap<String, String> = expected
+    let findings = rot_findings(root.path(), &questions());
+    assert!(
+        findings.is_empty(),
+        "set A reference answers do not hold — the facts or rules changed what these \
+         questions' correct answers are. A finding, not a golden: explain it, then \
+         regenerate with `score.py expected A`.\n{findings}"
+    );
+}
+
+/// The guard fails when a reference does not run, instead of reading it as an
+/// empty answer (#96). Q17's recorded answer is empty, which is exactly the
+/// answer a reference that cannot parse used to be coerced into.
+#[test]
+fn a_reference_that_does_not_run_is_a_finding_not_an_empty_answer() {
+    let root = indexed();
+    for broken in [
+        "?- this is not datalog(((",
+        "?- implements(A, B, C, D, E, F).",
+    ] {
+        let mut questions = questions();
+        let q17 = questions
+            .iter_mut()
+            .find(|q| q.id == "17")
+            .expect("set A has Q17");
+        q17.reference = broken.to_string();
+        let findings = rot_findings(root.path(), &questions);
+        assert!(
+            findings.contains("Q17: reference query did not run"),
+            "{broken:?} was not reported:\n{findings}"
+        );
+    }
+}
+
+/// An empty reference answer is a finding unless the question is listed.
+#[test]
+fn an_unlisted_empty_answer_is_a_finding() {
+    let root = indexed();
+    let mut questions = questions();
+    let other = questions
+        .iter_mut()
+        .find(|q| !KNOWN_EMPTY.contains(&q.id.as_str()))
+        .expect("a question that is not known-empty");
+    let (id, vars) = (other.id.clone(), other.vars.clone());
+    other.reference = format!(
+        "?- def({}, _, _, \"no such name anywhere\").",
+        vars.first().expect("an answer variable")
+    );
+    let findings = rot_findings(root.path(), &questions);
+    assert!(
+        findings.contains("EMPTY and not a known") && findings.contains(&format!("Q{id}")),
+        "{findings}"
+    );
+}
+
+/// Every question recomputed and judged against `expectedA.tsv`.
+fn rot_findings(root: &Path, questions: &[Question]) -> String {
+    let recorded = std::fs::read_to_string(eval().join("expectedA.tsv")).expect("expectedA.tsv");
+    let recorded: BTreeMap<&str, &str> = recorded
         .lines()
         .filter(|l| !l.is_empty())
-        .map(|l| {
-            let (id, rest) = l.split_once('\t').expect("id<TAB>count<TAB>values");
-            (id.to_string(), rest.to_string())
-        })
+        .filter_map(|l| l.split_once('\t'))
         .collect();
 
-    let mut moved = Vec::new();
-    for q in questions() {
-        let got = answer_values(root.path(), &q.reference, &q.vars).unwrap_or_default();
-        let line = format!(
-            "{}\t{}",
-            got.len(),
-            got.into_iter().collect::<Vec<_>>().join("|")
-        );
-        if expected.get(&q.id) != Some(&line) {
-            moved.push(format!("Q{}: {}", q.id, q.reference));
-        }
+    let mut computed = rot::Computed::new();
+    for q in questions {
+        let answer = answer_values(root, &q.reference, &q.vars)
+            .map(|values| rot::line(&values.into_iter().collect::<Vec<_>>().join("|")));
+        computed.insert(q.id.as_str(), (q.reference.as_str(), answer));
     }
-    assert!(
-        moved.is_empty(),
-        "set A reference answers moved — the facts or rules changed what these questions' \
-         correct answers are. A finding, not a golden: explain it, then regenerate with \
-         `score.py expected A`.\n{}",
-        moved.join("\n")
-    );
+    rot::findings(&computed, &recorded, KNOWN_EMPTY, true)
 }
 
 /// The recorded runs score as `docs/agent-eval.md` § Set A, re-run says,
@@ -83,7 +135,7 @@ fn recorded_set_a_runs_fail_exactly_the_recorded_questions() {
         for q in &questions {
             let got = answers
                 .get(q.id.as_str())
-                .and_then(|query| answer_values(root.path(), query, &q.vars));
+                .and_then(|query| answer_values(root.path(), query, &q.vars).ok());
             if got.as_ref() != expected.get(&q.id) {
                 failed.push(q.id.as_str());
             }
@@ -138,12 +190,16 @@ fn expected_values() -> BTreeMap<String, BTreeSet<String>> {
         .collect()
 }
 
-/// The set of tuples over `wanted`, each `\x1f`-joined — or `None` for a query
-/// that did not run, or that does not bind every wanted variable.
+/// The set of tuples over `wanted`, each `\x1f`-joined — or the reason for a
+/// query that did not run, or that does not bind every wanted variable.
 ///
 /// `score.py` treats these four statuses as "no answer" and every other one as
 /// rows, so a `no-scip` answer is still scored on what it returned.
-fn answer_values(root: &Path, program: &str, wanted: &[String]) -> Option<BTreeSet<String>> {
+fn answer_values(
+    root: &Path,
+    program: &str,
+    wanted: &[String],
+) -> Result<BTreeSet<String>, String> {
     let options = Options {
         limit: 5000,
         no_refresh: true,
@@ -155,12 +211,17 @@ fn answer_values(root: &Path, program: &str, wanted: &[String]) -> Option<BTreeS
         answer.status,
         Status::InvalidQuery | Status::Unstratified | Status::Timeout | Status::BudgetExceeded
     ) {
-        return None;
+        return Err(format!(
+            "status {}: {}",
+            answer.status.as_str(),
+            answer.hint.as_deref().unwrap_or("")
+        ));
     }
     let index: Vec<usize> = wanted
         .iter()
         .map(|name| answer.columns.iter().position(|c| c == name))
-        .collect::<Option<_>>()?;
+        .collect::<Option<_>>()
+        .ok_or_else(|| format!("the query does not bind {wanted:?}"))?;
     answer
         .rows
         .iter()
@@ -171,7 +232,8 @@ fn answer_values(root: &Path, program: &str, wanted: &[String]) -> Option<BTreeS
                 .collect::<Option<Vec<_>>>()
                 .map(|v| v.join("\x1f"))
         })
-        .collect()
+        .collect::<Option<_>>()
+        .ok_or_else(|| "a row is narrower than its columns".to_string())
 }
 
 /// The rust fixture, indexed with both tiers, clock pinned as in `tests/scip.rs`.
