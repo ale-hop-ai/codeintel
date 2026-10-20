@@ -245,6 +245,42 @@ them.
   only, which a trait cannot dispatch to:
   `?- entrypoint_exact(S), parent(S, P), def(P, _, "module", _), def(S, F, _, N).`
 
+### Rust's in-file `#[cfg(test)]` modules: a naming guess, stated as one
+
+`is_test(F)` is a path rule, which is right for Go (`_test.go`), Python
+(`test_*.py`) and TypeScript (`*.test.ts`) and wrong for Rust, whose unit tests
+live in the source file under `#[cfg(test)] mod tests`. Every `#[test]` function
+in one is a callable nothing calls, so `entrypoint_exact` lists it (#111). The
+rule below excludes them. **It guesses the module's name, and says so**:
+
+```
+in_tests(S) :- within(S, A), def(A, _, "module", "tests").
+in_tests(S) :- within(S, A), def(A, _, "module", "test").
+
+?- entrypoint_exact(S), def(S, F, _, N), !is_test(F), !in_tests(S).
+```
+
+**The guess is wrong about 1 module in 13.** Across the 2,748 `#[cfg(test)]`
+modules in the 26,386 `.rs` files of `~/.cargo/registry/src` (a literal text
+scan, 2026-10-21), 70% are named `tests`, 22% `test` and 7.5% something else
+(`conformance`, `spec_tests`, `vocabulary`). A module outside the two names is
+not excluded, so the composed answer is **narrower than the truth, in the
+direction that lists test code as dead**, the direction that gets code deleted.
+It is a filter, not a proof: read the rows.
+
+Why the guess is the only thing available: `#[cfg(test)]` leaves nothing in
+any fact. `attribute_kinds` puts the attribute in `def_span`'s byte range and
+out of `def_sig`, and a rule cannot read source (invariant 3b). Nothing in the
+index distinguishes that module from any other, so no rule can ask for it.
+
+Why this is not a stdlib rule: a shipped `test_scope` would assert "this is test
+code", and an `ok` answer would then read as exact where it is a naming
+convention. That is the failure #44 deleted a vocabulary for — a thing that
+advertises more certainty than it has. And a fact that is exact needs a base
+relation (16 of 16 are spent) for a mechanism only Rust has, which fails the
+`Export` bar's third item in `CLAUDE.md` (usable by a language other than the
+one that motivated it): Go, Python and TypeScript all mark test scope by path.
+
 ### `uses_package` names the indexer's package, not the import's
 
 `uses_package(F, P)`'s `P` is `extern`'s `Pkg` — the package the *indexer*
