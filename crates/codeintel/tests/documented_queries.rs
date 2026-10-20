@@ -16,10 +16,20 @@
 //! A query that is legitimately empty here is `ok` with zero rows, which is a
 //! real answer. What the docs may not do is time out, or fail to parse or
 //! resolve: those mean the documentation is wrong, not the index.
+//!
+//! The same corpus is the determinism corpus (#99): `CLAUDE.md` promises
+//! byte-identical answers across runs, and the conformance suite's four
+//! synthetic queries over hand-written facts say little about ordering over a
+//! real store. Each documented query is run [`RUNS`] times in-process, then
+//! the query *shapes* the docs happen not to show are run the same way.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
+
+use codeintel::query::{self, Answer, Options};
+use codeintel::wire;
 
 const DOCS: &[&str] = &["docs/cookbook.md", "README.md", "specs/05-surface.md"];
 
@@ -45,6 +55,28 @@ fn root() -> PathBuf {
         .join("../..")
         .canonicalize()
         .expect("repo root")
+}
+
+/// An index of this repository, built once and shared by every test here.
+fn repo_index() -> &'static Path {
+    static INDEX: OnceLock<tempfile::TempDir> = OnceLock::new();
+    INDEX
+        .get_or_init(|| {
+            let index = tempfile::tempdir().expect("tempdir");
+            let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
+                .args(["index", "."])
+                .current_dir(root())
+                .env("CODEINTEL_INDEX_DIR", index.path())
+                .output()
+                .expect("the binary runs");
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            index
+        })
+        .path()
 }
 
 /// `text` over `range`, which every caller derives from a `char_indices` offset.
@@ -139,19 +171,8 @@ fn every_documented_query_runs_against_this_repository() {
         );
     }
 
-    let index = tempfile::tempdir().expect("tempdir");
+    let index = repo_index();
     let binary = env!("CARGO_BIN_EXE_codeintel");
-    let indexed = Command::new(binary)
-        .args(["index", "."])
-        .current_dir(root())
-        .env("CODEINTEL_INDEX_DIR", index.path())
-        .output()
-        .expect("the binary runs");
-    assert!(
-        indexed.status.success(),
-        "{}",
-        String::from_utf8_lossy(&indexed.stderr)
-    );
 
     let mut wrong = Vec::new();
     for (goal, places) in &documented {
@@ -161,7 +182,7 @@ fn every_documented_query_runs_against_this_repository() {
         let out = Command::new(binary)
             .args(["query", "--format", "json", "--no-refresh", goal])
             .current_dir(root())
-            .env("CODEINTEL_INDEX_DIR", index.path())
+            .env("CODEINTEL_INDEX_DIR", index)
             .output()
             .expect("the binary runs");
         let response: serde_json::Value =
@@ -180,4 +201,224 @@ fn every_documented_query_runs_against_this_repository() {
         "documented queries that do not run:\n{}",
         wrong.join("\n")
     );
+}
+
+// ── determinism (#99) ───────────────────────────────────────────────────────
+
+/// Runs of each query. 100 is `CLAUDE.md`'s number and the engine's own
+/// conformance test uses it over four tiny programs; over a real index it is
+/// not affordable per query in a gate, so this is lower on purpose. What the
+/// count buys is the chance of catching an order that depends on a per-run
+/// hash seed: each run builds a fresh engine, so every `HashMap` in it draws a
+/// new seed, and an unordered iteration that reaches the output differs
+/// between two runs with probability well above one half once a relation holds
+/// more than a handful of tuples. Ten runs of a query whose output depends on
+/// one such iteration miss it with probability ~2^-9, and the corpus has
+/// dozens of queries sharing the engine paths that matter. Measured on this
+/// repository, one pass over the documented corpus is ~3.5 s in the test
+/// profile, so 100 runs would be ~6 minutes inside a gate that takes one.
+const RUNS: usize = 10;
+
+/// The answer as both wire forms put it on the page, or the diff-able reason
+/// it was not an answer.
+fn rendered(root: &Path, index: &Path, program: &str, options: &Options) -> (String, Answer) {
+    let options = Options {
+        no_refresh: true,
+        index_dir: Some(index.to_path_buf()),
+        ..options.clone()
+    };
+    let answer = query::run(root, program, &options).expect("the query runs");
+    let text = format!(
+        "{}\n{}",
+        wire::json(&answer, options.raw),
+        wire::body(&answer, options.raw)
+    );
+    (text, answer)
+}
+
+fn assert_stable(
+    label: &str,
+    root: &Path,
+    index: &Path,
+    program: &str,
+    options: &Options,
+) -> Answer {
+    let (first, answer) = rendered(root, index, program, options);
+    assert!(
+        !matches!(
+            answer.status.to_string().as_str(),
+            "timeout" | "invalid-query"
+        ),
+        "{label}: {program}: status {}: {:?}",
+        answer.status,
+        answer.hint
+    );
+    assert!(
+        !answer.rows.is_empty() || !label.contains("shape:"),
+        "{label}: {program} is empty here, so its determinism is vacuous"
+    );
+    for run in 1..RUNS {
+        let (again, _) = rendered(root, index, program, options);
+        assert_eq!(
+            first, again,
+            "{label}: run {run} of {program:?} differs from run 0"
+        );
+    }
+    answer
+}
+
+#[test]
+fn every_documented_query_is_byte_identical_across_runs() {
+    let index = repo_index();
+    let root = root();
+    for (goal, places) in &documented() {
+        if NOT_RUNNABLE.iter().any(|(skip, _)| skip == goal) {
+            continue;
+        }
+        assert_stable(&places.join(", "), &root, index, goal, &Options::default());
+    }
+}
+
+/// The shapes the engine can produce that the documented corpus does not pin,
+/// and the conformance suite's four synthetic queries do not either: seeded
+/// recursion through the demand rewrite, an aggregate, negation over a
+/// derived relation, both truncation caps, a regex builtin, arithmetic, a
+/// ground query, a raw-atom rendering.
+///
+/// `transformed` is asserted where the label claims the demand rewrite ran, so
+/// a shape cannot quietly stop being the shape it names.
+#[test]
+fn every_query_shape_is_byte_identical_across_runs() {
+    let index = repo_index();
+    let root = root();
+    let seeded = r#"?- def(S, _, "function", "locate"), impact_of(S, C)."#;
+    let shapes: &[(&str, &str, Options, fn(&Answer))] = &[
+        ("seeded recursion", seeded, Options::default(), |a| {
+            assert!(
+                !a.transformed.is_empty(),
+                "the demand rewrite did not apply"
+            );
+        }),
+        (
+            "seeded reach",
+            r#"?- def(S, _, _, "run"), reach_of(S, C)."#,
+            Options::default(),
+            |_| {},
+        ),
+        (
+            "unseeded recursion",
+            "?- recursive(S).",
+            Options::default(),
+            |_| {},
+        ),
+        (
+            "aggregate, grouped",
+            "?- def(S, F, _, _), N = count{X: within(X, S)}, N > 2.",
+            Options::default(),
+            |_| {},
+        ),
+        (
+            "negation",
+            "?- def(S, F, \"function\", _), !calls(_, S).",
+            Options::default(),
+            |_| {},
+        ),
+        (
+            "regex builtin",
+            "?- def(S, F, _, N), match(N, \"^run\").",
+            Options::default(),
+            |_| {},
+        ),
+        (
+            "arithmetic",
+            "?- def_span(S, A, B, _, _), W = B - A, W > 40.",
+            Options::default(),
+            |_| {},
+        ),
+        (
+            "ground query",
+            r#"?- file("crates/facts/src/store.rs", "rust")."#,
+            Options::default(),
+            |_| {},
+        ),
+        (
+            "row cap",
+            "?- def(S, F, K, N).",
+            Options {
+                limit: 7,
+                ..Options::default()
+            },
+            |a| assert_eq!(a.cap, Some(datalog::Cap::Rows)),
+        ),
+        (
+            "byte cap",
+            "?- def(S, F, K, N), def_sig(S, G), def_doc(S, D).",
+            Options::default(),
+            |a| assert_eq!(a.cap, Some(datalog::Cap::Bytes)),
+        ),
+        (
+            "raw atoms",
+            "?- def(S, F, K, N).",
+            Options {
+                raw: true,
+                limit: 50,
+                ..Options::default()
+            },
+            |_| {},
+        ),
+    ];
+    for (label, program, options, check) in shapes {
+        let answer = assert_stable(&format!("shape: {label}"), &root, index, program, options);
+        check(&answer);
+    }
+}
+
+/// Both provenance tiers in one store. This repository is indexed without
+/// SCIP, so everything above is `name`; the rust fixture ships a real
+/// `index.scip`, and the rules that choose between `exact` and `name` (`ref`,
+/// `calls`, the `_exact` family, `tier`) are where a tier-dependent order
+/// would live.
+#[test]
+fn answers_over_both_provenance_tiers_are_byte_identical_across_runs() {
+    let fixture = root().join("tests/fixtures/rust");
+    let index = tempfile::tempdir().expect("tempdir");
+    let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
+        .args(["index", ".", "--scip", "index.scip"])
+        .current_dir(&fixture)
+        .env("CODEINTEL_INDEX_DIR", index.path())
+        .output()
+        .expect("the binary runs");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    for relation in [
+        "scip_ref(S, F, L, C, From, R)",
+        "name_ref(N, F, L, C, From)",
+    ] {
+        let tier = assert_stable(
+            "tiers",
+            &fixture,
+            index.path(),
+            &format!("?- {relation}."),
+            &Options::default(),
+        );
+        assert!(
+            !tier.rows.is_empty(),
+            "the fixture index holds no {relation} rows, so it is not two-tier"
+        );
+    }
+    for goal in [
+        "?- ref(S, F, L, C, From, R, P).",
+        "?- calls(A, B).",
+        "?- calls_exact(A, B).",
+        "?- tier(\"calls\", A, B, P).",
+        "?- def(S, _, \"function\", \"put\"), impact_of(S, C).",
+        "?- def(S, _, \"function\", \"put\"), impact_of_exact(S, C).",
+        "?- dead_export(S).",
+        "?- implements(S, T, P).",
+    ] {
+        assert_stable("tiers", &fixture, index.path(), goal, &Options::default());
+    }
 }
