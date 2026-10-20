@@ -90,20 +90,36 @@ fn run() -> Result<()> {
         .canonicalize()
         .context("the corpus directory")?;
 
-    // Before our own work raises it. A profile is a wall-clock number too.
-    let started_under = Conditions::now();
-    println!("host conditions: {}", started_under.describe());
-    if !started_under.trustworthy() {
-        println!(
-            "WARNING: these numbers describe a busy machine as much as they describe the code"
-        );
-    }
+    println!(
+        "host conditions before the copy: {}",
+        Conditions::now().describe()
+    );
 
     let tmp = tempfile::tempdir().context("tempdir")?;
     let root = tmp.path().canonicalize().context("tempdir")?;
     copy(&corpus, &root)?;
     let dir = root.join(".codeintel");
     println!("corpus {} -> {}", corpus.display(), root.display());
+
+    // After the copy, which is what disturbs the host, and before our own
+    // measured work raises it (#84). A profile is a wall-clock number too.
+    let settled = conditions::settle();
+    let started_under = settled.conditions;
+    println!(
+        "host conditions after {:.0}s settling: {}{}",
+        settled.waited_s,
+        started_under.describe(),
+        if settled.timed_out {
+            " (gave up waiting)"
+        } else {
+            ""
+        }
+    );
+    if !started_under.trustworthy() {
+        println!(
+            "WARNING: these numbers describe a busy machine as much as they describe the code"
+        );
+    }
 
     // Index once. Everything below is a no-change call against this.
     let started = Instant::now();
@@ -213,7 +229,7 @@ fn run() -> Result<()> {
     let mcp_p50 = measure_mcp(&root, &dir, &goal)?;
     println!("\nanchor: mcp p50 {mcp_p50:.2} ms, flush to flush, same query");
 
-    report_phases(name, &goal, &phases, mcp_p50, started_under)
+    report_phases(name, &goal, &phases, mcp_p50, settled)
 }
 
 /// p50 and p95 of each phase, printed and written as JSON.
@@ -222,7 +238,7 @@ fn report_phases(
     goal: &str,
     phases: &[(&str, Vec<f64>)],
     mcp_p50: f64,
-    started_under: Conditions,
+    settled: conditions::Settled,
 ) -> Result<()> {
     let p50 = |label: &str| {
         phases
@@ -282,7 +298,7 @@ fn report_phases(
         // from the wrong run reads exactly like a table quoted from the right
         // one. That happened to deno in `docs/plan.md` § #28 — a parallel-walk
         // JSON was read as the serial walk's.
-        "provenance": conditions::report(started_under, Conditions::now()),
+        "provenance": conditions::report(settled, Conditions::now()),
         "phases": measured,
         "derived": { "stale_check_ms": stale_check, "evaluate_ms": evaluate },
         "anchor": { "mcp_p50_ms": mcp_p50 },

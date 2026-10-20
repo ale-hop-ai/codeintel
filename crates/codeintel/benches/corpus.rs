@@ -9,7 +9,9 @@
 //!
 //! `<name>` picks `benches/corpora/<name>/`, which holds `corpus.json`,
 //! `queries.tsv` and `baseline.json`. The bench works on a copy of the corpus in
-//! a temp directory, never on the checkout. It writes
+//! a temp directory, never on the checkout, and waits for the machine to go
+//! quiet after making that copy — `CODEINTEL_BENCH_SETTLE_SECS` bounds the
+//! wait and `0` skips it (`benches/conditions.rs`, #84). It writes
 //! `target/bench/<name>-<run-id>.json`, where the run id is the rev that
 //! produced it (`benches/conditions.rs`),
 //! then compares it with that corpus's baseline: counters exactly, wall clock
@@ -75,10 +77,37 @@ fn run() -> Result<Verdict> {
         .context("the corpus directory")?;
     let rev = git_head(&corpus);
 
-    // Before any of our own work raises it.
-    let started_under = Conditions::now();
     let updating = std::env::var_os("UPDATE_BASELINE").is_some();
-    println!("host conditions: {}", started_under.describe());
+    println!(
+        "host conditions before the copy: {}",
+        Conditions::now().describe()
+    );
+
+    let tmp = tempfile::tempdir().context("tempdir")?;
+    let root = tmp.path().canonicalize().context("tempdir")?;
+    copy(&corpus, &root)?;
+    println!(
+        "corpus {} at {rev}, copied to {}",
+        corpus.display(),
+        root.display()
+    );
+
+    // The copy is what disturbs the host — a scanner reads every file the
+    // bench has just written — so the reading that matters is taken after it,
+    // once the machine is quiet again (#84). Before any of *our measured* work
+    // raises it.
+    let settled = conditions::settle();
+    let started_under = settled.conditions;
+    println!(
+        "host conditions after {:.0}s settling: {}{}",
+        settled.waited_s,
+        started_under.describe(),
+        if settled.timed_out {
+            " (gave up waiting)"
+        } else {
+            ""
+        }
+    );
     // Two different questions, so two different predicates. Writing a
     // baseline refuses on an unreadable load average as well as on a busy
     // one (`Conditions::safe_to_commit`); merely reporting numbers only warns
@@ -87,7 +116,9 @@ fn run() -> Result<Verdict> {
     //
     // Checked here rather than after the measurements: deno takes the best
     // part of an hour, and refusing at the end of it would be a refusal nobody
-    // waits around for.
+    // waits around for. The copy is the only thing it now pays for first, and
+    // a refusal decided before the copy would be deciding on conditions the
+    // run does not measure under.
     if updating && !started_under.safe_to_commit() {
         println!(
             "REFUSED: not writing a baseline. {}.\nA baseline measured on a busy machine is too \
@@ -104,15 +135,6 @@ fn run() -> Result<Verdict> {
              one comes back inconclusive"
         );
     }
-
-    let tmp = tempfile::tempdir().context("tempdir")?;
-    let root = tmp.path().canonicalize().context("tempdir")?;
-    copy(&corpus, &root)?;
-    println!(
-        "corpus {} at {rev}, copied to {}",
-        corpus.display(),
-        root.display()
-    );
 
     let (index_cold_ms, files, defs) = index_cold(&root)?;
     println!("index_cold_ms   {index_cold_ms:>9.1}   ({files} files, {defs} defs)");
@@ -158,7 +180,7 @@ fn run() -> Result<Verdict> {
         "host": host(),
         // Beside the result, not inside `host()`: that value is compared for
         // equality to decide "same machine", and load differs every run.
-        "conditions": conditions::report(started_under, ended_under),
+        "conditions": conditions::report(settled, ended_under),
         // Needs root to drop (`purge`, /proc/sys/vm/drop_caches). Not measured,
         // and saying so rather than leaving the key out.
         "cold_page_cache": null,

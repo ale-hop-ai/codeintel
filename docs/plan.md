@@ -1049,6 +1049,36 @@ pin into `~/.cache/codeintel/corpus/<name>` and benches them in size order: fd,
 tokio, deno. The bench works on a copy of the corpus in a temp directory and
 never writes into the checkout.
 
+**The copy is made, then the harness waits for the machine to go quiet** before
+it measures anything (#84). The copy is not free: on macOS the endpoint scanner
+reads every file the bench has just written, and it was observed at ~300% CPU
+chewing on corpora the bench itself had created. The runs are sequential and
+deno is both last and largest, so each corpus degraded conditions for the next
+and the load gate then — correctly — refused the one number the pass was for.
+
+So the start reading is taken **after** the copy, not before, and
+`conditions::settle` polls until load per core is back under
+`MAX_LOAD_PER_CORE` or a bounded timeout expires
+(`CODEINTEL_BENCH_SETTLE_SECS`, 300 s by default; `0` disables the wait). What
+it waited for and whether it gave up are recorded in the result under
+`conditions.settle_*` — a wait that timed out is a reported degradation, not a
+silent one, and the run continues as an untrustworthy-host run exactly as
+before.
+
+The rejected alternatives, for the record:
+
+- **Excluding the temp copies from scanning** is a host configuration change.
+  It belongs in `~/dotfiles` + provision, not here, and a harness that only
+  measures correctly on one configured machine has not been fixed.
+- **Reusing one checkout per corpus** removes the copy but not the scanning —
+  `tasks/bench.yml` writes those checkouts too — and spends the isolation that
+  stopped `index::discard` from emptying the corpus itself. It would trade a
+  measurement problem for a data-loss one.
+- **Running the largest corpus first** only moves which corpus is measured
+  under the others' leftovers. It does nothing about a run poisoned by its own
+  copy, which is the deno case, and it costs the fail-in-seconds property that
+  size order was chosen for.
+
 Each corpus is one directory, `crates/codeintel/benches/corpora/<name>/`:
 
 | file | holds |

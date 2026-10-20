@@ -234,6 +234,59 @@ fn a_comparison_that_did_not_happen_is_never_a_pass() {
 }
 
 #[test]
+fn settling_waits_for_a_quiet_machine_and_reports_giving_up() {
+    // #84: the corpus copy is what makes the host busy, so the harness waits
+    // after it. A machine that goes quiet ends the wait; one that never does
+    // says so rather than pretending the reading was fine.
+    let busy = Conditions {
+        load1: Some(20.0),
+        cores: 10,
+    };
+    let quiet = Conditions {
+        load1: Some(2.0),
+        cores: 10,
+    };
+
+    let mut reads = 0;
+    let settled = conditions::settle_with(
+        std::time::Duration::from_secs(10),
+        std::time::Duration::from_millis(1),
+        || {
+            reads += 1;
+            if reads < 3 { busy } else { quiet }
+        },
+    );
+    assert!(!settled.timed_out, "the machine went quiet");
+    assert!(settled.conditions.safe_to_commit());
+    assert_eq!(reads, 3, "it kept looking until the reading was good");
+
+    let gave_up = conditions::settle_with(
+        std::time::Duration::from_millis(5),
+        std::time::Duration::from_millis(1),
+        || busy,
+    );
+    assert!(gave_up.timed_out, "a host that stays busy is reported");
+    assert!(!gave_up.conditions.safe_to_commit());
+}
+
+#[test]
+fn settling_costs_nothing_on_a_host_that_is_already_quiet() {
+    // The wait must not become a tax on the common case: one reading, no
+    // sleep, and a disabled timeout still returns the reading it took.
+    let quiet = Conditions {
+        load1: Some(1.0),
+        cores: 10,
+    };
+    let settled = conditions::settle_with(
+        std::time::Duration::ZERO,
+        std::time::Duration::from_secs(60),
+        || quiet,
+    );
+    assert!(!settled.timed_out);
+    assert!(settled.waited_s < 1.0, "{} s", settled.waited_s);
+}
+
+#[test]
 fn the_host_core_count_is_the_os_view_not_this_process() {
     // The whole of #83: available_parallelism answers for the process. If the
     // OS can be asked, its answer is the one that identifies the machine, and
