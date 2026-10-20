@@ -501,9 +501,10 @@ pub struct QueryResult {
     pub columns:   Vec<String>,   // variable names from the goal, in order
     pub rows:      Vec<Vec<Atom>>,
     pub truncated: bool,
-    pub cap:       Option<&'static str>,
-    pub stats:     Stats,         // derived tuples, elapsed, strata, plan,
-                                  // transformed, shadowed, depends
+    pub cap:       Option<Cap>,   // which cap fired; `Cap::as_str()` is the wire name
+    pub stats:     Stats,         // derived, elapsed_ms, strata, plan,
+                                  // transformed, demand, shadowed, empty_at,
+                                  // depends
 }
 
 pub struct Diagnostic {
@@ -529,8 +530,12 @@ may shadow stdlib rules — shadowing is reported in `stats`, never silent.
    these with no code-intel facts in sight — that is how the seam stays honest.
 2. **Safety rejection.** Every rule in § Safety rules has a test asserting the
    specific diagnostic, including its message text.
-3. **Determinism.** Each query runs 100× with shuffled internal capacities;
-   output must be byte-identical.
+3. **Determinism.** Each conformance query runs 100× on a fresh engine and the
+   rendered output must be byte-identical
+   (`every_conformance_query_is_byte_identical_across_a_hundred_runs`). The
+   host's real-index suite runs each documented query 10×, not 100×
+   (`documented_queries.rs` `RUNS`; [CLAUDE.md](../CLAUDE.md) § Testing gives
+   the cost argument).
 4. **Limits.** Each limit has a program that provokes it and asserts the exact
    `status` / `cap`.
 5. **Differential.** A naive (non-semi-naive) evaluator ships in the engine,
