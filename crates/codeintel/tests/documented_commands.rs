@@ -14,12 +14,6 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// The no-index hint's chained line, executed by `sh`, for each tree shape.
-/// `true` when the hint is pasteable. The two `false`s are #93; flipping one is
-/// a failure to delete, the way `eval_commands.rs`'s `KNOWN_DEAD` works.
-const POLYGLOT_HINT_IS_VALID_SHELL: bool = false;
-const SPACED_ROOT_HINT_CHANGES_DIRECTORY: bool = false;
-
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
@@ -63,22 +57,24 @@ fn a_rust_only_no_index_hint_is_valid_shell() {
     assert!(parses(&hint), "not valid shell: {hint}");
 }
 
+/// Was a known failure pinned to `false` until #93 landed; the `--project-name
+/// <name>` placeholder made `<` a redirect, so any tree holding Python turned
+/// the whole chain into a syntax error. Now a plain assertion, which is what
+/// the constant it replaced was there to become.
 #[test]
-fn a_polyglot_no_index_hint_is_valid_shell_only_once_93_is_fixed() {
+fn a_polyglot_no_index_hint_is_valid_shell() {
     let dir = tempfile::tempdir().expect("tempdir");
     let hint = hint_for(
         dir.path(),
         &[("a.rs", "fn a() {}\n"), ("c.py", "def c(): pass\n")],
     );
-    assert_eq!(
-        parses(&hint),
-        POLYGLOT_HINT_IS_VALID_SHELL,
-        "#93 moved: set POLYGLOT_HINT_IS_VALID_SHELL to match. hint: {hint}"
-    );
+    assert!(parses(&hint), "not valid shell: {hint}");
 }
 
+/// Was a known failure until #93 quoted the path: `cd /tmp/sp ace && ...`
+/// walks into the wrong directory, or none.
 #[test]
-fn a_root_with_a_space_in_it_is_walked_into_by_the_hint_only_once_93_is_fixed() {
+fn a_root_with_a_space_in_it_is_walked_into_by_the_hint() {
     let dir = tempfile::tempdir().expect("tempdir");
     let spaced = dir.path().join("with space");
     std::fs::create_dir(&spaced).expect("mkdir");
@@ -92,9 +88,9 @@ fn a_root_with_a_space_in_it_is_walked_into_by_the_hint_only_once_93_is_fixed() 
         .status()
         .expect("sh runs")
         .success();
-    assert_eq!(
-        lands, SPACED_ROOT_HINT_CHANGES_DIRECTORY,
-        "#93 moved: set SPACED_ROOT_HINT_CHANGES_DIRECTORY to match. hint: {hint}"
+    assert!(
+        lands,
+        "the hint did not land in the spaced root. hint: {hint}"
     );
 }
 

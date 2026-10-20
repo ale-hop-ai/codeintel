@@ -121,7 +121,16 @@ fn the_scip_stale_hints_are_valid_shell_for_each_language() {
             .status()
             .expect("cp runs");
         assert!(copied.success(), "{fixture}");
+        // `.codeintel/` is gitignored, so a developer who ran `codeintel index`
+        // inside a fixture leaves one behind and `cp -R` drags it along. The
+        // store below then points at that index instead of a fresh one, and the
+        // test fails with `stale` — schema 2 against a build speaking 3 — on
+        // that machine only. `cli.rs:45` already skips the name when it copies;
+        // this does the same, after the fact, because `cp` cannot exclude.
         let store = dir.path().join(".codeintel");
+        if store.exists() {
+            std::fs::remove_dir_all(&store).expect("drop a copied-in store");
+        }
         let run = |args: &[&str]| {
             let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
                 .args(args)
