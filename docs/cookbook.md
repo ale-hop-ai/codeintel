@@ -193,7 +193,7 @@ which is why each ships in two forms.
 fixtures — `tests/fixtures/{rust,go,python,typescript}/`, each with its
 indexer's `index.scip` — `calls` and `calls_exact` return the same edges, and
 every row of `?- calls_at(From, S, F, L, P).` reads `P = "exact"`. That is by
-construction rather than by luck: the `name` rules carry `!scip_ref(...)`, so
+construction rather than by luck: the `name` rules carry `!scip_claim(...)`, so
 tier A cannot invent an edge at a position tier B already answered
 ([02-extraction.md](../specs/02-extraction.md) § Validation 4). A fully covered
 tree is the case where the distinction costs you nothing.
@@ -213,7 +213,7 @@ you" never reads as "the answer is none".
 What tier A invents is visible one rule further on. `?- recursive(S).` on this
 repository reports `get` and `settle`, among others, and neither recurses:
 
-- `Db::get` (`crates/datalog/src/db.rs:26`) has the body `self.rels.get(name)`,
+- `Db::get` (`crates/datalog/src/db.rs:25`) has the body `self.rels.get(name)`,
   a `BTreeMap::get`. Tier A matched the identifier `get` to the enclosing
   definition of that name and invented a self-call.
 - `Segment::settle` (`crates/facts/src/segment.rs:87`) calls `rows.settle()`,
