@@ -180,7 +180,7 @@ the measurement apparatus exactly as it applies to the tool.
 | 0 | `cargo test -p codeintel --test counters --test cost` | seconds | every edit |
 | 1 | `provision apply tasks/score.yml` — fd only | ~1 min | **the experiment gate** |
 | 2 | Tier 1 on tokio + `tasks/bench.yml` | ~10 min | pre-merge |
-| 3 | the agent eval, automated | hours | merge gate for schema, rule signatures, rendering |
+| 3 | `python3 tests/fixtures/eval/run.py` — the agent eval, automated ([agent-eval.md](agent-eval.md) § Tier 3 runner) | ~$3, ~30 min | merge gate for schema, rule signatures, rendering |
 
 Tier 0's `cost.rs` is `counters.rs`'s twin: it pins **answer bytes** per fixture
 query the way `counters.rs` pins `derived`. Exact, clock-free, CI-safe, and
