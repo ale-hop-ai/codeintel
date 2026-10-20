@@ -1,7 +1,7 @@
 {
   "calibration": {
-    "calibration": 0.5,
-    "flagged": 30,
+    "calibration": 1.0,
+    "flagged": 60,
     "wrong": 60
   },
   "corpus": {
@@ -11,11 +11,11 @@
     "rev": "b422e5d8c9cffaa1ae43ba68e7b97a60fb3e8ae5"
   },
   "cost": {
-    "answer_bytes_p50": 7192,
-    "answer_bytes_p95": 55070,
-    "answer_bytes_total": 125390,
-    "bytes_per_row": 166.2997,
-    "schema_bytes": 15407
+    "answer_bytes_p50": 2246,
+    "answer_bytes_p95": 16733,
+    "answer_bytes_total": 38985,
+    "bytes_per_row": 51.7042,
+    "schema_bytes": 5356
   },
   "coverage": {
     "role_known": 0.0,
@@ -71,5 +71,5 @@
     "index": "blake3:8c40e05f250c077efa9ff807b735d0df0b3ec5d4281aa41adced32100f7d4c6f",
     "status": "ok"
   },
-  "tool": "6f7861adcb8c"
+  "tool": "a9e1e462b59d"
 }
