@@ -799,7 +799,7 @@ scorer:
   direct children (`Backend#`, `Store#`, `open()`) and four below them
   (`Backend#get()`, `Store#get/put/evict()`). Seven.
 - **Q19** — one row, `scip ts util/retry().`; it is the third `exported` clause's
-  body verbatim (`rules/stdlib.dl:39`). **One latent weakness, not a defect:**
+  body verbatim (`rules/stdlib.dl:40`). **One latent weakness, not a defect:**
   the question says "*rather than* by their own declaration" and the reference
   has no such filter. It returns the same row only because the fixture has no
   declaration that is both `public` and named in an export clause. Adding
