@@ -178,3 +178,43 @@ fn a_run_id_names_the_code_that_produced_it() {
         );
     }
 }
+
+#[test]
+fn a_run_that_started_quiet_and_ended_busy_is_not_committable() {
+    // The case the start-only check missed: a deno run began at 0.39 per core
+    // and ended at 1.99 because Defender and an unrelated build woke up inside
+    // it. Every number came from across that ramp.
+    let quiet = Conditions {
+        load1: Some(3.85),
+        cores: 10,
+    };
+    let busy = Conditions {
+        load1: Some(19.89),
+        cores: 10,
+    };
+    assert!(quiet.safe_to_commit(), "the start was genuinely fine");
+    assert!(
+        !conditions::held_steady(quiet, busy),
+        "a run interrupted mid-flight is not a baseline"
+    );
+    assert!(conditions::held_steady(quiet, quiet));
+}
+
+#[test]
+fn the_end_bound_leaves_room_for_the_benchs_own_threads() {
+    // The walk runs on four threads, so the bench raises load by roughly half
+    // a runnable thread per core. The end bound has to tolerate that or the
+    // biggest corpus could never be baselined at all.
+    let start = Conditions {
+        load1: Some(3.0),
+        cores: 10,
+    };
+    let ours = Conditions {
+        load1: Some(8.0),
+        cores: 10,
+    };
+    assert!(
+        conditions::held_steady(start, ours),
+        "0.8 per core at the end is the bench working, not an interruption"
+    );
+}

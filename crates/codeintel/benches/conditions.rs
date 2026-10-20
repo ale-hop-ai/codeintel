@@ -64,6 +64,22 @@ use serde_json::{Value, json};
 /// chosen by taste.
 pub(crate) const MAX_LOAD_PER_CORE: f64 = 0.5;
 
+/// Load per core at the **end** of a run above which something other than the
+/// bench must have arrived.
+///
+/// The start reading cannot catch a machine that was idle when the run began
+/// and busy by the time it finished, and that is not hypothetical: a deno run
+/// started at 0.39 per core and ended at 1.99, because Defender and an
+/// unrelated TypeScript build woke up inside it. Every number it produced was
+/// measured across that ramp, and the start-only check called it trustworthy.
+///
+/// Judged looser than the start, because the bench's own work legitimately
+/// raises load — the walk alone runs on four threads, so it can add roughly
+/// half a runnable thread per core on a ten-core box. Twice the start limit
+/// leaves room for that and still catches an external arrival, which is what
+/// this is looking for.
+pub(crate) const MAX_END_LOAD_PER_CORE: f64 = MAX_LOAD_PER_CORE * 2.0;
+
 /// What the machine was doing at one moment.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Conditions {
@@ -189,6 +205,18 @@ impl Verdict {
     }
 }
 
+/// Whether the machine stayed quiet for the whole run.
+///
+/// A run is only worth committing if it began quiet **and** was still quiet at
+/// the end. See [`MAX_END_LOAD_PER_CORE`].
+#[must_use]
+pub(crate) fn held_steady(start: Conditions, end: Conditions) -> bool {
+    start.safe_to_commit()
+        && end
+            .per_core()
+            .is_none_or(|per| per <= MAX_END_LOAD_PER_CORE)
+}
+
 /// Start and end conditions as they are recorded beside a result.
 ///
 /// Deliberately **not** part of `host()`: that value is compared for equality
@@ -204,6 +232,8 @@ pub(crate) fn report(start: Conditions, end: Conditions) -> Value {
         "cores": start.cores,
         "max_load_per_core": MAX_LOAD_PER_CORE,
         "trustworthy": start.trustworthy(),
+        "held_steady": held_steady(start, end),
+        "max_end_load_per_core": MAX_END_LOAD_PER_CORE,
         "dirty_tree": dirty_tree(),
         "run_id": run_id(),
     })

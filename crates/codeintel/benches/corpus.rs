@@ -150,12 +150,14 @@ fn run() -> Result<Verdict> {
     let reindex_one_ms = reindex_one(&root, &reindex_file)?;
     println!("reindex_one_ms  {reindex_one_ms:>9.1}");
 
+    // Read once, so the value written and the value judged are the same one.
+    let ended_under = Conditions::now();
     let current = json!({
         "corpus": { "name": name, "rev": rev, "files": files, "defs": defs },
         "host": host(),
         // Beside the result, not inside `host()`: that value is compared for
         // equality to decide "same machine", and load differs every run.
-        "conditions": conditions::report(started_under, Conditions::now()),
+        "conditions": conditions::report(started_under, ended_under),
         // Needs root to drop (`purge`, /proc/sys/vm/drop_caches). Not measured,
         // and saying so rather than leaving the key out.
         "cold_page_cache": null,
@@ -193,7 +195,19 @@ fn run() -> Result<Verdict> {
 
     let baseline = spec.join("baseline.json");
     if std::env::var_os("UPDATE_BASELINE").is_some() {
-        // The load refusal already happened at the top of the run.
+        // The start check cannot catch a machine that was idle when the run
+        // began and busy by the time it ended, and the numbers above were
+        // measured across the whole span, not at the start of it.
+        if !conditions::held_steady(started_under, ended_under) {
+            println!(
+                "REFUSED: not writing a baseline. The run began at {} and ended at {}. Something \
+                 arrived while it was measuring, so these numbers describe the interruption as \
+                 much as the code. Re-run UPDATE_BASELINE=1 on a machine that stays idle.",
+                started_under.describe(),
+                ended_under.describe()
+            );
+            return Ok(Verdict::Fail);
+        }
         if conditions::dirty_tree() {
             println!(
                 "note: the tree is dirty, so this baseline describes a build that cannot be \

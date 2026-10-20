@@ -1324,6 +1324,69 @@ dominating, which is the size the criteria are written against.
 Issue #28 stays open, retitled to the contract question rather than the
 profiling one: the profiling is done.
 
+**Addendum, 2026-10-20: the bench had been measuring an empty tree.** The
+re-baseline this section asks for did not happen, and the reason is worth more
+than the numbers would have been.
+
+`index::discard` empties whatever directory it is given. It used to take the
+repository root and join `.codeintel` itself; 80e3b59 (#63) changed it to take
+the index directory and updated `main.rs`, but not `benches/corpus.rs`. So from
+2026-10-17 the corpus bench deleted its own corpus copy on the first of three
+cold-index runs, and everything after that measured nothing: fd reported a
+20 ms cold index over **0 files and 0 defs**, all nine queries answered zero
+rows, and `reindex_one` died looking for a file it had erased. Fixed in
+b8c93c9, with a guard — a pinned corpus is never empty, so a cold index that
+finds no files now fails loudly instead of reporting plausible zeros.
+
+The committed baselines predate the bug (written 2026-09-13), so they are stale
+rather than corrupt. The hazard was the next `UPDATE_BASELINE`: it compares
+against nothing, so it would have written measurements of an empty tree over
+the only real reference numbers and nothing would have objected. **The load
+gate added the day before guards against a busy host, not a broken harness.**
+
+What was established on a verified-quiet host (0.28 load per core, start to
+end, recorded in `target/bench/<name>-<rev>.json`):
+
+- **tokio still meets the done-when.** MCP p50 **18.8 ms**, p95 **30.3 ms**,
+  against 18.7 / 31.7 in the baseline. The parallel walk did not cost it.
+- **`load_warm_ms` on tokio went 21.7 -> 84.5, and the walk cannot explain it**
+  — loading does not walk. It is a per-file-open cost in the environment:
+  +63 ms over 799 segments is ~79 us each. That figure predicted deno's
+  `load_warm` at ~510 ms before it was run; deno measured **493.6**, within 3%.
+  Corporate endpoint security hooks every file operation on this machine, and
+  `find` over the settled deno tree takes 0.55 s for ~14.8k files, roughly 10x
+  what the hardware should do.
+- **deno could not be measured.** Its run began at 0.39 load per core and ended
+  at 1.99 — Defender and an unrelated TypeScript build woke up inside it — so
+  every deno figure from 2026-10-20 is across a ramp and is not evidence. Its
+  `mcp_p50` read 344.5 and its p95 1104.1; **do not quote those.**
+
+**No baseline was refreshed, deliberately.** The counter deltas are all
+explained and all intentional — `defs` moved 638 -> 629 on fd because 225afa5
+keys the counter on the symbol rather than the declaration (the `def` relation
+itself diffs identical, 629 rows either way); query 8's `derived` moved because
+c6d807b and 71dde10 require an enclosing def before a reference is a call, so
+fd's `calls` went 495 -> 491 with query 8's answers unchanged; and its status
+moved `truncated` -> `no-scip` because 95a3f51 stopped a cap hiding a
+condition. Those belong in a refreshed baseline. The wall clock does not: it
+carries an environmental tax this machine applies and a clean machine would
+not, and committing it would set the +20% gate above the real cost, where it
+passes everything. `UPDATE_BASELINE` writes counters and clock together, so it
+is both or neither — **which is the argument for splitting them.**
+
+Two defects in the harness this turned up, both now fixed:
+
+- The load gate read conditions only at the **start**. deno started quiet and
+  ended loaded and was still marked trustworthy. A run is now committable only
+  if it also ends quiet, judged against twice the start limit so the bench's
+  own four-thread walk does not trip it.
+- `host()` identifies a machine by `available_parallelism()`, which reads 10
+  today and 12 when the baselines were written, so **wall clock was not
+  compared at all** on any corpus this run — tokio's 4x `load_warm` regression
+  passed in silence. The counter check caught every real problem today. That is
+  the argument for counters being the CI gate and the clock staying local, and
+  against `available_parallelism` as machine identity. Not fixed here.
+
 **Addendum, same day: there was a fix inside the contract after all.** The
 table above says the walk dominates; it does not say the walk was
 single-threaded, and it was. `ignore` ships a parallel walker, and using it
