@@ -703,6 +703,40 @@ fn entrypoint_is_a_callable_nothing_calls() {
     );
 }
 
+/// #111: `entrypoint_exact` is a candidate list. Pinned so the claim the
+/// schema line makes is a measured one, and so fixing the blind spot has to
+/// update the docs in the same commit.
+#[test]
+fn entrypoint_exact_lists_trait_impl_methods_and_the_free_function_filter_drops_them() {
+    // `impl Handler for Config`'s `handle` (kinds.rs:47) and `fmt` are members of
+    // a type, not called by anything in this tree, and listed.
+    let members = rows(
+        r#"?- entrypoint_exact(S), parent(S, P), def(P, _, "struct", _), def(S, F, _, N), at(S, F, L)."#,
+    );
+    assert!(
+        members
+            .iter()
+            .any(|r| r.starts_with("handle src/kinds.rs:47")),
+        "{members:?}"
+    );
+    assert!(
+        members.iter().any(|r| r.starts_with("fmt src/kinds.rs:62")),
+        "{members:?}"
+    );
+
+    // The documented filter: free functions only. No type member survives it.
+    let free =
+        rows(r#"?- entrypoint_exact(S), parent(S, P), def(P, _, "module", _), def(S, F, _, N)."#);
+    assert!(!free.is_empty(), "the filter must not empty the answer");
+    let in_free: Vec<&String> = free.iter().filter(|r| r.contains("kinds.rs")).collect();
+    assert!(
+        in_free
+            .iter()
+            .all(|r| !r.starts_with("handle ") && !r.starts_with("fmt ")),
+        "{free:?}"
+    );
+}
+
 #[test]
 fn def_lines_measures_and_leaves_the_threshold_to_the_caller() {
     // `long_def(S)` was deleted at schema 3 (#42). Its own doc line already

@@ -340,7 +340,7 @@ dead_export(S) :- exported(S), def(S, F, _, _), !ref_outside(S, F).
 %% ref_outside(S, F)  helper for dead_export.
 ref_outside(S, F) :- def(S, F, _, _), ref(S, G, _, _, _, _, _), G != F.
 
-%% entrypoint(S)  a callable nothing calls. See tier.
+%% entrypoint(S)  a callable nothing calls. See tier; NOT dead code, see entrypoint_exact.
 entrypoint(S) :- def(S, _, K, _), callable(K), !calls(_, S).
 
 %% def_lines(S, Lines)  lines S spans, first and last counted. Pick a threshold.
@@ -376,7 +376,23 @@ dead_export_exact(S) :- exported(S), resolved(S), def(S, F, _, _),
 %% ref_outside_exact(S, F)  ref_outside, SCIP-resolved refs only.
 ref_outside_exact(S, F) :- def(S, F, _, _), ref(S, G, _, _, _, _, "exact"), G != F.
 
-%% entrypoint_exact(S)  entrypoint, SCIP-resolved calls only.
+% What this can and cannot see (#111). A row is "no SCIP reference to S sits
+% inside a definition", and that is all it is. It does NOT consult
+% `scip_impl`/`implements` -- a perfect indexer would not change that -- so:
+%   * a call through a trait or interface names the TRAIT's method, and every
+%     implementing method lists here though it is live (verified on Go, where
+%     `scip_impl` has rows and the impl still lists);
+%   * `#[cfg(test)]` functions inside a source file list, because `is_test` is
+%     path-only;
+%   * a definition the anchor join did not reach (`resolved` absent) never
+%     lists, live or dead: absence here is not evidence of use either;
+%   * a reference outside any definition (file-scope code) is no call (see
+%     `calls_at`), so what only file-scope code calls lists.
+% `?- entrypoint_exact(S), parent(S, P), def(P, _, "module", _).` -- free
+% functions only -- drops the first class: a module-level function is not a
+% trait's. It is a filter the caller writes, not a rule: dropping every
+% member from the answer is a judgment about dead inherent methods.
+%% entrypoint_exact(S)  entrypoint, SCIP calls only. A candidate, not dead code: trait/interface impls and in-file tests list; unanchored defs never do.
 entrypoint_exact(S) :- def(S, _, K, _), callable(K), resolved(S),
                        !calls_exact(_, S).
 %% depends_exact(F, G)  depends, SCIP-resolved refs only.
