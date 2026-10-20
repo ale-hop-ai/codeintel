@@ -778,3 +778,149 @@ question, and it is not obviously yes.
 **This run is not comparable to the 85/90 frozen bank**, and the 93% above is
 kept rather than replaced: the before number stays on the page, which is the
 condition under which re-running is an experiment and not a re-roll.
+
+---
+
+# The four survivors, read — 2026-10-20 (#85)
+
+Q14, Q19, Q34 and Q68 of the working bank, read from the two Tier 3 runs'
+`answers.tsv` and `outcomes.json` (the run that scored 210/225 and the one that
+scored 216/225), and re-checked against `tests/fixtures/eval/bank.dl` through
+`cargo run -p codeintel --example eval`. **No agent was run for this.** Nothing
+below is measured; § Predictions is written before any re-run, so that a re-run
+can be held to it.
+
+## Defective-reference check first
+
+All four references recompute and hold. Re-derived by hand, not through the
+scorer:
+
+- **Q14** — `within(A, "scip demo store/")` returns 7. `parent` gives three
+  direct children (`Backend#`, `Store#`, `open()`) and four below them
+  (`Backend#get()`, `Store#get/put/evict()`). Seven.
+- **Q19** — one row, `scip ts util/retry().`; it is the third `exported` clause's
+  body verbatim (`rules/stdlib.dl:39`). **One latent weakness, not a defect:**
+  the question says "*rather than* by their own declaration" and the reference
+  has no such filter. It returns the same row only because the fixture has no
+  declaration that is both `public` and named in an export clause. Adding
+  `!visibility(A, "public")` moves no row here; it is left alone, because a
+  reference edit is the owner's call.
+- **Q34** — `calls_exact` from `init` is `connect`, `open` (2); transitively 4.
+  The reference is the transitive reading. See below: the question does not say
+  so.
+- **Q68** — `calls_at` to `put` is `connect` and `test_put`, both `exact`.
+
+**Question defect found, not a reference defect.** Q34 begins "The same, for …".
+Its referent is Q33. The partition put Q33 and Q34 in different agent groups in
+all three rounds of both runs, so no agent ever saw what "the same" meant. Six
+bank questions open this way (28, 32, 34, 40, 43, 46). Q34 survives because the
+words "each callee" were enough for 5 of 6 samples to guess `reach_of_exact`.
+
+## The four
+
+### Q14 — "contained … in the module `"scip demo store/"`"
+
+- **Wrote** (3 of 6 samples, both runs):
+  `?- def(M, _, "module", "scip demo store/"), within(A, M).` Run 2 round 2 the
+  same with `P`. Empty: `def`'s fourth column is `Name`, which is `store`.
+- **Read the signature as:** the quoted string is the module's name, because the
+  question says "the module". `def (S, F, Kind, Name)` is documented; nothing
+  says what a quoted `"scip …"` string is.
+- **Would have had to see:** that it is a SymId and goes in an `S` position
+  directly. The page prints no SymId anywhere — NOTES says only that columns
+  print `Name path:line` "not the SymId". The agent that passed wrote
+  `within(A, "scip demo store/")`, which is what Q13 (no kind word) gets from
+  every sample.
+- **Bucket: teachable gap.** Same shape as the M1 bank's Q5 (symbol id in
+  `def`'s `Name` slot), which that page called an agent slip at 1 in 90. At 3 in
+  6 on one question it is not a slip.
+
+### Q19 — "exported by a TypeScript export clause rather than by their own declaration"
+
+- **Wrote:** all six samples found `name_export` and joined it to `def` — so the
+  issue's worry, a relation too rare to teach, is **refuted**: rarity cost
+  nothing. Then each added a filter for "rather than":
+  `!exported(A)` (4 of 6, both runs); `visibility(A, "inherited")` (1);
+  `visibility(A, V), V != "public"` (1, the only pass).
+- **Read the signature as:** `exported(S)` — "S is visible outside its crate" —
+  as the declaration's own `pub`, so `!exported` means "no `pub` of its own". It
+  is not: its third clause is `name_export`, so `!exported(A)` after a
+  `name_export` join is a contradiction and always empty. `inherited` was read
+  as "states nothing"; in TypeScript a bare declaration reads `restricted`
+  (`crates/extract/tests/typescript.rs:141`), and `inherited` is the
+  variant/trait-item case.
+- **Would have had to see:** that `exported` is the union of `public`, parent
+  inheritance and `name_export`.
+- **Bucket: teachable gap.** The page states `name_export` and `exported` and
+  never connects them.
+
+### Q34 — "The same, for `"scip demo lib/init()."`, … compiler-resolved"
+
+- **Wrote** (1 of 6 fails): run 2 round 2,
+  `def(S, F, _, "init"), contains(F, "lib/"), reach_of_exact(S, A)`. It took the
+  quoted id apart into a name and a directory. `init` lives in `src/lib.rs`, so
+  `"lib/"` matches nothing. The same agent's identical shape in run 1 used
+  `"lib"` and passed — by accident of one slash.
+- **Read the signature as:** the same SymId-is-a-description misreading as Q14.
+- **Would have had to see:** the Q14 line.
+- **Bucket: teachable gap, at the noise floor** — one sample in six. Plus the
+  dangling "The same" above, which is a question defect and is not charged to the
+  schema.
+
+### Q68 — "using the orientation relation only, who calls …"
+
+- **Wrote** (1 of 6 fails): `about(…, "caller", C, _, _), def(C, A, _, B).` It
+  took `about`'s `A` to be the caller's symbol and joined `def` for file and name.
+  Empty: for `caller`, `A` already is the file and `B` the name
+  (`rules/stdlib.dl:317`).
+- **Read the signature as:** `about(S, Rel, A, B, Line)` — the page never says
+  what `A`, `B` and `Line` hold for any `Rel`. They differ by `Rel`: `sig`/`doc`
+  put the text in `A`; `extern` puts package and version there.
+- **Would have had to see:** one line saying `A,B,Line` are file, name, line of
+  the related symbol. The question's own "bind the caller's file to A" was
+  available and was passed over.
+- **Bucket: teachable gap, at the noise floor.** The other five samples read
+  `A`/`B` correctly without the line.
+
+## Predictions, in advance
+
+Three edits, each a doc line, priced by rendering the page with and without
+(`eval --facts bank.dl --schema`: 5,299 → 5,505 bytes, **+206, +3.9%**):
+
+| Fixes | Edit | Bytes |
+|---|---|---:|
+| Q19 | `exported(S)  S is visible outside its crate: public, inherited from parent, or in name_export.` (`rules/stdlib.dl`) | **+50** |
+| Q14, Q34 | NOTES: `a quoted "scip ..." or "local ..." string IS a SymId: pass it as S, never as Name.` (`crates/codeintel/src/schema.rs`) | **+85** |
+| Q68 | `about(...)`: append `A,B,Line = file, name, line of the RELATED symbol (sig/doc: A = text).` (`rules/stdlib.dl`) | **+71** |
+
+Cheapest first, by failing samples per byte: Q19 (4 of 6 samples removed by the
+`exported` gloss, 50 B), Q14 + Q34 (4 of 12, 85 B), Q68 (1 of 6, 71 B).
+
+Predicted recovery against run 2's 216/225, one re-run at the same seed:
+
+| | run 2 | predicted | would falsify |
+|---|---:|---:|---|
+| Q19 | 1/3 | **2–3/3** | still ≤ 1/3: the filter confusion is about `visibility` values, not `exported`; the next edit glosses `restricted` |
+| Q14 | 1/3 | **3/3** | still failing: the cause is the question's word "module", not the page |
+| Q34 | 2/3 | 3/3 — **indistinguishable from noise** | — |
+| Q68 | 2/3 | 3/3 — **indistinguishable from noise** | — |
+| **Total** | 216 | **221–223/225**, majority-passes 74–75/75 | — |
+
+Q34 and Q68 each fail 1 sample in 6 across both runs; one re-run of 3 cannot
+separate a fixed gap from variance, and this page should not claim it did. The
+Q19 and Q14 rows are the testable ones. No confirmation rate is expected to move:
+every edit is a doc line, none touches a rule.
+
+**What is not recommended.** Teaching `name_export` harder: the evidence is that
+it was found 6 of 6. Rewording Q14 before the re-run: that would change what a
+recorded run was asked; if Q14 survives the edit, reword it and say so.
+
+**One run settles Q14's cause** (page vs wording) and nothing cheaper does; that
+is a ~$2.88 call and is left to the owner.
+
+## Side finding
+
+A two-line `%%` doc in `stdlib.dl` is joined into one page line with the
+continuation's leading spaces kept, and the page's own `about` line is already
+cut mid-list (`caller| callee`). Single-line `%%` docs were used for the pricing
+above to avoid it.
