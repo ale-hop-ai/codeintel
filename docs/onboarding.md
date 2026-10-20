@@ -1,6 +1,6 @@
 ---
 id: onboarding
-status: part implemented; D1 and D2 decided 2026-10-19, D3 still open
+status: part implemented; F1 and F2 closed (80e3b59), F3-F9 open; D1, D2 and D3 decided 2026-10-19
 binding: the decisions in §7 are binding; the rest is research
 ---
 # Onboarding — install once, run one command, usable
@@ -37,21 +37,26 @@ they are what stops this from growing into a daemon:
 
 | # | Friction | Evidence |
 |---|---|---|
-| F1 | The store lives in the tree: `.codeintel/` under the repo root | `crates/facts/src/store.rs:23,53` |
-| F2 | `codeintel index` **edits a tracked file** — appends `.codeintel/` to `.gitignore` | `crates/codeintel/src/index.rs:484-503`, `crates/codeintel/src/main.rs:307-309` |
-| F3 | SCIP output is expected at `./index.scip` in the repo root, so it must be ignored too | `crates/codeintel/src/main.rs:338-344`, `crates/codeintel/src/index.rs:20` |
-| F4 | Indexers are never run — the tool prints the command and stops | `crates/codeintel/src/main.rs:396-412`, `crates/extract/src/lang.rs:217` |
-| F5 | Indexers are never installed, and installing them is per-language and undocumented | nothing in `tasks/` |
-| F6 | SCIP re-runs are manual; drift is *detected* (`scip-stale`) but nobody acts on it | `specs/05-surface.md:32`, `crates/codeintel/src/main.rs:456-462` |
+| F1 | The store lives in the tree: `.codeintel/` under the repo root | **CLOSED** by `80e3b59` (#63). Was `store.rs:23,53`. Now `crates/facts/src/store.rs:25` (`DIR`, "never created") and `:41-73` (`locate`: flag, legacy in-tree dir if present, else the cache dir) |
+| F2 | `codeintel index` **edits a tracked file** — appends `.codeintel/` to `.gitignore` | **CLOSED** by `80e3b59` (#63), which deleted `ignore_the_store()` (introduced `9e72fb0`). Nothing in `crates/*/src` writes `.gitignore`; `crates/extract/src/walk.rs:3,83` only reads it. Guarded by `crates/codeintel/tests/location.rs:78-80` ("`.gitignore` must not be touched") |
+| F3 | SCIP output is expected at `./index.scip` in the repo root, so it must be ignored too | **STILL TRUE.** `crates/codeintel/src/index.rs:20` (`DEFAULT_SCIP`), `crates/codeintel/src/main.rs:412-422` (default input when the file exists). The indexer writes wherever the user ran it; this repository's own `.gitignore:9` still carries `/index.scip` |
+| F4 | Indexers are never run — the tool prints the command and stops | **STILL TRUE.** `crates/codeintel/src/main.rs:527-545` (`report_scip` prints one command per language), `crates/extract/src/lang.rs:221` (`Lang.indexer`). No `std::process::Command` anywhere in `crates/*/src`; `--run-indexers` (D2) is decided, not built |
+| F5 | Indexers are never installed, and installing them is per-language and undocumented | **STILL TRUE.** `tasks/` holds no indexer install (no `tasks/indexers.yml`); `tasks/score.yml:19-78` *invokes* `rust-analyzer scip` for its corpora and assumes it is present. `README.md:146` names the commands, not how to get them |
+| F6 | SCIP re-runs are manual; drift is *detected* (`scip-stale`) but nobody acts on it | **STILL TRUE.** `specs/05-surface.md:32` (the status), `crates/codeintel/src/query.rs:1105-1118` (hint names the commands), `crates/codeintel/src/main.rs:595-600` (`index` summary), `crates/codeintel/src/query.rs:1225-1229` (auto-refresh is tier-A only by design) |
 | F7 | First query on a fresh clone is `no-index`, not an answer | `crates/codeintel/src/query.rs:218-223` |
 | F8 | MCP registration is per repository (`--path /your/repo`) | `README.md` § Install, `crates/codeintel/src/main.rs:84` |
 | F9 | Installing `codeintel` itself needs a Rust toolchain and a checkout of this repo | `README.md` § Install, `docs/plan.md:128` |
 
-**Status, 2026-10-19.** F1, F2 and F3 are closed — the store moved out of the
-tree (§7 D1) and `ignore_the_store()` was deleted with it. F4 is half-closed by
-§7 D2: the command is printed, and `--run-indexers` will run it on request. F5
-through F9 are open. The paragraph and table above are left as written because
-they are the evidence the decisions were made against.
+**Status, re-verified 2026-10-20 against the tree.** F1 and F2 are closed by
+`80e3b59` — the store moved out of the tree (§7 D1) and `ignore_the_store()`
+was deleted with it. F3 is **not** closed: the earlier note here said it was,
+but `./index.scip` is still the default input and nothing moves indexer output
+into the store (that waits on `--run-indexers`, §4.2). F4 is decided, not
+built: §7 D2 makes `--run-indexers` opt-in, and today the command is only
+printed. F5 and F6 still hold. F7 through F9 are outside this pass and are
+unchecked. The §2 table cites the lines read on 2026-10-20; the
+paragraphs below it are left as written because they are the evidence the
+decisions were made against.
 
 F2 is the sharpest one and is worth spelling out: `.gitignore` is a **tracked**
 file. `codeintel index` therefore dirties `git status`, can be committed by
@@ -314,9 +319,12 @@ in §4.2 stands unchanged and is binding when the flag is built:
 This leaves F4 half-solved and that is accepted: the tool prints the command,
 and `--run-indexers` runs it for you when you say so.
 
-**D3 — does the first query bootstrap an index? STILL OPEN.** Option (a), keep
-`no-index` plus an exact hint, remains the standing behaviour and the
-recommendation. Issue #59 carries the live form of this question, and the
-work on #59 is scoped to option (b)'s cheaper half — make the hint one
-complete line — precisely so that deciding D3 later costs nothing now.
-Revisit when the `--run-indexers` work lands.
+**D3 — does the first query bootstrap an index? DECIDED: no (option a), with
+the cheaper half of option (b) shipped.** Recorded 2026-10-20; the decision was
+taken on #59 (closed 2026-10-19), and this page had not caught up. The `no-index`
+hint is one complete chained line (`da19139`), and a bootstrap on the query path
+is declined, not deferred: it breaks §1's rule that nothing runs a build behind a
+query, and it risks an agent answering from a half-built index, which is a
+confidently wrong answer rather than a missing one. #61 also made the commonest
+real `no-index` miss — an index in a subdirectory — resolve by itself. No issue
+is needed; there is nothing left to decide.
