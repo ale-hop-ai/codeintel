@@ -402,10 +402,10 @@ binary is on `PATH`, and shell out. The whole feature would be a table, a
 
 | Language | Command | Needs |
 |---|---|---|
-| Rust | `rust-analyzer scip .` | a cargo workspace |
+| Rust | `rust-analyzer scip .` | a cargo workspace. Measured 2026-10-20 on fd and tokio: the role bitset is `Definition` or empty — every reference is `unknown`, so `Role` carries nothing — and no `Relationship` is written, so `scip_impl` is empty and `implements/3` is name-only |
 | TypeScript/TSX | `scip-typescript index --infer-tsconfig` | `node_modules` installed, for anything beyond the project's own sources. `scip-typescript` 0.4.0 writes no `kind`, no `display_name`, no `Document.language`, an empty role bitset on every reference, and no position encoding while counting UTF-16 (§ Position normalization). It does write `is_implementation` for `implements`, so `implements/3` has TypeScript rows |
 | Python | `scip-python index . --project-name <name>` | an environment with deps. `--project-name` defaults to empty, which upstream says supports repository-local navigation only; `--output` already defaults to `index.scip` |
-| Go | `scip-go` | a buildable module. Installed from `github.com/scip-code/scip-go/cmd/scip-go` — the project moved out of the `sourcegraph` org, and the old path now fails `go install` with a module-path conflict rather than a 404 |
+| Go | `scip-go` | a buildable module. Measured on a 116-package module: `is_implementation` is written (476 relationships), so `scip_impl` has rows. Every reference carries `ReadAccess` and nothing else — the indexer hard-codes it (`internal/visitors/visitor_file.go`, `newReference`), so `read` means "is a reference" and `write`/`import`/`test` never occur. Installed from `github.com/scip-code/scip-go/cmd/scip-go` — the project moved out of the `sourcegraph` org, and the old path now fails `go install` with a module-path conflict rather than a 404 |
 | Java/Scala/Kotlin | `scip-java index` | a working build |
 | C / C++ | `scip-clang --compdb-path compile_commands.json` | a compilation database |
 | Ruby | `scip-ruby` | a Sorbet-typechecked project |
