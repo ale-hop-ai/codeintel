@@ -580,6 +580,41 @@ What detection buys is one line of report. The user reads it, re-runs with
 `--scip-root daemon`, and the re-base is then a fact they declared. That is the
 whole fix in practice, and it costs the facts nothing.
 
+### Indexer evidence
+
+`codeintel` prints a command for four programs it does not own. A printed
+command reads as verified whether or not anyone ran it, and three bugs came
+from that: a flag nobody had run (#93), a chain that cannot be written without
+each indexer's real flag spelling (#102), and an indexer that exits 0 over an
+empty index (#109). The audit is #122.
+
+The honest place for the difference is **this table, not the hint.** "Never run
+by us" is a fact about the project's knowledge, not about the repository: it
+traces to no byte range and no SCIP field (invariant 1), it is constant per
+language, and it changes only when someone runs an indexer. Carried in output it
+would ride every `no-scip` and `scip-stale` answer, cannot sit inside the
+runnable chain (`scip-python index . (unverified)` is a syntax error in `sh`,
+and `# unverified` comments out the `&&` tail), and gives the reader — who
+cannot verify either — a caveat with no action. What *did* run is reported where
+it is knowable: `index` prints `scip: <path> (<tool> <version>) — N documents`.
+
+Two classes and no gradient: **executed** — run, with tool version and date —
+and **unverified**, which is everything else, a README included.
+`crates/codeintel/tests/indexer_evidence.rs` fails when a `Lang.indexer` string
+has no row, when a row names a command nothing emits, or when `executed` has no
+version and date. Changing a command is changing its row, in the same commit.
+
+| Command | Class | Evidence |
+|---|---|---|
+| `rust-analyzer scip .` | executed | 1.98.1, 2026-10-21, from the repository root of a copy of `tests/fixtures/rust`: exit 0, writes `./index.scip`. Also fd and tokio, 2026-10-20 (§ Acquisition) |
+| `scip-go` | executed | 0.2.7, 2026-10-21, **only with `go.mod` in the working directory**: exit 0, `./index.scip`. With `go.mod` one level down it exits 0 too, warns `No go.mod file found`, writes a 172-byte index, and `codeintel index` ingests `0 documents` (#109), so the chain's `&&` does not stop it |
+| `scip-python index .` | unverified | not installed on this host. `scip-python` 0.6.6 produced the committed fixture, on another worktree, with a command line nobody recorded (`Metadata.tool_info` has no arguments); its symbols name package `fixture 0.1.0` from no manifest in the fixture, so it was probably given flags this command does not carry |
+| `scip-typescript index --infer-tsconfig` | unverified | not installed on this host. `scip-typescript` 0.4.0 produced the committed fixture with an unrecorded command line, and the fixture has its own `tsconfig.json`, so `--infer-tsconfig` was probably not exercised |
+
+`codeintel index`, `--rebuild` and `--scip-root` in the same hints are this
+binary's own flags and are not in the table. The chain's `sh -n` guard
+(`hint_runs.rs`) proves the line parses; it runs no indexer.
+
 ### Ingest
 
 From `scip.proto` (field names verbatim):

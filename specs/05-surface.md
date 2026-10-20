@@ -557,11 +557,16 @@ no index for /repo. run: cd /repo && codeintel index . && rust-analyzer scip . &
   supply is written without it. `crates/codeintel/tests/hint_runs.rs` runs the
   hint, and the `build one:` list `index` prints, through `sh -n` over a tree
   holding every language in the table, at a root with a space and a quote.
-- **The chain is `&&` on purpose.** If one indexer is missing or fails, the
-  chain stops there and the final `codeintel index .` does not run: nothing is
-  ingested, and the index stays tier A, which is what it already was. A partial
-  SCIP set ingested without anyone being told is the worse outcome. The shell
-  reports which command failed.
+- **The chain is `&&` on purpose.** If one indexer is missing or exits
+  non-zero, the chain stops there and the final `codeintel index .` does not
+  run: nothing is ingested, and the index stays tier A, which is what it already
+  was. A partial SCIP set ingested without anyone being told is the worse
+  outcome. The shell reports which command failed. **This guards only an
+  indexer that fails.** `scip-go` run where `go.mod` is not the working
+  directory exits 0 over an empty index, so the chain continues and `index`
+  ingests `0 documents` (#109); what catches that is `index`'s own `scip
+  coverage` line, not the `&&`. § Indexer evidence in
+  [02-extraction.md](02-extraction.md) records which commands have been run.
 - When discovery found indexes that were not adopted, the hint names them
   first: `no index for /repo; found one at /repo/daemon`. The found path is the
   **root**, not its store directory — that is what the caller passes to
