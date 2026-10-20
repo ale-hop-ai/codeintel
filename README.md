@@ -189,7 +189,7 @@ fresh agent each time.
 
 The second row is also the no-SCIP number: 45/45 with tier A alone. The first
 was withdrawn on 2026-09-13. Schema 2 deleted two rules that recorded answers
-call, and `tests/eval_rot.rs`, which now recomputes set A on every commit,
+call, and `crates/codeintel/tests/eval_rot.rs`, which now recomputes set A on every commit,
 caught it.
 
 Every failure so far has been a *signature reading as something it is not*, and
