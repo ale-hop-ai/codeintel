@@ -999,7 +999,7 @@ The committed `tests/fixtures/*/index.scip` pin each indexer's output shape;
 that the pin is not changed silently. Whether a *newer* indexer still ingests
 correctly is a local check, like the bench: runbook in
 `tests/fixtures/README.md` § Indexer pins. It needs indexers installed, which
-waits on `tasks/indexers.yml` (`docs/onboarding.md` F5).
+waits on an indexer-install task (`docs/onboarding.md` F5, §4.3).
 
 ### Pulled forward, 2026-09-13 (#17)
 

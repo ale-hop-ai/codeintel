@@ -41,7 +41,7 @@ For each language, with the *newest* indexer installed:
    movement is a finding for an issue, with both versions and both outputs.
 
 Installing the indexers is not done here: it is a `~/dotfiles` + provision
-change (`docs/onboarding.md` F5, §4.3 `tasks/indexers.yml`, not yet written).
+change (`docs/onboarding.md` F5 and §4.3; the task is not written yet).
 The commands for `scip-python` and `scip-typescript` have never been run on this
 host, and `scip-go` needs a `--scip-root` pairing or it ingests 0 documents
 (#109); verify each before writing it into a task (#93).
