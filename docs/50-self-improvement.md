@@ -31,9 +31,17 @@ to SCIP-resolved rows, which is the compiler's answer. The name twin is a
 text-matching prediction of that answer. On a corpus with a fresh SCIP index the
 pair yields precision and recall directly, with no human and no clock.
 
-Measured on codeintel's own tree while writing this (SCIP stale on 45 files, so
-treat the number as a shape and not a result): **1004 distinct callers under
-`calls`, 310 of them confirmed by `calls_exact`, 714 name-only, 0 exact-only.**
+**Corrected 2026-10-20, by the first scoreboard.** This section opened with
+"1004 distinct callers under `calls`, 310 confirmed by `calls_exact`, 714
+name-only" — measured on codeintel's own tree with SCIP stale on 45 files, and
+offered as a shape rather than a result. The shape was wrong too, and wrong in
+the tool's favour. Against a fresh oracle, name-tier `calls` is **97.8 %
+precise on fd and 90.3 % on tokio**.
+
+A stale oracle does not add noise to this measurement, it adds bias: every file
+SCIP has not re-indexed contributes name-only rows that count as false
+positives. The lesson is the harness rule, not the number — **a scoreboard
+taken against a stale oracle is void**, and the bench enforces it.
 
 `dead_export`'s doc string says *"OVER-reports on name"*. `entrypoint`'s says
 *"INVERTS on name provenance"*. Those are qualitative hedges inside a schema an
@@ -90,7 +98,7 @@ same mistake one level up.
 | Metric | Today, on this tree |
 |---|---|
 | `anchor_rate` | 95.2% |
-| `span_coverage` (`def_span` / `def`, distinct symbols) | ~55% |
+| `span_coverage` (`def_span` / `def`, distinct symbols) | 0.37 fd / 0.35 tokio |
 | `role_known` (`scip_ref` rows with `Role != "unknown"`) | **0%** |
 | `scip_impl_rows` | **0** |
 
@@ -112,6 +120,24 @@ A perfect 1.0 means every wrong answer was flagged. **This is the metric to
 refuse to regress on**, because it is the one that makes invariant 2 worth
 having. A change that raises precision while lowering calibration has made the
 tool more confidently wrong, and that is worse than leaving it alone.
+
+**What the first scoreboard found, and it is worse than a low score.** fd reads
+0.50 and tokio 0.4944 — and *every flagged row is a `ref` row*. `calls`,
+`dead_export`, `entrypoint`, `depends` and `uses_package` carry no `Prov`
+column in their own tuples, so a wrong row from any of them is **structurally
+unflaggable**. The "or `status != ok`" clause is inert by construction, because
+the harness refuses to measure a corpus whose status is not `ok`.
+
+So this metric today reports one thing: the share of wrong rows that came from
+`ref`. And the claim above it — that codeintel "promises to say which tier
+answered" — is **false at the row level for five of the six rules**. The promise
+holds for the relation an agent reads through `ref/7`, and nowhere else.
+
+That is a finding about the tool, not about the metric, and it outranks every
+cost hypothesis in § 7: a cheaper answer that is still silently wrong is a worse
+tool, not a better one. Until a rule's output can carry its own provenance, the
+honest reading of this number is **"undefined for five of six rules"**, and it
+may not be averaged into a headline.
 
 ---
 
@@ -233,11 +259,18 @@ defined above.
 | # | Hypothesis | Target |
 |---|---|---|
 | 1 | Dropping `content[0].text` when the client takes `structuredContent`, and `rows` behind `raw:true`, cuts answer bytes ~3x with no capability loss | `answer_bytes`, eval flat |
-| 2 | The schema fits in <6 KB, from 18.3 KB, with eval score flat | `schema_bytes`, eval |
+| 2 | `schema_bytes` is three copies of one catalog, not a bloated catalog | `schema_bytes`, eval |
 | 3 | Wiring SCIP roles makes `is_test` and read/write real | `role_known`, `is_test` P/R |
 | 4 | `schema` and `status` refreshing like `query` removes the catalog/reality mismatch | coverage consistency |
 | 5 | Publishing per-rule precision *in the schema* improves an agent's choice of `_exact` variants | working-set eval, calibration |
 | 6 | Tier-A name matching gains recall without losing precision — method calls `x.f()` are mostly missing | `calls` P/R |
+
+**Hypothesis 2 was restated by the first scoreboard.** It read "the schema fits
+in <6 KB, from 18.3 KB" and assumed a diet was needed. Measured: 15,407 bytes on
+fd, of which `content[0].text` is 5,189 and `structuredContent` is 10,036 — and
+`structuredContent.text` is a **byte-identical copy** of `content[0].text`. The
+catalog is already under 6 KB. The surplus is three copies of it, so hypothesis
+2 is the same deduplication as hypothesis 1 and not a separate editing job.
 
 Hypothesis 5 is the one that closes the loop: it feeds the scoreboard back into
 the surface the agent reads, so the tool's own honesty becomes something it
