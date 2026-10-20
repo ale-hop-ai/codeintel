@@ -223,7 +223,7 @@ calls_at(From, S, F, L, Prov) :-
     def(From, _, FromKind, _), FromKind != "module",
     def(S, _, K, _), callable(K).
 
-%% calls(From, S)  From calls S, either provenance.
+%% calls(From, S)  From calls S.
 calls(From, S) :- calls_at(From, S, _, _, _).
 %% calls_exact(From, S)  From calls S, SCIP-resolved only.
 calls_exact(From, S) :- calls_at(From, S, _, _, "exact").
@@ -335,12 +335,12 @@ depends(F, G) :- ref(S, F, _, _, _, _, _), def(S, G, _, _), F != G.
 % only in a comparison, so the rule is not range-restricted and the engine
 % rejects its own standard library. F is always S's defining file at every call
 % site, so naming that is both the fix and the honest reading.
-%% dead_export(S)  exported, unreferenced elsewhere. OVER-reports on name.
+%% dead_export(S)  exported, unreferenced elsewhere. See tier.
 dead_export(S) :- exported(S), def(S, F, _, _), !ref_outside(S, F).
 %% ref_outside(S, F)  helper for dead_export.
 ref_outside(S, F) :- def(S, F, _, _), ref(S, G, _, _, _, _, _), G != F.
 
-%% entrypoint(S)  a callable nothing calls. INVERTS on name provenance.
+%% entrypoint(S)  a callable nothing calls. See tier.
 entrypoint(S) :- def(S, _, K, _), callable(K), !calls(_, S).
 
 %% def_lines(S, Lines)  lines S spans, first and last counted. Pick a threshold.
@@ -365,8 +365,8 @@ undocumented_export(S) :- exported(S), !def_doc(S, _).
 % specifier, not a package name -- `"std::collections::HashMap"` in Rust,
 % `"\"fmt\""` in Go, `"../db/conn"` in TypeScript. Rewriting either side into
 % the other is the guess 02-extraction.md forbids. Ask `import` instead.
-%% uses_package(F, P)  F references external package P, as the INDEXER names
-%%   it -- `@types/x`, not `x`. For what a file imports, ask `import`. #58
+%% uses_package(F, P)  F uses package P as the INDEXER names it -- `@types/x`,
+%%   not `x`. Imports: ask `import`. #58
 uses_package(F, P) :- ref(S, F, _, _, _, _, _), extern(S, _, P, _).
 
 % === the precise forms =================================================
@@ -381,6 +381,24 @@ entrypoint_exact(S) :- def(S, _, K, _), callable(K), resolved(S),
                        !calls_exact(_, S).
 %% depends_exact(F, G)  depends, SCIP-resolved refs only.
 depends_exact(F, G) :- ref(S, F, _, _, _, _, "exact"), def(S, G, _, _), F != G.
-%% uses_package_exact(F, P)  uses_package, SCIP-resolved refs only. P is the
-%%   indexer's package name, same as `uses_package`. #58
+%% uses_package_exact(F, P)  uses_package, SCIP-resolved only; P is the indexer's name. #58
 uses_package_exact(F, P) :- ref(S, F, _, _, _, _, "exact"), extern(S, _, P, _).
+
+% === row provenance ====================================================
+% The five rules above that read `calls` or `ref` drop `Prov` from their
+% tuples. `tier` hands it back without changing any of their heads: the same
+% rows, one more column, two values (specs/01-facts.md § Row provenance).
+% `exact` iff the `_exact` twin also yields the row; the pair of clauses is a
+% partition. `dead_export`/`entrypoint` join their name form because their twin
+% is not a subset of it (it also demands `resolved(S)`).
+%% tier(Rel, A, B, Prov)  Prov of calls|depends|uses_package|dead_export|entrypoint rows. Unary: B=""
+tier("calls", A, B, "exact")        :- calls_exact(A, B).
+tier("calls", A, B, "name")         :- calls(A, B), !calls_exact(A, B).
+tier("depends", A, B, "exact")      :- depends_exact(A, B).
+tier("depends", A, B, "name")       :- depends(A, B), !depends_exact(A, B).
+tier("uses_package", A, B, "exact") :- uses_package_exact(A, B).
+tier("uses_package", A, B, "name")  :- uses_package(A, B), !uses_package_exact(A, B).
+tier("dead_export", S, "", "exact") :- dead_export(S), dead_export_exact(S).
+tier("dead_export", S, "", "name")  :- dead_export(S), !dead_export_exact(S).
+tier("entrypoint", S, "", "exact")  :- entrypoint(S), entrypoint_exact(S).
+tier("entrypoint", S, "", "name")   :- entrypoint(S), !entrypoint_exact(S).

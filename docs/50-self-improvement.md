@@ -139,6 +139,16 @@ tool, not a better one. Until a rule's output can carry its own provenance, the
 honest reading of this number is **"undefined for five of six rules"**, and it
 may not be averaged into a headline.
 
+**Closed by `tier/4` (exp/prov-rows).** One added relation hands `Prov` back to
+the five rules without changing any head (`specs/01-facts.md` § Row
+provenance); calibration reads 1.0 on fd and tokio, with every precision, recall
+and answer byte unchanged. Read the 1.0 for what it is: the oracle is the
+`_exact` twin and `tier`'s `exact` is defined as "the twin also yields it", so a
+row the oracle calls wrong is `name` by construction. The metric now verifies
+that the promise is *kept*, not that `name` is *calibrated* — a `name` row that
+is right still counts as an honest guess. The promise holds only for an agent
+that asks `tier`; the bare heads are unchanged.
+
 ---
 
 ## 3. The scoreboard artifact

@@ -241,10 +241,16 @@ fn the_rule_list_matches_the_rules() {
     //                   `long_def(S)` = `def_lines(S, L), L > 80` — whose own
     //                   doc line already said to use `def_lines`.
     //
+    //   41 -> 42 (exp/prov-rows) `tier(Rel, A, B, Prov)`: five rules shipped
+    //                   with no `Prov` in their tuples, so a wrong row from
+    //                   them could not say it was a guess. One relation hands
+    //                   it back; no existing head changes
+    //                   (specs/01-facts.md § Row provenance).
+    //
     // This is the DRIFT tripwire, not the budget: the rule-count cap was
     // dropped in favour of the byte ceiling asserted by
     // `the_schema_fits_its_size_budget_with_the_rule_list_complete`.
-    assert_eq!(advertised.len(), 41, "the rule count moved: {advertised:?}");
+    assert_eq!(advertised.len(), 42, "the rule count moved: {advertised:?}");
 }
 
 #[test]
