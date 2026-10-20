@@ -1149,6 +1149,47 @@ defs, and which nobody re-ran because this harness is local-only. The eight
 tuples are the correct behaviour; the claim about a set nobody measured is the
 defect.
 
+**`corpus.defs` records a counter, and the counter was recounted.** Every
+baseline's `corpus.defs` ran high — fd 638 against 629, tokio 11,516 against
+11,376, deno 88,514 against 84,068 — and the cause is **`225afa5`** (#77,
+#103), which keyed `index`'s own counters on the symbol instead of on the
+declaration. The store did not move: `def` holds 629 rows for fd, 11,376 for
+tokio and 84,091 for deno on **both** sides of that commit, verified by
+indexing at `225afa5~1` and at `8d04a65` and counting rows rather than trusting
+either printout. Nothing was lost; the old number double-counted.
+
+fd's nine are `#[cfg]`-gated pairs — `is_block_device`, `is_char_device`,
+`is_pipe`, `is_socket` and `osstr_to_bytes` in `src/filesystem.rs`, plus
+`dirname_root`, `host`, `now` and `print_entry_uncolorized` — each one symbol
+with two declarations, which is what [01-facts.md](../specs/01-facts.md) § One
+symbol, several declarations says `def` holds once. 629 + 9 = 638.
+
+**This is the opposite shape from #88 and needs the opposite check.** There the
+count held and the contents had to be diffed; here the count moved, so the nine
+had to be named before anything was rewritten — a count that falls is a lost
+fact until the rows say otherwise.
+
+**deno's file count never moved, and the method is why it looked like it had.**
+Indexing the checkout directly reported 4,645 files against the baseline's
+4,711. Indexing a **copy made the way the bench makes it** — everything but
+`.git` and `target` — reports 4,711 exactly. The walk applies `.gitignore` only
+inside a git repository, so the copy, which has no `.git`, walks files the
+checkout skips. Measure a corpus the way the harness measures it or the number
+describes the method.
+
+The recount also did not land exactly on the rows everywhere: deno's counter
+reads 84,068 against 84,091 `def` rows, because it counts distinct symbols per
+file while `def` is distinct `(S, F, Kind, Name)`, so one symbol declared twice
+in a file under two kinds is two rows and one count. fd and tokio agree exactly.
+`corpus.defs` records the counter, so 84,068 is what the harness writes; the
+23-row gap is noted on #103 and is not a baseline question.
+
+**Nothing compares this field.** `compare` checks `corpus.rev`, the per-query
+counters and the clock; `corpus.files` and `corpus.defs` are recorded and never
+read. That is why a recount sat in three baselines unnoticed, and it is #94 seen
+from the other side: there the check runs too rarely, here there is no check at
+all.
+
 **Cold page cache is not measured.** Dropping it needs root (`purge`,
 `/proc/sys/vm/drop_caches`), which a bench should not ask for. The JSON carries
 `"cold_page_cache": null`, and the done-when bullet above stays open.
