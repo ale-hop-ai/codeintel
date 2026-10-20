@@ -403,3 +403,144 @@ and `about(S, "parent", ...)` join to nothing for any method in an `impl`, and
 `tests/stdlib.rs`'s containment test sailed past it because it used module
 nesting. Recorded in [plan.md](plan.md); not fixed inside M4, because parent
 precedence is tier-B ingest and has blast radius.
+
+---
+
+# The bank, split three ways — 2026-10-20
+
+[docs/50-self-improvement.md](50-self-improvement.md) § 5 splits this eval into
+three banks, for the reason this page keeps arriving at from the other
+direction: a score that is re-run after every copy change stops measuring the
+tool and starts measuring how many times you re-rolled. The rule is kept by
+splitting the bank rather than by weakening it.
+
+| Bank | Where | Size | Facts | Re-run |
+|---|---|---:|---|---|
+| **Frozen** | `tests/fixtures/eval/`, `tests/fixtures/eval-m4/` | 30 + 45 | `facts.dl`, the rust fixture, this repo at `8471824` | only on a signature change |
+| **Working** | `tests/fixtures/eval/working/` | 75 | `tests/fixtures/eval/bank.dl` | freely, every Tier 3 |
+| **Held-out** | `tests/fixtures/eval/heldout/` | 30 | `tests/fixtures/eval/bank.dl` | merge only |
+
+**No measurement is recorded here yet.** The two new banks are apparatus: 105
+questions, their reference queries, and a scorer. The first scored run is a
+separate piece of work and it gets its own section, with its tree, its agents,
+its partition and its prompt, the way § Set A, re-run does.
+
+**An experimenting agent never sees the held-out bank.** If it did, the set
+would measure memorization.
+
+## No stored reference answers
+
+The working and held-out banks' reference answers are **recomputed from their
+reference queries on every run**. `score.py --bank working <answers>` computes
+them first and scores against what it just computed; `expected.tsv` in each
+bank directory is a diffable record that the scorer compares against and warns
+about, never an input it trusts.
+
+That is this eval's own hardest-won lesson, and it has now been learned three
+times — ten empty set-A answers, set B's moving target, and Q14's wrong answer
+that the scorer confirmed as a pass. Every one was invisible until something
+forced a recomputation. *A reference answer nobody recomputes is an assertion
+nobody checks.* These two banks are built so there is nothing to forget to
+recompute.
+
+The scorer also refuses to run a bank where any reference answer is empty,
+unless that question is named in `KNOWN_EMPTY` with the reason. A question
+answered by no rows is passed by any query that returns nothing, including a
+broken one. Two questions are named there, one per bank, and both for the same
+honest reason: a conformance question asserts a policy *holds*, so "no rows" is
+the answer you want.
+
+## What the frozen 30 do not ask
+
+`rules/stdlib.dl` defines **41 rule heads**. The frozen 30 name **17** of them.
+The 24 they never name are not a random tail — they are, almost exactly, the
+precision apparatus:
+
+```
+at  callable  calls_at  calls_exact  dead_export_exact  def_lines
+depends_exact  entrypoint_exact  file_of  impl_sym  local_def  named
+reach_of_exact  reaches  reaches_exact  recursive  recursive_exact  ref
+ref_outside  ref_outside_exact  scip_claim  tighter_at  trait_sym
+uses_package_exact
+```
+
+Nine of the ten `_exact` twins are in that list. The frozen bank asks
+`impact_of_exact` once and nothing else, so the one property
+[50-self-improvement.md](50-self-improvement.md) § 2 says the whole scoreboard
+rests on — that an agent picks the right tier, and that the two tiers *differ*
+— has never been in an eval question. The working and held-out banks name
+**35** of the 41 heads between them. The five still unnamed — `impl_sym`,
+`ref_outside_exact`, `scip_claim`, `tighter_at`, `trait_sym` — are internal
+helpers, reached through the rules that name them.
+
+## The fixture is new, and `facts.dl` is left broken
+
+The two new banks run against `tests/fixtures/eval/bank.dl`, not against
+`facts.dl`.
+
+`facts.dl` **no longer loads at all**. It asserts `exported` and `implements`
+as facts, and schema 2 and 3 made both of them rule heads, which safety rule 8
+refuses outright:
+
+```
+stdlib: invalid-query: `exported` is a base relation supplied by the fact store
+and cannot also be defined by a rule (safety rule 8); pick a different head name
+```
+
+So every question in the frozen M1 bank currently fails to run, and
+`expected.tsv`'s Q18 still records an answer for `long_def/2`, a rule deleted
+at schema 3. **None of that is repaired here.** The frozen bank is the record
+of what M1 measured, and editing its fixture would change the world a recorded
+run was scored in without changing the record — the same move this page
+withdrew a score for. It is written down instead.
+
+`bank.dl` is a fresh 16-file polyglot fixture written against the vocabulary
+that ships today, and it is deliberately shaped to make the `_exact` twins
+*disagree*, which `facts.dl` never did:
+
+- `src/legacy.rs` is Rust the indexer never reached. The only reference to
+  `Cache::warm` anywhere is a name-tier row in it, so `entrypoint_exact` calls
+  `warm` an entrypoint and `entrypoint` does not — the INVERSION its doc line
+  warns about, as a row rather than as a hedge. `dead_export` and
+  `dead_export_exact` split on the same symbol.
+- 22 `calls` rows, 15 of them `calls_exact`. Three definitions sit on a cycle;
+  one of those cycles survives into `recursive_exact`.
+- `visibility` and `name_export` instead of asserted `exported`, so all three
+  `exported` clauses fire, including the recursive `inherited` one.
+- `scip_impl` at method granularity and `name_impl` at type granularity, plus
+  two `name_impl` rows that `implements` correctly refuses — one for the
+  `trait_sym` guard, one for `S != T`.
+- `module` definitions, so `calls_at`'s `FromKind != "module"` guard is
+  exercised; a tier-B opaque placeholder, so `scip_claim`'s "emitted but not
+  resolved" case is real; and a `test` role, so the fifth `is_test` clause has
+  a file.
+
+## The count{} trap, as a question
+
+`count{X : goal}` groups by every variable bound **outside** the aggregate, not
+only by the ones the author meant ([specs/03-datalog.md](../specs/03-datalog.md)
+safety rule 4). So
+
+```prolog
+?- def(S, _, _, _), A = count{ S : def(S, _, _, _) }.
+```
+
+returns `A = 1`, once per definition, with `status: "ok"`. There is no
+truncation flag, no provenance hedge and no diagnostic — it is the cheapest way
+to get a confidently wrong number out of this tool, and nothing in the surface
+warns about it. Working Q59 and held-out Q26 ask for exactly that total, and
+the form above scores wrong against them.
+
+## Running them
+
+```sh
+python3 tests/fixtures/eval/score.py --bank working check        # recompute only
+python3 tests/fixtures/eval/score.py --bank working expected     # refresh the record
+python3 tests/fixtures/eval/score.py --bank working answers.tsv  # score a run
+python3 tests/fixtures/eval/score.py --bank heldout answers.tsv
+```
+
+`score.py` with no `--bank` still means the frozen M1 bank and still reads
+`expected.tsv`, so every command recorded above means what it meant.
+`cargo run -p codeintel --example eval` gained a `--facts <path>` argument for
+the second fixture and defaults to the embedded `facts.dl`.

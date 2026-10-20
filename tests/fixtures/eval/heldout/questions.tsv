@@ -1,0 +1,30 @@
+1	A	Which functions are defined in a Go file? Bind the symbol id to A.	?- def(A, F, "function", _), file(F, "go").
+2	A	Which methods belong to the type "scip demo cache/Cache#"? Bind the method's symbol id to A.	?- parent(A, "scip demo cache/Cache#"), def(A, _, "method", _).
+3	A	Which definition encloses line 46 of src/core/cache.rs most tightly? Bind its symbol id to A.	?- innermost_at("src/core/cache.rs", 46, A).
+4	A	Every definition whose span covers line 26 of web/app.ts. Bind the symbol id to A.	?- symbol_at("web/app.ts", 26, A).
+5	A	What contains "scip ts app/boot()." — directly or transitively, up to the file? Bind each container to A.	?- within("scip ts app/boot().", A).
+6	A	Which TypeScript definitions are visible outside the crate? Bind the symbol id to A.	?- exported(A), def(A, F, _, _), file(F, "typescript").
+7	A	Which definitions have no visibility slot of their own yet are exported? Bind the symbol id to A.	?- visibility(A, "inherited"), exported(A).
+8	A,B	What does "scip demo cache/Cache#" implement, and on what provenance? Bind the implemented symbol to A and the provenance to B.	?- implements("scip demo cache/Cache#", A, B).
+9	A,B	Which implementation edges did the indexer itself state? Bind the implementor to A and the implemented symbol to B.	?- scip_impl(A, B).
+10	A,B	Which definitions outside src/core/store.rs call something defined in it? Bind the caller to A and the callee to B.	?- calls(A, B), def(B, "src/core/store.rs", _, _), def(A, F, _, _), F != "src/core/store.rs".
+11	A	Who calls "scip demo store/open()." on compiler-resolved evidence? Bind the calling symbol id to A.	?- calls_exact(A, "scip demo store/open().").
+12	A,B	Which call edges were established by identifier text? Bind the caller to A and the callee to B.	?- calls_at(A, B, _, _, "name").
+13	A	If "scip demo store/open()." changed, what could be affected, transitively? Bind each affected symbol id to A.	?- impact_of("scip demo store/open().", A).
+14	A	The blast radius of "scip demo store/Store#get()." counting only compiler-resolved evidence. Bind each affected symbol id to A.	?- impact_of_exact("scip demo store/Store#get().", A).
+15	A	What does "scip ts apptest/test_render()." call, directly or transitively? Bind each callee to A.	?- reach_of("scip ts apptest/test_render().", A).
+16	A,B	Which compiler-resolved reachability pairs start from a definition in src/core/cache.rs? Bind the source to A and the target to B.	?- reaches_exact(A, B), def(A, "src/core/cache.rs", _, _).
+17	A	Which callable definitions in test files are called by nothing? Bind the symbol id to A.	?- entrypoint(A), def(A, F, _, _), is_test(F).
+18	A	Which definitions does the name-tolerant form call an entrypoint while the exact form does not? Bind the symbol id to A.	?- entrypoint(A), !entrypoint_exact(A).
+19	A	Which TypeScript exports are never referenced outside the file that defines them? Bind the symbol id to A.	?- dead_export(A), def(A, F, _, _), file(F, "typescript").
+20	A	Which files reference something defined in src/kinds.rs? Bind the referencing file to A.	?- depends(A, "src/kinds.rs").
+21	A	Which files import the module written as "crate::core::store"? Bind the importing file to A.	?- import(A, "crate::core::store", _).
+22	A,B	Conformance: nothing under src/core/ may import a third-party package. Report each import whose module name matches a package the indexer knows, binding the file to A and the module to B.	?- import(A, B, _), prefix(A, "src/core/"), extern(_, _, B, _).
+23	A,B	Conformance: no test file may import the old HTTP client. Report each violation, binding the file to A and the module to B.	?- import(A, B, _), is_test(A), contains(B, "legacy_http").
+24	A,B	Which files use a package the Cargo indexer attributed? Bind the file to A and the package to B.	?- uses_package(A, B), extern(_, "cargo", B, _).
+25	A,B	How many distinct definitions does each callable definition call? Bind the caller to A and the count to B.	?- def(A, _, K, _), callable(K), B = count{ C : calls(A, C) }.
+26	A	How many distinct definition names does this repository hold? Bind the count to A. Remember that count{} groups by every variable bound outside the aggregate.	?- A = count{ N : named(N) }.
+27	A,B	How many files does each language have? Bind the language to A and the count to B.	?- file(_, A), B = count{ F : file(F, A) }.
+28	A	Which definitions with SCIP-grade identity are referenced by no occurrence anywhere? Bind the symbol id to A.	?- resolved(A), !ref(A, _, _, _, _, _, _).
+29	A,B	What does the orientation relation report about "scip demo store/Backend#"? Bind the discriminator to A and the name column to B.	?- about("scip demo store/Backend#", A, _, B, _).
+30	A	How many lines does "local src/legacy.rs migrate()." span? Bind the length to A.	?- def_lines("local src/legacy.rs migrate().", A).

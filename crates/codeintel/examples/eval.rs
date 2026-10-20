@@ -7,7 +7,13 @@
 //!
 //! ```sh
 //! cargo run -p codeintel --example eval -- '?- def(S, F, "function", N).'
+//! cargo run -p codeintel --example eval -- --facts tests/fixtures/eval/bank.dl '?- file(F, L).'
 //! ```
+//!
+//! `--facts` exists because the eval has more than one fact set: `facts.dl` is
+//! frozen with the M1 bank, and `bank.dl` carries the working and held-out
+//! ones. The default is still the embedded M1 fixture, so every command
+//! recorded in `docs/agent-eval.md` still means what it meant.
 
 use std::process::ExitCode;
 
@@ -16,14 +22,48 @@ use datalog::{Engine, Limits, Strings};
 
 const FACTS: &str = include_str!("../../../tests/fixtures/eval/facts.dl");
 
+const USAGE: &str = "usage: eval [--facts <path>] '<datalog query>'";
+
 fn main() -> ExitCode {
-    let Some(query) = std::env::args().nth(1) else {
-        eprintln!("usage: eval '<datalog query>'");
+    let mut args = std::env::args().skip(1);
+    let mut facts_path = None;
+    let mut query = None;
+    while let Some(arg) = args.next() {
+        if arg == "--facts" {
+            let Some(path) = args.next() else {
+                eprintln!("{USAGE}");
+                return ExitCode::from(2);
+            };
+            facts_path = Some(path);
+        } else if query.is_none() {
+            query = Some(arg);
+        } else {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
+    }
+    let Some(query) = query else {
+        eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
 
+    let read;
+    let facts = match facts_path {
+        None => FACTS,
+        Some(path) => match std::fs::read_to_string(&path) {
+            Ok(text) => {
+                read = text;
+                read.as_str()
+            }
+            Err(error) => {
+                eprintln!("fixture {path}: {error}");
+                return ExitCode::from(3);
+            }
+        },
+    };
+
     let mut engine = Engine::new(Box::new(Strings::new())).with_regexes(Box::new(Regexes::new()));
-    if let Err(diagnostic) = load_facts(&mut engine, FACTS) {
+    if let Err(diagnostic) = load_facts(&mut engine, facts) {
         eprintln!("fixture: {diagnostic}");
         return ExitCode::from(3);
     }
