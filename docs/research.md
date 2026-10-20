@@ -150,8 +150,9 @@ by scope decisions that needed no query language at all).
 The claim is: **question N+1 is a line of data in a text file the user can edit,
 not a branch in a parser that needs a release** — asserted in CI from commit
 one, before there is anything to delete. That is testable, and
-[plan.md](plan.md) M4 puts a rule-count assertion in the budget test so it can
-fail.
+[plan.md](plan.md) M4 put a rule-count assertion in the budget test so it could
+fail; that cap was dropped, and the test now bounds what the rules cost an agent
+(`schema` size, [00-overview.md](../specs/00-overview.md) § Surface budget).
 
 ### §1f — corrections to this document
 
@@ -386,13 +387,16 @@ The whole binary, as specified:
 | `serde` + `serde_json` | JSON output, manifest | STACK default |
 | `clap` | CLI | STACK default, `features = ["derive", "env"]` |
 | `anyhow` | application top level | STACK default |
-| `thiserror` | one error enum per library boundary | STACK default |
+| `thiserror` | one error enum per library boundary | STACK default — **not taken**: the two error types are hand-written `impl Error` (`extract/src/error.rs`, `facts/src/lib.rs`) |
 | `ignore` | gitignore-aware walking | no STACK entry |
 | `fd-lock` | the advisory writer lock (`04-storage.md` § Concurrency) | 4.0 — **deviation**, see below |
 
-Dev-dependencies, all STACK defaults: `insta` (golden facts and rendered
-output), `assert_cmd` + `predicates` (CLI), `rstest`, `proptest` (engine
-invariants), `tempfile`. Benchmarks are a test-only harness, never a CLI verb.
+Dev-dependencies are `tempfile` and `blake3` only. The STACK defaults this
+section once named — `insta`, `assert_cmd` + `predicates`, `rstest`, `proptest` —
+were never taken: golden files are diffed as text (`UPDATE_GOLDEN=1`), the CLI is
+driven through `CARGO_BIN_EXE_codeintel`, and the engine's invariants are a
+seeded generator (`crates/datalog/tests/robustness.rs`). Benchmarks are a
+test-only harness, never a CLI verb.
 
 **No `divan` and no `criterion`, against STACK's benchmark row.** Decided when
 the harness was built ([plan.md](plan.md) M6 § Pulled forward). Both answer "how
@@ -446,7 +450,7 @@ model backend.
   reading a `symbol_roles` bitset needs it by name. Same version `scip`
   resolves, so it is one runtime and not two.
 - **`fd-lock` has no STACK entry.** Trigger: `04-storage.md` § Concurrency
-  requires an advisory `flock` on `.codeintel/lock`, `query`'s auto-refresh is a
+  requires an advisory `flock` on `<index>/lock`, `query`'s auto-refresh is a
   writer and must take the same one, and std has no file locking at all. It was
   chosen over `rustix` because it keeps Windows reachable — that spec puts
   Windows out of scope for v1, and a lock that forecloses it would make the
