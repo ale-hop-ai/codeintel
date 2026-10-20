@@ -46,7 +46,7 @@ fn a_counter_difference_fails_however_busy_the_host_is() {
         load1: Some(40.0),
         cores: 12,
     };
-    assert_eq!(Verdict::decide(false, busy), Verdict::Fail);
+    assert_eq!(Verdict::decide(false, busy.trustworthy()), Verdict::Fail);
 }
 
 #[test]
@@ -59,8 +59,11 @@ fn agreeing_counters_on_a_busy_host_are_inconclusive_not_a_pass() {
         load1: Some(1.0),
         cores: 12,
     };
-    assert_eq!(Verdict::decide(true, busy), Verdict::Inconclusive);
-    assert_eq!(Verdict::decide(true, idle), Verdict::Pass);
+    assert_eq!(
+        Verdict::decide(true, busy.trustworthy()),
+        Verdict::Inconclusive
+    );
+    assert_eq!(Verdict::decide(true, idle.trustworthy()), Verdict::Pass);
 }
 
 #[test]
@@ -216,5 +219,32 @@ fn the_end_bound_leaves_room_for_the_benchs_own_threads() {
     assert!(
         conditions::held_steady(start, ours),
         "0.8 per core at the end is the bench working, not an interruption"
+    );
+}
+
+#[test]
+fn a_comparison_that_did_not_happen_is_never_a_pass() {
+    // #83: the baseline came from another machine, so the clock was not
+    // judged. Counters still agreeing does not make that a pass — a 4x
+    // regression went by unreported in exactly this state.
+    assert_eq!(Verdict::decide(true, false), Verdict::Inconclusive);
+    // And a counter difference still fails, whatever the clock did.
+    assert_eq!(Verdict::decide(false, false), Verdict::Fail);
+    assert_eq!(Verdict::decide(false, true), Verdict::Fail);
+}
+
+#[test]
+fn the_host_core_count_is_the_os_view_not_this_process() {
+    // The whole of #83: available_parallelism answers for the process. If the
+    // OS can be asked, its answer is the one that identifies the machine, and
+    // it must be sane.
+    let Some(os_cores) = conditions::cores() else {
+        return; // a platform this does not know; the fallback is tested above
+    };
+    assert!(os_cores > 0, "the OS reported {os_cores} logical CPUs");
+    let process = std::thread::available_parallelism().map_or(0, usize::from);
+    assert!(
+        os_cores >= process,
+        "the host cannot have fewer CPUs than this process may use: {os_cores} < {process}"
     );
 }
