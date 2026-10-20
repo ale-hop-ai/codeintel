@@ -901,6 +901,13 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
 }
 ```
 
+- **`stats` on `timeout` and `budget-exceeded` is what the run measured**, not
+  defaults: `derived` and `elapsed_ms` at the abort, and the `depends`, `demand`
+  and `transformed` that were decided before evaluation began — which is exactly
+  when an unexpectedly slow query needs them. A status that fails before
+  evaluation (`invalid-query`, `unstratified`) reports the zero values, because
+  nothing ran and zero is true.
+
 - **`root` is the root that answered**, and it is `null` exactly when that is
   the root the caller asked about. A path there means the nearest index was
   adopted and the scope of every row moved with it (§ The nearest index). The

@@ -2,6 +2,8 @@
 
 use core::fmt;
 
+use crate::limits::Stats;
+
 /// Why a program or query was rejected, or how an evaluation ended badly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -38,6 +40,14 @@ pub struct Diagnostic {
     pub message: String,
     /// Byte range in the submitted source, when the failure has a location.
     pub span: Option<(usize, usize)>,
+    /// What the evaluation had measured when it was aborted.
+    ///
+    /// `Some` only for a failure that happened *during* evaluation — a timeout
+    /// or a budget — where `depends`, `demand` and `transformed` were decided
+    /// before the first tuple and `derived` and `elapsed_ms` are what the run
+    /// spent. `None` means no evaluation ran, which is a different statement
+    /// from a run that derived nothing: a caller must not read zero for it.
+    pub stats: Option<Box<Stats>>,
 }
 
 impl Diagnostic {
@@ -47,6 +57,7 @@ impl Diagnostic {
             status,
             message: message.into(),
             span: Some(span),
+            stats: None,
         }
     }
 
@@ -56,6 +67,7 @@ impl Diagnostic {
             status,
             message: message.into(),
             span: None,
+            stats: None,
         }
     }
 }

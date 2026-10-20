@@ -307,7 +307,15 @@ impl Engine {
             start,
             mode,
         };
-        self.run_strata(&combined, &run, &derived, &mut store, &mut stats)?;
+        let aborted = |mut diagnostic: Diagnostic, stats: &Stats| {
+            let mut seen = stats.clone();
+            seen.derived = derived.get();
+            seen.elapsed_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+            diagnostic.stats = Some(Box::new(seen));
+            diagnostic
+        };
+        self.run_strata(&combined, &run, &derived, &mut store, &mut stats)
+            .map_err(|d| aborted(d, &stats))?;
 
         // A ground goal — `?- reaches("b", "b").` — has no columns. Truth is
         // one empty row and falsehood is no rows; without the placeholder the
@@ -339,7 +347,9 @@ impl Engine {
             stats
                 .plan
                 .push(format!("?-: {}", plan_of(&solver, &goal.body)));
-            solver.run(&goal.body, &head, goal.vars.len(), None, &mut rows)?;
+            solver
+                .run(&goal.body, &head, goal.vars.len(), None, &mut rows)
+                .map_err(|d| aborted(d, &stats))?;
             if rows.is_empty() {
                 stats.empty_at = solver
                     .plan(&goal.body, None)
