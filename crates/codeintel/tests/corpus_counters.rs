@@ -332,14 +332,13 @@ fn measure(root: &Path, index: &Path, id: &str, goal: &str) -> Value {
         // printed nothing -- seen once under deliberate load (#110). A status
         // other than 2 is allowed here because a degraded index is an answer,
         // but it still has to be an answer.
-        serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
-            panic!(
-                "query {id}: exited {:?} and printed {} byte(s) of stdout, not JSON: {e}\nstderr: {}",
-                out.status.code(),
-                out.stdout.len(),
-                String::from_utf8_lossy(&out.stderr)
-            )
-        })
+        let why = format!(
+            "query {id}: exited {:?} and printed {} byte(s) of stdout, not JSON. stderr: {}",
+            out.status.code(),
+            out.stdout.len(),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        serde_json::from_slice(&out.stdout).expect(&why)
     };
 
     let answer = run(false);
