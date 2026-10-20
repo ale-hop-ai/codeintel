@@ -61,10 +61,17 @@ struct Pair {
     key: usize,
     /// The column of `name_goal` carrying `Prov`, when the rule has one.
     ///
-    /// Only `ref` does. Every other pair's name twin hands the consumer a
-    /// tuple with no provenance in it at all, which is what the calibration
-    /// metric is there to find out (§ 2).
+    /// Only `ref` does. The other five name twins hand the consumer a tuple
+    /// with no provenance in it at all, which is what the calibration metric
+    /// found out (§ 2).
     prov: Option<usize>,
+    /// For those five, the goal over `tier/4` that hands the provenance back
+    /// (`specs/01-facts.md` § Row provenance). Its rows, projected onto the
+    /// first `key` columns, must be exactly `name_goal`'s: a `tier` that drops
+    /// or invents a row is an error here, not a better calibration. Its last
+    /// column is `Prov`. The oracle (`exact_goal`) is untouched and does not
+    /// read `tier`, so the measurement is not circular.
+    tier_goal: Option<&'static str>,
 }
 
 /// The six pairs, in `docs/50-self-improvement.md` § 3's order.
@@ -79,6 +86,7 @@ const PAIRS: &[Pair] = &[
         exact_goal: "?- calls_exact(A, B).",
         key: 2,
         prov: None,
+        tier_goal: Some("?- tier(\"calls\", A, B, Prov)."),
     },
     Pair {
         rule: "dead_export",
@@ -86,6 +94,7 @@ const PAIRS: &[Pair] = &[
         exact_goal: "?- dead_export_exact(S).",
         key: 1,
         prov: None,
+        tier_goal: Some("?- tier(\"dead_export\", S, B, Prov)."),
     },
     Pair {
         rule: "entrypoint",
@@ -93,6 +102,7 @@ const PAIRS: &[Pair] = &[
         exact_goal: "?- entrypoint_exact(S).",
         key: 1,
         prov: None,
+        tier_goal: Some("?- tier(\"entrypoint\", S, B, Prov)."),
     },
     Pair {
         rule: "depends",
@@ -100,6 +110,7 @@ const PAIRS: &[Pair] = &[
         exact_goal: "?- depends_exact(F, G).",
         key: 2,
         prov: None,
+        tier_goal: Some("?- tier(\"depends\", F, G, Prov)."),
     },
     Pair {
         rule: "uses_package",
@@ -107,6 +118,7 @@ const PAIRS: &[Pair] = &[
         exact_goal: "?- uses_package_exact(F, P).",
         key: 2,
         prov: None,
+        tier_goal: Some("?- tier(\"uses_package\", F, P, Prov)."),
     },
     Pair {
         rule: "ref",
@@ -114,6 +126,7 @@ const PAIRS: &[Pair] = &[
         exact_goal: "?- ref(S, F, L, C, From, Role, \"exact\").",
         key: 6,
         prov: Some(6),
+        tier_goal: None,
     },
 ];
 
@@ -465,7 +478,22 @@ fn precision(root: &Path, index_dir: &Path) -> Result<(Value, Calibration)> {
     let mut out = serde_json::Map::new();
     let mut calibration = Calibration::default();
     for pair in PAIRS {
-        let predicted = oracle.keys(pair.name_goal, pair.key, pair.prov)?;
+        let mut predicted = oracle.keys(pair.name_goal, pair.key, pair.prov)?;
+        if let Some(goal) = pair.tier_goal {
+            // Every tier goal binds `(A, B, Prov)`, so `Prov` is column 2 for
+            // unary and binary rules alike.
+            let tiered = oracle.keys(goal, pair.key, Some(2))?;
+            if !tiered.keys().eq(predicted.keys()) {
+                bail!(
+                    "`{goal}` is not exactly the rows of `{}`: {} against {}. `tier` must tag, \
+                     never filter or invent",
+                    pair.name_goal,
+                    tiered.len(),
+                    predicted.len()
+                );
+            }
+            predicted = tiered;
+        }
         let exact = oracle.keys(pair.exact_goal, pair.key, None)?;
         let truth: BTreeSet<&Vec<Atom>> = exact.keys().collect();
         let (mut tp, mut fp, mut wrong_flagged) = (0_usize, 0_usize, 0_usize);

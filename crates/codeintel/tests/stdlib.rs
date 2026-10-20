@@ -893,6 +893,58 @@ fn trait_sym_admits_only_trait_like_definitions() {
     assert!(rows(r"?- implements(S, T, _), !trait_sym(T).").is_empty());
 }
 
+/// `tier` is a tag and not a filter: for each of the five rules that carry no
+/// `Prov` of their own, its rows are exactly the rule's rows, each with exactly
+/// one of the two provenances (`specs/01-facts.md` § Row provenance).
+#[test]
+fn tier_tags_every_row_of_the_five_rules_without_adding_or_dropping_any() {
+    // (rule, its head args, the tier row's B argument, the exact twin)
+    let rules = [
+        ("calls", "A, B", "B", "calls_exact(A, B)"),
+        ("depends", "A, B", "B", "depends_exact(A, B)"),
+        ("uses_package", "A, B", "B", "uses_package_exact(A, B)"),
+        ("dead_export", "A", "\"\"", "dead_export_exact(A)"),
+        ("entrypoint", "A", "\"\"", "entrypoint_exact(A)"),
+    ];
+    for (rule, args, b, twin) in rules {
+        for root in [indexed(), named_only()] {
+            let tier = |p: &str| format!("tier(\"{rule}\", A, {b}, {p})");
+            // Every row of the rule is tagged...
+            let untagged = rows_in(root, &format!("?- {rule}({args}), !{}.", tier("_")));
+            assert!(untagged.is_empty(), "{rule}: untagged rows {untagged:?}");
+            // ...nothing is tagged that the rule did not say...
+            let invented = rows_in(root, &format!("?- {}, !{rule}({args}).", tier("_")));
+            assert!(invented.is_empty(), "{rule}: invented rows {invented:?}");
+            // ...and no row claims both tiers.
+            let both = rows_in(
+                root,
+                &format!("?- {}, {}.", tier("\"exact\""), tier("\"name\"")),
+            );
+            assert!(both.is_empty(), "{rule}: both tiers {both:?}");
+            // `exact` is exactly what the twin also yields.
+            let wrong = rows_in(root, &format!("?- {}, !{twin}.", tier("\"exact\"")));
+            assert!(wrong.is_empty(), "{rule}: exact without its twin {wrong:?}");
+            let missed = rows_in(
+                root,
+                &format!("?- {rule}({args}), {twin}, !{}.", tier("\"exact\"")),
+            );
+            assert!(missed.is_empty(), "{rule}: twin row tagged name {missed:?}");
+        }
+        // No SCIP index: nothing can be `exact`.
+        let exact = rows_in(
+            named_only(),
+            &format!("?- tier(\"{rule}\", A, {b}, \"exact\")."),
+        );
+        assert!(exact.is_empty(), "{rule}: exact with no SCIP: {exact:?}");
+    }
+    // And the fixture's known guess is flagged as one: the invented self-edge.
+    let guessed = rows_in(
+        named_only(),
+        r#"?- tier("calls", A, B, "name"), def(A, _, _, "get"), def(B, _, _, "get")."#,
+    );
+    assert_eq!(guessed, ["get src/store.rs:19\tget src/store.rs:19"]);
+}
+
 /// Every rule `schema` advertises is exercised by some test in this file, or is
 /// named above as uncovered. A rule nobody queries is a rule nobody has checked.
 #[test]
