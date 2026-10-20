@@ -8,3 +8,23 @@ description: full pre-push gate — fmt, clippy, test, rustdoc, deny, machete, l
 steps:
   - name: full gate
     use: ~/.cache/provision/tools/rust-quality/ci.yml
+
+  # The counter half of the corpus baselines, which until #94 nothing in the
+  # gate read — they were compared only by a local wall-clock run, so fd's
+  # `derived` moved and sat unnoticed for weeks (#88). Counters are exact on any
+  # host under any load, so they belong here; the clock stays in
+  # `tasks/bench.yml`.
+  #
+  # `--ignored` because the test carries `#[ignore]`: this is its one run, and
+  # `--nocapture` is why. A corpus that is not checked out, or is outside the
+  # gate's cost budget, is REPORTED rather than silently skipped, and a passing
+  # `cargo test` swallows that line (invariant 5).
+  #
+  # ~20s with fd and tokio checked out, ~1s with neither.
+  # `CODEINTEL_CORPUS_COUNTERS=all` adds deno, which is 218s on its own.
+  - name: corpus counters
+    shell: >
+      cargo test --locked -p codeintel --test corpus_counters
+      -- --ignored --nocapture
+    changed_when: "false"
+    timeout: 10m
