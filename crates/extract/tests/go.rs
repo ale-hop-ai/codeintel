@@ -101,6 +101,11 @@ fn a_second_extraction_is_byte_identical() {
 }
 
 #[test]
+fn input_order_does_not_change_the_facts() {
+    common::assert_order_independent(&root());
+}
+
+#[test]
 fn kinds_are_faithful() {
     // The test upstream's query fails. `tree-sitter-go/queries/tags.scm` emits
     // `@definition.type` for a struct, an interface, a defined type and an

@@ -91,6 +91,11 @@ fn a_second_extraction_is_byte_identical() {
 }
 
 #[test]
+fn input_order_does_not_change_the_facts() {
+    common::assert_order_independent(&root());
+}
+
+#[test]
 fn kinds_are_faithful() {
     // The test upstream's query fails: struct, enum, union, type alias, trait,
     // const and impl must not collapse into one kind.
