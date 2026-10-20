@@ -950,6 +950,25 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
   refused to say. The status stays the condition because the condition is the
   one fact nowhere else in the response, the same reason truncation composes
   rather than overwrites (§ Status taxonomy).
+
+  **Nothing may be appended to the line a runnable chain ends.** A hint's
+  condition half often ends in one (§ The no-index hint), and a shell reads
+  everything after the last command as more arguments to it. Composing
+  `. also: …` onto `scip-python index .` yields `scip-python index .. also: …`,
+  and `..` is a valid path: the chain parses, runs, and indexes the parent
+  directory. `sh -n` cannot see this — the output is valid shell, which is the
+  whole problem — and no in-line separator fixes it, because every one of them
+  is just another argument. Only a newline, or nothing following the chain at
+  all, terminates a command.
+
+  **Known defect (#104): composition does exactly this today**, at all three
+  sites that compose a hint. Recorded rather than silently repaired because the
+  repair is a contract decision shared with #102 — whether a hint may contain a
+  newline, or whether the runnable chain must simply come last — and settling
+  it here would pre-empt whichever that issue lands on. The invariant a repair
+  must satisfy is the boundary above, and it is testable without a shell:
+  compose a hint, and assert its `run: ` tail is the tail it carried
+  uncomposed.
 - **A constant in a typed column is diagnosed against that column, not against
   the relation.** "the index holds 1448 `def` rows" is true and useless: the
   agent's error was the *value*, and the relation total says nothing about it.
