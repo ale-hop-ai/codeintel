@@ -246,7 +246,7 @@ pub(crate) fn assert_golden(extracted: &Extracted) {
     );
 }
 
-/// Span exactness, asserted by re-slicing and **re-parsing** the source: every
+/// Span exactness, asserted by **re-parsing** the file: every
 /// `def_span` is a node boundary and every `def_name` is exactly the identifier.
 ///
 /// The file is parsed again, here, with the language's grammar, and
