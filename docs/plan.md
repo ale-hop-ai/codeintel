@@ -1124,6 +1124,31 @@ Output goes to `target/bench/<name>.json`. It is compared against that corpus's
   against a different tree measures nothing.
 - `UPDATE_BASELINE=1` rewrites it.
 
+**A counter baseline is rewritten with its reason, never refreshed.** fd's
+query 8 — `def(S, _, "function", _), C = count{ X : calls(X, S) }` — moved from
+4,989 derived to 4,981 and the baseline now records 4,981 (#88). What moved it,
+bisected rather than reasoned at: **`71dde10`**, which added
+`FromKind != "module"` to `calls_at`. `8cb373a`, the commit that wrote the
+baseline, still reproduces 4,989 exactly; `71dde10` is the first that does not.
+The eight tuples are four module-owned call sites in fd — `src/fmt/input.rs:56`,
+`src/filter/size.rs:96` and `:183`, `src/filter/owner.rs:125`, each a `read` of
+a `macro` — and each drops one `calls_at` row and the one `calls` row derived
+from it. Query 8 counts callers of `function` defs, so a macro target changes no
+answer row.
+
+**`rows` unchanged does not establish that.** The comparison above checks the
+row *count*, not the rows, so an unchanged 231 is consistent with every value in
+them having moved. What settles it is diffing the rows themselves across the
+commit: byte-identical. `UPDATE_GOLDEN=1`/`UPDATE_BASELINE=1` on a count alone
+is the shortcut this paragraph exists to stop.
+
+`71dde10`'s message says no counts moved in any pinned set. That was true of
+`tests/counters.rs`'s fixtures — Rust and Go, where no definition carries a
+namespace descriptor — and false of fd, which is also Rust but does have module
+defs, and which nobody re-ran because this harness is local-only. The eight
+tuples are the correct behaviour; the claim about a set nobody measured is the
+defect.
+
 **Cold page cache is not measured.** Dropping it needs root (`purge`,
 `/proc/sys/vm/drop_caches`), which a bench should not ask for. The JSON carries
 `"cold_page_cache": null`, and the done-when bullet above stays open.
