@@ -75,6 +75,12 @@ fn index(root: &Path) -> Output {
 
 fn query(root: &Path, program: &str) -> (Vec<String>, String) {
     let out = run(root, &["query", program]);
+    assert!(
+        matches!(out.status.code(), Some(code) if code != 2),
+        "`query {program}` exited {:?}\nstderr: {}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     let rows = stdout.lines().map(str::to_string).collect();

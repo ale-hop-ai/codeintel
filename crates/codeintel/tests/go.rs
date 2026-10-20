@@ -114,6 +114,12 @@ fn index(root: &Path) -> String {
 
 fn query(root: &Path, program: &str) -> (Vec<String>, String) {
     let out = run(root, &["query", program]);
+    assert!(
+        matches!(out.status.code(), Some(code) if code != 2),
+        "`query {program}` exited {:?}\nstderr: {}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr)
+    );
     (
         String::from_utf8_lossy(&out.stdout)
             .lines()
