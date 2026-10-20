@@ -11,7 +11,7 @@
 //! every one of these is a read.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 use std::sync::OnceLock;
 
 fn binary() -> &'static str {
@@ -90,6 +90,17 @@ fn set_mtime(path: &Path, secs: u64) {
         .expect("sets mtime");
 }
 
+/// A query that answered. Exit 2 is "could not tell you" and no code at all is a
+/// signal; any other status is an answer, which is the thing under test.
+fn answered(out: &Output, goal: &str) {
+    assert!(
+        matches!(out.status.code(), Some(code) if code != 2),
+        "`query {goal}` exited {:?}\nstderr: {}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// Rows of one goal, rendered. `--no-refresh` because the tree does not move
 /// and a refresh per query would dominate the runtime.
 fn rows(goal: &str) -> Vec<String> {
@@ -119,6 +130,7 @@ fn raw_rows(goal: &str) -> Vec<String> {
         .env("CODEINTEL_INDEX_DIR", indexed().join(".codeintel"))
         .output()
         .expect("the binary runs");
+    answered(&out, goal);
     String::from_utf8_lossy(&out.stdout)
         .lines()
         .map(str::to_string)
@@ -185,6 +197,7 @@ fn raw_rows_in(root: &Path, goal: &str) -> Vec<String> {
         .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
         .output()
         .expect("the binary runs");
+    answered(&out, goal);
     String::from_utf8_lossy(&out.stdout)
         .lines()
         .map(str::to_string)
