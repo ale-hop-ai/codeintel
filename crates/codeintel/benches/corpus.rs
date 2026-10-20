@@ -16,6 +16,7 @@
 //! at +20%. Wall clock is compared only on the host the baseline was measured
 //! on, and nothing is compared against a different corpus commit.
 
+use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -518,6 +519,9 @@ fn compare(base: &Value, current: &Value, under: Conditions) -> Verdict {
     // Counter differences are collected above and decide below, whatever the
     // host was doing.
     let clock_is_meaningful = under.trustworthy();
+    // Set false by either reason the clock can go unjudged: a loaded host, or
+    // a baseline from a different machine. Both must reach the verdict.
+    let mut compared_clock = clock_is_meaningful;
     if !clock_is_meaningful {
         println!(
             "wall clock NOT judged: {}. Counters were compared and are exact",
@@ -549,17 +553,24 @@ fn compare(base: &Value, current: &Value, under: Conditions) -> Verdict {
             }
         }
     } else if clock_is_meaningful {
+        // Not a pass. A comparison that did not happen is a third state, and
+        // saying nothing here is how a 4x `load_warm` regression went by
+        // without a word (#83, `specs/00-overview.md` invariant 5).
+        println!("wall clock NOT compared: this is not the machine the baseline was measured on.");
+        for difference in host_differences(base.get("host"), current.get("host")) {
+            println!("  {difference}");
+        }
         println!(
-            "wall clock NOT compared: baseline host {:?}, this host {:?}. Counters were",
-            base.get("host"),
-            current.get("host")
+            "  counters were compared and are exact; the clock was not judged either way. \
+             Re-run on that machine, or UPDATE_BASELINE=1 on this one."
         );
+        compared_clock = false;
     }
 
     for f in &failed {
         println!("FAIL {f}");
     }
-    let verdict = Verdict::decide(failed.is_empty(), under);
+    let verdict = Verdict::decide(failed.is_empty(), compared_clock);
     if verdict == Verdict::Inconclusive {
         println!(
             "INCONCLUSIVE: counters agreed; the clock was not judged. Re-run on an idle machine"
@@ -635,12 +646,49 @@ fn gap(from: Instant, to: Instant) -> f64 {
     (to.duration_since(from).as_secs_f64() * 1_000_000.0).round() / 1000.0
 }
 
+/// What has to match for two sets of timings to be worth comparing.
+///
+/// `cpus` is the **operating system's** logical CPU count, not
+/// `available_parallelism` — see `conditions::cores` for why that distinction
+/// is the whole of #83. The key is unchanged so that a baseline written before
+/// this still compares, which it does whenever the two agree.
+///
+/// The machine model is deliberately **not** here. It would make identity more
+/// precise, at the cost of making every existing baseline uncomparable for a
+/// false-match that has not happened — two different machines, same OS, same
+/// arch, same core count. It is recorded beside the result instead, so a
+/// suspicious comparison can be checked after the fact without a re-baseline
+/// being forced first.
 fn host() -> Value {
     json!({
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
-        "cpus": std::thread::available_parallelism().map_or(0, usize::from),
+        "cpus": conditions::cores()
+            .or_else(|| std::thread::available_parallelism().ok().map(usize::from))
+            .unwrap_or(0),
     })
+}
+
+/// The fields of two `host` objects that disagree, as `key baseline -> current`.
+///
+/// Named rather than dumped: "baseline recorded 12 cores, this host reports
+/// 10" is actionable, and two whole JSON objects side by side are not.
+fn host_differences(base: Option<&Value>, current: Option<&Value>) -> Vec<String> {
+    let (Some(Value::Object(a)), Some(Value::Object(b))) = (base, current) else {
+        return vec!["one of the two runs recorded no host at all".to_string()];
+    };
+    let mut out = Vec::new();
+    for key in a.keys().chain(b.keys()).collect::<BTreeSet<_>>() {
+        let (old, new) = (a.get(key), b.get(key));
+        if old != new {
+            out.push(format!(
+                "{key}: baseline {} -> this host {}",
+                old.map_or_else(|| "(absent)".to_string(), Value::to_string),
+                new.map_or_else(|| "(absent)".to_string(), Value::to_string),
+            ));
+        }
+    }
+    out
 }
 
 fn git_head(dir: &Path) -> String {

@@ -80,6 +80,75 @@ pub(crate) const MAX_LOAD_PER_CORE: f64 = 0.5;
 /// this is looking for.
 pub(crate) const MAX_END_LOAD_PER_CORE: f64 = MAX_LOAD_PER_CORE * 2.0;
 
+/// The logical CPUs the **operating system** reports, which is the stable
+/// number, or `None` where it cannot be read.
+///
+/// Deliberately not [`std::thread::available_parallelism`]. That is documented
+/// as the parallelism available to *this process* — it honours affinity masks,
+/// cgroup quotas and, on macOS, the scheduler's current disposition — so it is
+/// a property of the process and not of the host. It read 12 when the
+/// committed baselines were written and 10 the next time anyone looked, on the
+/// same machine, which silently disabled every wall-clock comparison (#83).
+///
+/// For deciding "are these two timings from the same machine", stability beats
+/// precision: a number that drifts on one machine skips the comparison
+/// silently, while a number that is merely coarse at worst permits a
+/// comparison that is noisy and visible.
+#[must_use]
+pub(crate) fn cores() -> Option<usize> {
+    // macOS and the BSDs. `hw.logicalcpu` counts what the OS schedules onto,
+    // unaffected by what this process is allowed to use.
+    if let Some(n) = sysctl_usize("hw.logicalcpu") {
+        return Some(n);
+    }
+    // Linux. `/proc/cpuinfo` lists one `processor` line per logical CPU;
+    // `nproc` is not used because it honours affinity, the same mistake again.
+    if let Ok(text) = std::fs::read_to_string("/proc/cpuinfo") {
+        let n = text.lines().filter(|l| l.starts_with("processor")).count();
+        if n > 0 {
+            return Some(n);
+        }
+    }
+    None
+}
+
+/// The machine, as a human-readable string, or `None`.
+///
+/// Recorded beside a result and deliberately **not** part of host identity
+/// (see `corpus::host`). Its job is diagnosis: when a comparison is refused
+/// because the core count differs, this is what says whether that is the same
+/// machine reporting differently or genuinely another one. It answered that
+/// question the first time it was asked — the committed baselines record 12
+/// cores and this machine is a 10-core Mac17,2, so they came from other
+/// hardware and were never going to be comparable.
+#[must_use]
+pub(crate) fn machine() -> Option<String> {
+    let model = sysctl_string("hw.model");
+    let cpu = sysctl_string("machdep.cpu.brand_string");
+    match (model, cpu) {
+        (Some(m), Some(c)) => Some(format!("{m} ({c})")),
+        (m, c) => m.or(c),
+    }
+}
+
+/// A `sysctl` string, or `None`.
+fn sysctl_string(name: &str) -> Option<String> {
+    let out = Command::new("sysctl").args(["-n", name]).output().ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// A `sysctl` integer, or `None`.
+fn sysctl_usize(name: &str) -> Option<usize> {
+    let out = Command::new("sysctl").args(["-n", name]).output().ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().parse().ok())
+        .flatten()
+}
+
 /// What the machine was doing at one moment.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Conditions {
@@ -108,7 +177,12 @@ impl Conditions {
                 (Some(m), Some(f)) => Some(m.max(f)),
                 (m, f) => m.or(f),
             },
-            cores: std::thread::available_parallelism().map_or(0, usize::from),
+            // The host's count, so that a system-wide load average is divided
+            // by the number of CPUs that load is spread over. Falling back to
+            // the process's view is better than dividing by nothing.
+            cores: cores()
+                .or_else(|| std::thread::available_parallelism().ok().map(usize::from))
+                .unwrap_or(0),
         }
     }
 
@@ -191,16 +265,16 @@ impl Verdict {
         }
     }
 
-    /// The precedence: counters are exact and load does not move them, so a
-    /// counter difference fails on any host. Only once they agree does the
-    /// host's load get to decide whether the clock is worth believing.
-    pub(crate) fn decide(counters_agreed: bool, under: Conditions) -> Self {
-        if !counters_agreed {
-            Self::Fail
-        } else if under.trustworthy() {
-            Self::Pass
-        } else {
-            Self::Inconclusive
+    /// The precedence: counters are exact and neither load nor hardware moves
+    /// them, so a counter difference fails anywhere. Only once they agree does
+    /// it matter whether the clock was actually judged — and if it was not,
+    /// for any reason, the answer is `Inconclusive` and never `Pass`. A run
+    /// that compared nothing has not passed.
+    pub(crate) fn decide(counters_agreed: bool, clock_judged: bool) -> Self {
+        match (counters_agreed, clock_judged) {
+            (false, _) => Self::Fail,
+            (true, true) => Self::Pass,
+            (true, false) => Self::Inconclusive,
         }
     }
 }
@@ -235,6 +309,7 @@ pub(crate) fn report(start: Conditions, end: Conditions) -> Value {
         "held_steady": held_steady(start, end),
         "max_end_load_per_core": MAX_END_LOAD_PER_CORE,
         "dirty_tree": dirty_tree(),
+        "machine": machine(),
         "run_id": run_id(),
     })
 }

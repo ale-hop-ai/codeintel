@@ -1387,6 +1387,43 @@ Two defects in the harness this turned up, both now fixed:
   the argument for counters being the CI gate and the clock staying local, and
   against `available_parallelism` as machine identity. Not fixed here.
 
+**Correction, 2026-10-20, later: the baselines are from different hardware.**
+The entry above reads the wall-clock gap between the committed baselines and
+today as an environmental tax. That was half right and the other half was an
+assumption nobody had checked.
+
+`host()` identified a machine by `available_parallelism()`, which answers for
+the *process*. Replacing it with the OS's own count (#83) and asking the
+machine directly gives **Mac17,2, Apple M5, 10 logical CPUs**. The committed
+baselines record **12**. `available_parallelism` can never exceed the hardware,
+so the machine that wrote them had at least twelve: those baselines were
+measured on **different hardware**, and no amount of quiet would have made
+today's numbers comparable to them.
+
+So the host check was right to refuse the comparison all along. Its only fault
+was doing it in silence, which is what #83 fixes: an uncomparable host now
+names the field that differs and returns the inconclusive verdict rather than
+passing.
+
+What survives of the tax finding, and what does not:
+
+- **Survives.** The ~79 us per file open is self-consistent *on this machine*:
+  derived from tokio's 799 segments, it predicted deno's `load_warm` at ~510 ms
+  before deno ran, against 493.6 measured. `find` over the settled deno tree
+  takes 0.55 s for ~14.8k files. Both are measurements of this host against
+  itself and neither depends on the baseline.
+- **Does not.** Attributing tokio's `load_warm` 21.7 -> 84.5 ms *to the tax*
+  compared two different machines and cannot carry that weight. An M5 should
+  beat a twelve-core predecessor at the single-threaded work `load_warm` does,
+  which points the same way, but "points the same way" is not a measurement.
+  The honest statement is that the two numbers are not comparable at all.
+
+This also re-frames the refresh. Updating these baselines is not freshening
+stale numbers for the same machine; it is measuring **this** machine for the
+first time. That makes refreshing more clearly correct once the host stays
+quiet long enough, and it makes the old numbers worth keeping in history rather
+than treating as a target this hardware failed to hit.
+
 **Addendum, same day: there was a fix inside the contract after all.** The
 table above says the walk dominates; it does not say the walk was
 single-threaded, and it was. `ignore` ships a parallel walker, and using it
