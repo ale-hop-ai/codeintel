@@ -204,7 +204,18 @@ fn run() -> Result<bool> {
         // measured; this pins the code that did the measuring, and without it
         // a scoreboard cannot be quoted as any particular build's (#78).
         "tool": tool_rev(),
-        "scip": { "status": Status::Ok.as_str(), "anchor_rate": anchor_rate },
+        // `index` is the oracle's identity, and it is load-bearing for the
+        // same reason `corpus.rev` is. `rust-analyzer scip` on one pinned
+        // checkout is **not** a function of that checkout: run cold it
+        // resolves less than run against a warm `target/`. Measured on fd at
+        // its pin — 928 KB cold, 949 KB warm, `ref` tp 8288 against 8590, and
+        // every precision moved. Two indexes, one tree, two answers, so a
+        // baseline taken against one of them says nothing about the other.
+        "scip": {
+            "status": Status::Ok.as_str(),
+            "anchor_rate": anchor_rate,
+            "index": facts::content_hash(&std::fs::read(&scip)?),
+        },
         "cost": {
             "schema_bytes": cost.schema_bytes,
             "answer_bytes_p50": cost.p50,
@@ -625,6 +636,20 @@ fn compare(base: &Value, current: &Value) -> bool {
         );
         return false;
     }
+    // The oracle has an identity of its own, and it is not implied by the
+    // corpus rev (see `scip.index` where it is written). Every precision,
+    // every recall, the anchor rate and the coverage ratios are all measured
+    // against it, so a different index is a different experiment — reported
+    // as a refusal, never absorbed as a regression.
+    let (base_scip, scip) = (base.pointer("/scip/index"), current.pointer("/scip/index"));
+    if base_scip != scip {
+        println!(
+            "REFUSED: the baseline's oracle was SCIP index {base_scip:?}, this is {scip:?}. The \
+             same checkout indexed twice is not the same oracle, so nothing here is comparable. \
+             Re-use that index, or UPDATE_BASELINE=1 against this one"
+        );
+        return false;
+    }
     let mut regressed = Vec::new();
     for (pointer, direction) in JUDGED {
         judge(base, current, pointer, *direction, &mut regressed);
@@ -722,17 +747,19 @@ fn percentile(values: &[usize], p: f64) -> usize {
 
 /// The build that measured: the short rev, plus `-dirty` when it cannot be
 /// checked out again.
+///
+/// The baselines this bench writes do not count as dirt. `tasks/score.yml`
+/// scores fd and then tokio, so with `UPDATE_BASELINE=1` the first step's
+/// output would make the second step's build read as unbuildable — a `-dirty`
+/// that describes the measurement, not the code.
 fn tool_rev() -> String {
-    let rev = git(
-        Path::new(env!("CARGO_MANIFEST_DIR")),
-        &["rev-parse", "--short=12", "HEAD"],
-    )
-    .unwrap_or_else(|| "norev".to_string());
-    let dirty = git(
-        Path::new(env!("CARGO_MANIFEST_DIR")),
-        &["status", "--porcelain"],
-    )
-    .is_some_and(|s| !s.is_empty());
+    let here = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let rev =
+        git(here, &["rev-parse", "--short=12", "HEAD"]).unwrap_or_else(|| "norev".to_string());
+    let dirty = git(here, &["status", "--porcelain"]).is_some_and(|s| {
+        s.lines()
+            .any(|l| !l.trim_end().ends_with("score-baseline.json"))
+    });
     if dirty { format!("{rev}-dirty") } else { rev }
 }
 

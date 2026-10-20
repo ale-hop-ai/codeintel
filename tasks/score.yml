@@ -49,24 +49,33 @@ steps:
       dest: "{{ corpora }}/tokio"
       ref: "{{ tokio_rev }}"
 
-  # ~20 s. Re-run after a pin bump: the bench compares file mtimes against the
-  # index's, so an index older than the checkout reads as `scip-stale` and the
-  # scoreboard is refused rather than written wrong. The output path is
-  # outside the checkout, so the tree stays clean.
+  # ~20 s, and **only when the index is missing**. `rust-analyzer scip` on a
+  # pinned checkout is not a function of that checkout: run against a cold
+  # `target/` it resolves less than run against a warm one. Measured on fd at
+  # its pin — 928 KB cold, 949 KB warm, `ref` tp 8288 against 8590, and every
+  # precision moved. So the index is generated once and kept, the scoreboard
+  # records its content hash, and the bench refuses to compare two scoreboards
+  # whose oracles differ.
+  #
+  # Delete the file to rebuild it — after a pin bump you must, because the
+  # bench decides `scip-stale` by mtime and an index older than the checkout
+  # is refused rather than measured wrong. Then re-run with UPDATE_BASELINE=1.
+  #
+  # The output path is outside the checkout, so the tree stays clean.
   - name: rust-analyzer scip fd
     shell: >-
-      mkdir -p "{{ scip }}" &&
-      cd "{{ corpora }}/fd" &&
-      rust-analyzer scip . --output "{{ scip }}/fd.scip"
+      mkdir -p "{{ scip }}";
+      test -s "{{ scip }}/fd.scip" ||
+      ( cd "{{ corpora }}/fd" && rust-analyzer scip . --output "{{ scip }}/fd.scip" )
     changed_when: "false"
     timeout: 20m
 
-  # ~75 s.
+  # ~75 s, same rule.
   - name: rust-analyzer scip tokio
     shell: >-
-      mkdir -p "{{ scip }}" &&
-      cd "{{ corpora }}/tokio" &&
-      rust-analyzer scip . --output "{{ scip }}/tokio.scip"
+      mkdir -p "{{ scip }}";
+      test -s "{{ scip }}/tokio.scip" ||
+      ( cd "{{ corpora }}/tokio" && rust-analyzer scip . --output "{{ scip }}/tokio.scip" )
     changed_when: "false"
     timeout: 60m
 
