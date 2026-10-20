@@ -992,6 +992,15 @@ are stated against — the 1M-symbol table in [01-facts.md](../specs/01-facts.md
   regression fails `tasks/bench.yml`. **CI fails on any change in a counter**
   (`tests/counters.rs`), not on wall-clock — see below.
 
+### Local-only drift check: indexer output shape (#109)
+
+The committed `tests/fixtures/*/index.scip` pin each indexer's output shape;
+`tests/fixtures/indexers.pin` plus `crates/extract/tests/indexer_pin.rs` guard
+that the pin is not changed silently. Whether a *newer* indexer still ingests
+correctly is a local check, like the bench: runbook in
+`tests/fixtures/README.md` § Indexer pins. It needs indexers installed, which
+waits on `tasks/indexers.yml` (`docs/onboarding.md` F5).
+
 ### Pulled forward, 2026-09-13 (#17)
 
 Items 1 and 2, and the regression gate, landed **ahead of M5**. Item 3 did not.
