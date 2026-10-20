@@ -6,15 +6,15 @@ binding: yes
 # 05 — Surface
 
 The surface budget from [00-overview.md](00-overview.md) is binding: **5 CLI
-verbs, 1 MCP tool, <= 16 base relations, and `schema` output <= 10,000
+verbs, 1 MCP tool, <= 16 base relations, and `schema` output <= 6,000
 characters with the rule list complete.** Growth requires deletion.
 
 There is **no cap on the rule count**. There was, twice, and both numbers were
 set rather than derived; 00-overview.md § Surface budget records why they were
 dropped. Rules are the growth path the design wants — a new structural question
 is meant to become a rule, not a verb or a Rust helper — so the thing to bound
-is what they cost an agent, which is `schema` bytes. `tests/surface.rs` asserts
-all four.
+is what they cost an agent, which is `schema` bytes. `crates/codeintel/tests/surface.rs` asserts
+three of them and the verb count is asserted in `crates/codeintel/src/main.rs`.
 
 ## Status taxonomy
 
@@ -100,7 +100,8 @@ their string forms are different atoms ([01-facts.md](01-facts.md) § Integers),
 so `codeintel rules innermost_at src/store.rs 142` bound the *string* `"142"`,
 matched nothing, and returned `status: ok` with zero rows. Broken for every rule
 taking a line number, including the headline one, and lying while doing it. The
-`*_by_name` rules it needed stay in `stdlib.dl`; they are useful on their own.
+`*_by_name` rules it needed are gone too (`rules/stdlib.dl:236`): each was one
+join an agent writes itself.
 
 `--format tsv` is gone: text is already TSV-ish and there were three formats for
 two consumers.
@@ -613,7 +614,7 @@ that gates copy length. Estimates of this text span **~1,400 tokens** at four
 characters per token — prose-like, and what an earlier draft of this paragraph
 claimed — to **~1,750** under a BPE-shaped count that charges per punctuation
 mark and per identifier fragment, which is what dense tabular output actually
-looks like. Today: **5,256 characters, 41 rules** on this repository, and the
+looks like. Today: **5,695 characters, 42 rules** on this repository, and the
 honest statement is that `schema` is *at* its budget rather than inside it.
 
 That matters because it is now the *only* constraint the standard library
@@ -624,7 +625,7 @@ a worst-case census rather than a fixture tree** ([00-overview.md](00-overview.m
 § Surface budget, #42). `schema` embeds live per-kind and per-language counts,
 so a ceiling measured against the smallest possible index binds on nothing; the
 worst case is every relation, kind, role and shipped language at seven-digit
-counts, and it renders 5,490. If the assertion fires, the standard library is
+counts, and it renders 5,919. If the assertion fires, the standard library is
 too big — cut rules, not the catalogue.
 
 Two things pay for it, and only one is allowed to. Fixed-width padding is free
@@ -1095,7 +1096,7 @@ Three rules follow, and they supersede the earlier drafts named at each site:
    answer.
 3. **The schema is a budget, not an inventory.** It is read once per session
    before any question is asked, so its bytes are charged to every session
-   including the ones that ask one question. It is currently 18,304 bytes.
+   including the ones that ask one question. It is currently 5,695 bytes on this repository.
 
 **These are decisions, not measurements.** The magnitude each one recovers is
 the subject of a standing hypothesis in
@@ -1116,7 +1117,7 @@ the router's attention, and each new question is tempted to become tool N+1.
 One tool plus a query language means new questions cost zero surface.
 
 The cost is real and should be stated: the agent must learn Datalog. That is
-what `schema: true` is for, and the ≥ 8/10 first-attempt success criterion in
+what `schema: true` is for, and the ≥ 24-of-30 first-attempt success criterion in
 [00-overview.md](00-overview.md) is the test of whether that cost was paid down.
 
 ---
