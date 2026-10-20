@@ -885,9 +885,9 @@ within(C, A) :- parent(C, P), within(P, A).
 % --- tests -------------------------------------------------------------
 % `file(F, _)` is not decoration: without it F is a head variable bound only
 % by a filter, which violates range restriction exactly as symbol_at did.
-is_test(F) :- file(F, _), match(F, "(^|/)tests?/").
+is_test(F) :- file(F, _), match(F, "(^|/)(tests?|__tests__)/").
 is_test(F) :- file(F, _), match(F, "_test\\.(go|py|rs)$").
-is_test(F) :- file(F, _), match(F, "(^|/)test_[^/]*\\.py$").
+is_test(F) :- file(F, _), match(F, "(^|/)(test_[^/]*|tests|conftest)\\.py$").
 is_test(F) :- file(F, _), match(F, "\\.(test|spec)\\.(ts|tsx|js|jsx)$").
 is_test(F) :- scip_ref(_, F, _, _, _, "test").
 
