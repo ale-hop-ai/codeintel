@@ -15,6 +15,8 @@
 //! | `open` | `facts::Store::open` — manifest parse + dictionary map |
 //! | `manifest_reread` | refresh's second `Manifest::open` |
 //! | `open_dict` | the dictionary half of `open`: `Interner::open_to` |
+//! | `dict_read` | inside `open_dict`: `fs::read` of `dict.bin` and `dict.idx` alone |
+//! | `dict_open` | inside `open_dict`: `Dict::open_to`, i.e. read + offsets + `validate` |
 //! | `manifest_compare` | the `!=` that decides whether to reopen |
 //! | `sweep` | `Store::sweep` — `read_dir` over the segment directory |
 //! | `walk` | `extract::walk` — the gitignore-aware traversal |
@@ -49,11 +51,13 @@ mod conditions;
 use conditions::Conditions;
 
 /// Every phase, in the order a round runs them.
-const PHASES: [&str; 9] = [
+const PHASES: [&str; 11] = [
     "locate",
     "open",
     "manifest_reread",
     "open_dict",
+    "dict_read",
+    "dict_open",
     "manifest_compare",
     "sweep",
     "walk",
@@ -175,6 +179,19 @@ fn run() -> Result<()> {
         let t = Instant::now();
         drop(facts::intern::Interner::open_to(&dir, bin_len, idx_len)?);
         round_ms.push(("open_dict", ms(t)));
+
+        // `open_dict` less `dict_open` is the `by_text` map; `dict_open` less
+        // `dict_read` is the offset table and `validate`.
+        let t = Instant::now();
+        std::hint::black_box((
+            std::fs::read(dir.join("dict.bin"))?,
+            std::fs::read(dir.join("dict.idx"))?,
+        ));
+        round_ms.push(("dict_read", ms(t)));
+
+        let t = Instant::now();
+        drop(facts::intern::Dict::open_to(&dir, bin_len, idx_len)?);
+        round_ms.push(("dict_open", ms(t)));
 
         let t = Instant::now();
         std::hint::black_box(compare_manifest == *compare_store.manifest());

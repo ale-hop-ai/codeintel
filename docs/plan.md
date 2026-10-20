@@ -1209,9 +1209,16 @@ sweep is 3.9, evaluate 4.5, the per-file stale check 2.2, `manifest_compare`
 So the thing that scales with the tree is the gitignore-aware traversal, five
 to one over `Store::open` — which M6 had named as the co-candidate and which is
 not the problem. The walk is already parallel at four threads, so that is 136 ms
-with the obvious fix in hand. `open_dict` is the only other phase that grows: it
-is `fs::read` of the dictionary per call, the cost [research.md](research.md) §6
-accepted when the mmap was dropped.
+with the obvious fix in hand. `open_dict` is the only other phase that grows. It
+was first written down as `fs::read` of the dictionary per call, the cost
+[research.md](research.md) §6 accepted when the mmap was dropped; that
+attribution was wrong (#121 investigation, 2026-10-21, deno, load 0.49 at start):
+of `open_dict`'s 27.7 ms, `fs::read` is **1.1 ms**, the offset table and
+`validate` another 2.9, and the **`by_text` map `Interner::open_with` builds —
+one heap `String` per atom — is 23.8 ms**. Dropping the mmap (#44) did not cause
+it and restoring it would not touch it. On a no-change call the store that
+paid for it is dropped unused, because `Warm` already holds an engine whose
+manifest compares equal.
 
 Not fixed, because every call refreshing is the contract and refresh means
 walking. The options are directory-mtime pruning, caching the walk for the life
