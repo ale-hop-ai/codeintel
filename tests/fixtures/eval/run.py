@@ -296,9 +296,9 @@ def main():
     # NOT under `target/`. These are the evidence a number on
     # docs/agent-eval.md rests on, and `cargo clean` removed four runs' worth
     # on 2026-10-20 -- including the run the page's most recent figure cites.
-    # A build command must not be able to delete the record (#112). Ignored by
-    # git today; committing them is one .gitignore line away once the question
-    # of whether raw agent transcripts belong in the record is settled.
+    # A build command must not be able to delete the record (#112). Scored
+    # outputs are committed; agents.jsonl (raw transcripts) is git-ignored --
+    # see .gitignore.
     ap.add_argument("--out", type=Path, default=HERE / "artifacts")
     a = ap.parse_args()
 
