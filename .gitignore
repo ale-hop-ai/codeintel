@@ -16,9 +16,18 @@ __pycache__/
 
 # Agent-eval run artifacts. Deliberately NOT under `target/`: they are the
 # evidence every number on `docs/agent-eval.md` rests on, and a `cargo clean`
-# deleted four runs' worth on 2026-10-20 (#112). Ignored for now only because
-# whether raw agent transcripts belong in a committed record is unsettled --
-# 60 KB a run, so size is not what is stopping it. NOT `runs/`, which
+# deleted four runs' worth on 2026-10-20 (#112). Not `runs/` either, which
 # already holds committed recorded answers (`round*.tsv`) -- an ignored
 # directory and a tracked record must not share a name.
-tests/fixtures/eval/artifacts/
+#
+# The scored outputs are COMMITTED, so a number on the page can be checked by
+# anyone rather than believed: `outcomes.json` is what verifies a claim like
+# "Q19 went 1/3 to 3/3", and `report.txt`, `answers.tsv` and `schema.txt` are
+# what it was scored from. ~10 KB a run, and runs are rare and deliberate --
+# four in two months.
+#
+# `agents.jsonl` is not: it is the agents' raw transcripts, it is the bulk of
+# the 60 KB, and whether transcripts belong in a committed record is a
+# question about privacy and size rather than about provenance. Nothing on
+# the page is verified from it, so excluding it costs no checkability (#112).
+tests/fixtures/eval/artifacts/**/agents.jsonl
