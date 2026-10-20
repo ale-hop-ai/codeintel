@@ -669,6 +669,28 @@ fn dead_export_and_its_exact_form() {
     );
 }
 
+/// #114: a variant and a trait-impl method are `inherited`, list in
+/// `dead_export_exact`, and cannot be narrowed. The cookbook's filter removes
+/// exactly them and nothing else.
+#[test]
+fn dead_export_exact_lists_inherited_rows_and_the_filter_removes_only_them() {
+    let all = rows("?- dead_export_exact(S), def(S, F, K, N), visibility(S, V).");
+    let inherited: Vec<&String> = all.iter().filter(|r| r.ends_with("\tinherited")).collect();
+    for want in ["Fast ", "Careful ", "handle "] {
+        assert!(
+            inherited.iter().any(|r| r.starts_with(want)),
+            "{want}must list as inherited: {all:?}"
+        );
+    }
+    let kept = rows(
+        r#"?- dead_export_exact(S), def(S, F, K, N), visibility(S, V), !visibility(S, "inherited")."#,
+    );
+    assert!(kept.iter().any(|r| r.starts_with("Store ")), "{kept:?}");
+    assert!(kept.iter().all(|r| !r.ends_with("\tinherited")), "{kept:?}");
+    let data = |rs: &[String]| rs.iter().filter(|r| r.contains('\t')).count();
+    assert_eq!(data(&kept) + inherited.len(), data(&all), "{kept:?}");
+}
+
 #[test]
 fn ref_outside_is_what_dead_export_negates() {
     // `open` in db/conn.rs is referenced from app.rs and panel.rs.
