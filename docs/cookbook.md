@@ -143,7 +143,7 @@ The 17 that *are* questions:
 | `SymbolsByFile` | `?- file_of(S, "src/store.rs"), def(S, _, K, N).` |
 | `SelectSymbols` | `?- def(S, F, K, N), contains(N, "auth").` |
 | `ExportedSymbolsByDir` | `?- exported(S), def(S, F, _, N), prefix(F, "src/api/").` |
-| `GraphQualifiedNameAt` | `?- innermost_at(F, L, S), within(S, A), def(A, _, _, N).` |
+| `GraphQualifiedNameAt` | `?- innermost_at("src/store.rs", 23, S), within(S, A), def(A, _, _, N).` |
 | `ImportsForFile` | `?- import("src/store.rs", M, Alias).` |
 | `ImportsForDir` | `?- import(F, M, _), prefix(F, "src/db/").` |
 | `InternalPackageImports` | `?- import(F, M, _), prefix(M, "crate::").` |
