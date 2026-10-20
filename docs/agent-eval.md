@@ -494,6 +494,38 @@ of what M1 measured, and editing its fixture would change the world a recorded
 run was scored in without changing the record — the same move this page
 withdrew a score for. It is written down instead.
 
+### Decision (#87): `facts.dl` stays frozen and broken
+
+Decided on issue #87 and not to be re-opened without new evidence. The full
+extent of the breakage, checked against the tree:
+
+- 15 `exported(...)` and 2 `implements(...)` base facts in `facts.dl`, and no
+  `visibility` facts. Both relations are rule heads now, so the stdlib does not
+  load against it and **every** frozen-bank command fails with exit 3.
+- Q18 asks `long_def/2`, deleted at schema 3. Its recorded answer cannot be
+  recomputed against *any* fixture, this one repaired or not.
+
+The three options, and why only one survives:
+
+- **Migrate** it to `visibility`: a per-row judgement, `implements` needs the
+  narrower facts it is now derived from, and Q18 has no repair. The result is a
+  different fixture under the same name beneath an unchanged 88/90.
+- **Retire** it and move the commands to `bank.dl`: every recorded answer
+  changes, so the record is rewritten rather than moved, and the only artifact
+  that is the M1 input is destroyed.
+- **Leave it frozen and broken**, chosen. Its whole value is being what M1 was
+  measured on; this is the only option under which every number on this page
+  still means what it says.
+
+What keeps the cost of that honest: `examples/eval.rs` leads with `bank.dl`,
+labels the default-fixture command as historical, and says "frozen M1 fixture,
+unloadable since schema 2 (#87)" when it fails. `tests/eval_commands.rs` holds
+`facts.dl` to that failure (exit 3) in its `KNOWN_DEAD` list, so a different
+breakage, or a silent repair, fails CI.
+
+To reproduce M1 itself, check out the commit before `9e5dd5e`. **Untested
+expectation**: nobody has run it.
+
 `bank.dl` is a fresh 16-file polyglot fixture written against the vocabulary
 that ships today, and it is deliberately shaped to make the `_exact` twins
 *disagree*, which `facts.dl` never did:
