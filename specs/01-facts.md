@@ -70,6 +70,15 @@ empty role bitset. Calling that a `read` would be the extractor guessing
 (invariant 1), and dropping the occurrence would lose a reference the compiler
 did resolve, so it gets its own atom — as `Kind` does for the same reason.
 
+**Role is only as populated as the indexer makes it.** Measured: rust-analyzer
+emits no role on any reference (all `unknown`); scip-go emits `ReadAccess` on
+every reference regardless of use, so `read` there is "a reference", not a
+read; scip-typescript emits none. No indexer measured emits `write`, `import`,
+`test`, `generated` or `forward`. The vocabulary is the SCIP protocol's, not a
+promise about any indexer; `codeintel schema`'s per-role counts say what this
+index holds. A non-`unknown` share is not a measure of information: Go reaches
+1.0 with none (`docs/50-self-improvement.md` § 2, `role_known`).
+
 **`Prov`** — resolution provenance. Exactly two values, forever:
 ```
 exact    from SCIP. type-resolved by a real compiler front-end.
