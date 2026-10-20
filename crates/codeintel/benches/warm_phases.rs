@@ -28,7 +28,8 @@
 //! derived count, so that the residual is as close to zero as the set allows
 //! and the per-call floor is what is left.
 //!
-//! Local only, like `corpus.rs`. It writes `target/bench/<name>-phases.json`
+//! Local only, like `corpus.rs`. It writes
+//! `target/bench/<name>-phases-<run-id>.json`
 //! and compares nothing: this is a profile, not a gate.
 
 use std::fmt::Write as _;
@@ -286,9 +287,12 @@ fn report_phases(
         "derived": { "stale_check_ms": stale_check, "evaluate_ms": evaluate },
         "anchor": { "mcp_p50_ms": mcp_p50 },
     });
+    // Stamped with what produced it (#78): the deno row of `docs/plan.md`
+    // § #28 was written by a parallel-walk binary and read as the serial
+    // walk's, because both wrote the same path.
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target/bench")
-        .join(format!("{name}-phases.json"));
+        .join(format!("{name}-phases-{}.json", conditions::run_id()));
     std::fs::create_dir_all(path.parent().context("a parent")?)?;
     std::fs::write(&path, serde_json::to_string_pretty(&out)? + "\n")?;
     println!("\nwrote {}", path.display());

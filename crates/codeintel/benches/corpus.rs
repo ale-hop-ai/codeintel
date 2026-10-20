@@ -9,7 +9,9 @@
 //!
 //! `<name>` picks `benches/corpora/<name>/`, which holds `corpus.json`,
 //! `queries.tsv` and `baseline.json`. The bench works on a copy of the corpus in
-//! a temp directory, never on the checkout. It writes `target/bench/<name>.json`,
+//! a temp directory, never on the checkout. It writes
+//! `target/bench/<name>-<run-id>.json`, where the run id is the rev that
+//! produced it (`benches/conditions.rs`),
 //! then compares it with that corpus's baseline: counters exactly, wall clock
 //! at +20%. Wall clock is compared only on the host the baseline was measured
 //! on, and nothing is compared against a different corpus commit.
@@ -148,12 +150,14 @@ fn run() -> Result<Verdict> {
     let reindex_one_ms = reindex_one(&root, &reindex_file)?;
     println!("reindex_one_ms  {reindex_one_ms:>9.1}");
 
+    // Read once, so the value written and the value judged are the same one.
+    let ended_under = Conditions::now();
     let current = json!({
         "corpus": { "name": name, "rev": rev, "files": files, "defs": defs },
         "host": host(),
         // Beside the result, not inside `host()`: that value is compared for
         // equality to decide "same machine", and load differs every run.
-        "conditions": conditions::report(started_under, Conditions::now()),
+        "conditions": conditions::report(started_under, ended_under),
         // Needs root to drop (`purge`, /proc/sys/vm/drop_caches). Not measured,
         // and saying so rather than leaving the key out.
         "cold_page_cache": null,
@@ -179,15 +183,31 @@ fn run() -> Result<Verdict> {
         percentile(&pooled_cli, 0.50)
     );
 
+    // Stamped with what produced it, so two builds cannot write the same file
+    // and a result can never be quoted as another build's (#78). The committed
+    // baseline stays at its own fixed path; it is the per-run results that
+    // must not collide.
     let out = manifest
         .join("../../target/bench")
-        .join(format!("{name}.json"));
+        .join(format!("{name}-{}.json", conditions::run_id()));
     write_json(&out, &current)?;
     println!("wrote {}", out.display());
 
     let baseline = spec.join("baseline.json");
     if std::env::var_os("UPDATE_BASELINE").is_some() {
-        // The load refusal already happened at the top of the run.
+        // The start check cannot catch a machine that was idle when the run
+        // began and busy by the time it ended, and the numbers above were
+        // measured across the whole span, not at the start of it.
+        if !conditions::held_steady(started_under, ended_under) {
+            println!(
+                "REFUSED: not writing a baseline. The run began at {} and ended at {}. Something \
+                 arrived while it was measuring, so these numbers describe the interruption as \
+                 much as the code. Re-run UPDATE_BASELINE=1 on a machine that stays idle.",
+                started_under.describe(),
+                ended_under.describe()
+            );
+            return Ok(Verdict::Fail);
+        }
         if conditions::dirty_tree() {
             println!(
                 "note: the tree is dirty, so this baseline describes a build that cannot be \
@@ -214,12 +234,27 @@ fn index_cold(root: &Path) -> Result<(f64, usize, usize)> {
     let mut runs = Vec::new();
     let (mut files, mut defs) = (0, 0);
     for _ in 0..INDEX_RUNS {
-        index::discard(root)?;
+        // The **index** directory, not the root. `discard` empties whatever it
+        // is given; pointed at the root it deleted the corpus copy, and every
+        // number after it described an empty tree (see the guard below).
+        index::discard(&root.join(".codeintel"))?;
         let started = Instant::now();
         let mut store = Store::open(root, root.join(".codeintel"), &extract::fingerprint())?;
         let report = index::refresh(&mut store, &Plan::default())?;
         runs.push(ms(started));
         (files, defs) = (report.indexed, report.counts.defs);
+    }
+    // A corpus that indexes nothing is a broken harness, not a fast one, and
+    // its numbers are plausible enough to commit by accident: small, quick,
+    // and every query answering zero rows. `UPDATE_BASELINE` does not compare
+    // against anything, so nothing else would have objected
+    // (`specs/00-overview.md` invariant 5 — never a silent empty).
+    if files == 0 || defs == 0 {
+        bail!(
+            "the cold index found {files} file(s) and {defs} def(s) in {}. A pinned corpus is \
+             never empty, so the harness is wrong, not the tree",
+            root.display()
+        );
     }
     Ok((percentile(&runs, 0.50), files, defs))
 }

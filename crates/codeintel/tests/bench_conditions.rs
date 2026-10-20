@@ -152,3 +152,69 @@ fn the_boundary_is_inclusive() {
     };
     assert!(exactly.trustworthy(), "at the limit is still allowed");
 }
+
+#[test]
+fn a_run_id_names_the_code_that_produced_it() {
+    // #78: two builds writing one path is how a parallel-walk result got
+    // quoted as the serial walk's. The id has to change when the code does.
+    let id = conditions::run_id();
+    assert!(!id.is_empty(), "a run always has an identity");
+    assert!(
+        !id.contains('/') && !id.contains(' '),
+        "a run id becomes a filename: {id}"
+    );
+    // This tree is dirty while the change is being written and clean after it
+    // lands, so assert the shape of whichever case is live rather than
+    // pinning one and failing in the other.
+    if conditions::dirty_tree() {
+        assert!(
+            id.contains("-dirty-"),
+            "a dirty tree's rev alone does not identify what was built: {id}"
+        );
+    } else {
+        assert!(
+            !id.contains("-dirty-"),
+            "a clean tree is identified by its rev alone: {id}"
+        );
+    }
+}
+
+#[test]
+fn a_run_that_started_quiet_and_ended_busy_is_not_committable() {
+    // The case the start-only check missed: a deno run began at 0.39 per core
+    // and ended at 1.99 because Defender and an unrelated build woke up inside
+    // it. Every number came from across that ramp.
+    let quiet = Conditions {
+        load1: Some(3.85),
+        cores: 10,
+    };
+    let busy = Conditions {
+        load1: Some(19.89),
+        cores: 10,
+    };
+    assert!(quiet.safe_to_commit(), "the start was genuinely fine");
+    assert!(
+        !conditions::held_steady(quiet, busy),
+        "a run interrupted mid-flight is not a baseline"
+    );
+    assert!(conditions::held_steady(quiet, quiet));
+}
+
+#[test]
+fn the_end_bound_leaves_room_for_the_benchs_own_threads() {
+    // The walk runs on four threads, so the bench raises load by roughly half
+    // a runnable thread per core. The end bound has to tolerate that or the
+    // biggest corpus could never be baselined at all.
+    let start = Conditions {
+        load1: Some(3.0),
+        cores: 10,
+    };
+    let ours = Conditions {
+        load1: Some(8.0),
+        cores: 10,
+    };
+    assert!(
+        conditions::held_steady(start, ours),
+        "0.8 per core at the end is the bench working, not an interruption"
+    );
+}
