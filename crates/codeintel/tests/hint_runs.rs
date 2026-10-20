@@ -68,7 +68,12 @@ fn the_no_index_hint_is_valid_shell_over_every_language() {
     // `cd` must land in the root, not in the first word of it.
     let (cd, _) = line.split_once(" && ").expect("a chain");
     let landed = sh(&["-c", &format!("{cd} && pwd -P")]);
-    assert!(landed.status.success(), "{cd}");
+    assert!(
+        landed.status.success(),
+        "`{cd} && pwd -P` exited {:?}: {}",
+        landed.status.code(),
+        String::from_utf8_lossy(&landed.stderr)
+    );
     assert_eq!(
         String::from_utf8_lossy(&landed.stdout).trim_end(),
         tree.path()
@@ -272,9 +277,11 @@ fn chain_under(tree: &Path, shape: &str, goal: &str) -> String {
     // `expect` and not `panic!`: a helper in tests/ is production code to the
     // panic-surface lints (clippy.toml). Both queries are `no-scip` on this
     // tree, so both hints carry a chain.
-    let (_, after) = text
-        .split_once("run: ")
-        .expect("a no-scip hint carries a runnable chain");
+    let why = format!(
+        "`codeintel query {goal}` exited {:?}; no `run: ` chain in: {text}",
+        out.status.code()
+    );
+    let (_, after) = text.split_once("run: ").expect(&why);
     after.lines().next().expect("a line").to_string()
 }
 
@@ -292,7 +299,13 @@ fn chain_under(tree: &Path, shape: &str, goal: &str) -> String {
 #[test]
 fn composing_a_hint_leaves_its_runnable_chain_untouched() {
     let tree = two_language_tree();
-    assert!(codeintel(tree.path(), &["index", "."]).status.success());
+    let indexed = codeintel(tree.path(), &["index", "."]);
+    assert!(
+        indexed.status.success(),
+        "`codeintel index .` exited {:?}: {}",
+        indexed.status.code(),
+        String::from_utf8_lossy(&indexed.stderr)
+    );
     // Both are `no-scip`, so both carry the same chain. Only the second is
     // empty, and emptiness is what composes.
     let (rows, empty) = (

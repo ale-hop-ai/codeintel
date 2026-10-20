@@ -25,7 +25,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 use std::sync::OnceLock;
 
 use codeintel::query::{self, Answer, Options};
@@ -53,6 +53,19 @@ const NOT_RUNNABLE: &[(&str, &str)] = &[
         "the prose inside the MCP tool's JSON schema",
     ),
 ];
+
+/// An answer that is JSON. A process that printed nothing fails `from_slice`
+/// with "EOF while parsing", which says nothing about why it printed nothing.
+#[track_caller]
+fn stdout_json(out: &Output) -> serde_json::Value {
+    let why = format!(
+        "exited {:?} and printed {} byte(s) of stdout, not JSON. stderr: {}",
+        out.status.code(),
+        out.stdout.len(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout).expect(&why)
+}
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -200,8 +213,7 @@ fn every_documented_query_runs_against_this_repository() {
             .env("CODEINTEL_INDEX_DIR", index)
             .output()
             .expect("the binary runs");
-        let response: serde_json::Value =
-            serde_json::from_slice(&out.stdout).expect("--format json prints JSON");
+        let response: serde_json::Value = stdout_json(&out);
         let status = response["status"].as_str().unwrap_or("?");
         if matches!(status, "timeout" | "invalid-query") {
             wrong.push(format!(

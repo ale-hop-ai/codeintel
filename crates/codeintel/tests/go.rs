@@ -16,6 +16,19 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+/// An answer that is JSON. A process that printed nothing fails `from_slice`
+/// with "EOF while parsing", which says nothing about why it printed nothing.
+#[track_caller]
+fn stdout_json(out: &Output) -> serde_json::Value {
+    let why = format!(
+        "exited {:?} and printed {} byte(s) of stdout, not JSON. stderr: {}",
+        out.status.code(),
+        out.stdout.len(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout).expect(&why)
+}
+
 fn binary() -> &'static str {
     env!("CARGO_BIN_EXE_codeintel")
 }
@@ -114,6 +127,12 @@ fn index(root: &Path) -> String {
 
 fn query(root: &Path, program: &str) -> (Vec<String>, String) {
     let out = run(root, &["query", program]);
+    assert!(
+        matches!(out.status.code(), Some(code) if code != 2),
+        "`query {program}` exited {:?}\nstderr: {}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr)
+    );
     (
         String::from_utf8_lossy(&out.stdout)
             .lines()
@@ -275,7 +294,7 @@ fn entrypoint_exact_ignores_scip_impl_even_when_the_indexer_fills_it() {
         dir.path(),
         &["query", "?- entrypoint_exact(S).", "--format", "json"],
     );
-    let body: serde_json::Value = serde_json::from_slice(&out.stdout).expect("json");
+    let body: serde_json::Value = stdout_json(&out);
     let depends: Vec<&str> = body["stats"]["depends"]
         .as_array()
         .expect("depends")
