@@ -92,6 +92,23 @@ fn the_match_builtin_runs_the_shipped_is_test_rules() {
             &["src/store_test.go", "go"],
             &["web/app.test.ts", "typescript"],
             &["src/tests_helper.rs", "rust"],
+            &["web/__tests__/a.ts", "typescript"],
+            &["__tests__/b.ts", "typescript"],
+            &["pkg/tests.py", "python"],
+            &["conftest.py", "python"],
+            &["pkg/conftest.py", "python"],
+            &["pkg/test_x.py", "python"],
+            // Near misses that must stay out: a regex that over-matches
+            // marks real code as test code, which is worse than the miss.
+            &["src/latest.rs", "rust"],
+            &["contest.py", "python"],
+            &["pkg/attest.py", "python"],
+            &["pkg/testing.py", "python"],
+            &["pkg/my_tests.py", "python"],
+            &["pkg/myconftest.py", "python"],
+            &["src/__tests__helper.ts", "typescript"],
+            &["web/protest.ts", "typescript"],
+            &["web/greatest.go", "go"],
         ],
     );
 
@@ -103,8 +120,14 @@ fn the_match_builtin_runs_the_shipped_is_test_rules() {
     assert_eq!(
         found,
         vec![
+            "__tests__/b.ts".to_string(),
+            "conftest.py".to_string(),
+            "pkg/conftest.py".to_string(),
+            "pkg/test_x.py".to_string(),
+            "pkg/tests.py".to_string(),
             "src/store_test.go".to_string(),
             "tests/store.rs".to_string(),
+            "web/__tests__/a.ts".to_string(),
             "web/app.test.ts".to_string(),
         ]
     );

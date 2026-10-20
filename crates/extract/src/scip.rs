@@ -931,6 +931,11 @@ mod tests {
         assert_eq!(role_of(write), "write");
         assert_eq!(role_of(read), "read");
         assert_eq!(role_of(write | read), "write");
+        // `test` ranks below `read`: a test+read occurrence reports `read`, so
+        // `is_test`'s SCIP clause cannot fire from it (specs/01-facts.md § Role).
+        let test = protobuf::Enum::value(&SymbolRole::Test);
+        assert_eq!(role_of(test), "test");
+        assert_eq!(role_of(test | read), "read");
         // No bits set is `UnspecifiedSymbolRole`. Reading it as a read is the
         // extractor guessing; `unknown` is what the indexer actually said.
         assert_eq!(role_of(0), "unknown");
