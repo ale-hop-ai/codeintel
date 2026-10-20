@@ -326,7 +326,20 @@ fn measure(root: &Path, index: &Path, id: &str, goal: &str) -> Value {
             "query {id}: {}",
             String::from_utf8_lossy(&out.stderr)
         );
-        serde_json::from_slice(&out.stdout).expect("the query prints JSON")
+        // The exit code and stderr, not just the parse error. A run that
+        // produced no stdout fails `from_slice` with "EOF while parsing a
+        // value, line 1 column 0", which says nothing about why the process
+        // printed nothing -- seen once under deliberate load (#110). A status
+        // other than 2 is allowed here because a degraded index is an answer,
+        // but it still has to be an answer.
+        serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
+            panic!(
+                "query {id}: exited {:?} and printed {} byte(s) of stdout, not JSON: {e}\nstderr: {}",
+                out.status.code(),
+                out.stdout.len(),
+                String::from_utf8_lossy(&out.stderr)
+            )
+        })
     };
 
     let answer = run(false);
