@@ -1,0 +1,14 @@
+# Which indexer, at which version, produced each fixture's committed index.scip.
+#
+# `crates/extract/tests/indexer_pin.rs` compares this against the
+# `Metadata.tool_info` inside every `tests/fixtures/*/index.scip` and FAILS on a
+# mismatch, on a fixture with no line here, and on a line with no fixture. A
+# regenerated fixture therefore cannot change producer silently: change the line
+# in the same commit, and read the diff of `expected.facts` for what moved.
+# Runbook: tests/fixtures/README.md § Indexer pins.
+#
+# <fixture dir><TAB><tool name> <tool version>
+rust	rust-analyzer 1.98.1 (48a229ce 2026-09-01)
+go	scip-go 0.2.7
+python	scip-python 0.6.6
+typescript	scip-typescript 0.4.0
