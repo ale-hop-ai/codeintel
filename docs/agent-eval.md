@@ -654,8 +654,11 @@ Per-round score, total, the **pass-count histogram** (how many questions passed
 rounds" — the 2-of-3 figure when rounds is 3. Plus agents run, tokens, cost,
 cost per agent, wall time split into agents and scoring, and an extrapolated
 cost for the full bank, labelled an estimate. Artifacts, in
-`target/eval/<bank>/<utc>/`: `report.txt`, `agents.jsonl` (raw replies and
-usage), `outcomes.json`, `schema.txt` and `answers.tsv`. Any agent that took
+`tests/fixtures/eval/artifacts/<bank>/<utc>/` (#112): `report.txt`,
+`agents.jsonl` (raw replies and usage), `outcomes.json`, `schema.txt` and
+`answers.tsv`. Everything but `agents.jsonl` is committed; the transcripts are
+git-ignored. The runs below predate that: they wrote to `target/eval/`, and
+`cargo clean` deleted them (see **Provenance** at the top of § Tier 3). Any agent that took
 more than one turn, hit a permission denial or errored is flagged `ANOMALY`.
 
 An unparseable or missing answer is a failure, not a skip. A transport failure
@@ -681,7 +684,7 @@ agent is the held-out set leaking.
 - **Same-family blind spots** and **the small fixture** (43 definitions) are the
   M1 caveats, unchanged.
 
-## Validated sample, not a score
+## Validated sample, not a score **[UNBACKED]**
 
 Built and checked on 2026-10-20 at `0291ac8` + this change: working bank,
 `--questions 4 --per-agent 2 --rounds 3`, seed 1 — 6 agents, 12 answers, on
@@ -704,13 +707,38 @@ tree, seed and report, the way § Set A, re-run does.
 
 ## Tier 3, first automated run — 2026-10-20
 
+> **Provenance, #112 — the evidence for every Tier 3 number on this page is
+> gone.** Four runs wrote their artifacts to `target/eval/` (`outcomes.json`,
+> `report.txt`, `agents.jsonl`, `schema.txt`, `answers.tsv`). A `cargo clean` on
+> 2026-10-20 deleted all four; no copy exists on this machine or in git. The
+> numbers are **kept as recorded and are no longer checkable**: nobody can
+> re-derive them, only believe them. Each is marked **[UNBACKED]** below. They
+> are not re-rolled — re-running to replace a number is what this page refuses.
+> Runs made at or after `109e094` write to `tests/fixtures/eval/artifacts/` and are
+> committed; the first one that does is the first Tier 3 number with a
+> provenance. The frozen-bank runs (88/90, 89/90, 85/90, 81/90, 45/45) are
+> unaffected: their submitted answers are committed under `runs/`.
+>
+> | Run | Claim | Status |
+> |---|---|---|
+> | Validated sample, 2026-10-20 | 12/12, $0.206 | **[UNBACKED]** |
+> | First automated run, tree `95d032f` | 210/225, 70/75 | **[UNBACKED]** |
+> | `count` fix | 216/225, 72/75 | **[UNBACKED]** |
+> | Three glosses, `20261020T210211Z` | 221/225, 75/75 | **[UNBACKED]** |
+>
+> One claim in the last row was checked against `outcomes.json` while it still
+> existed (#112): the per-question counts for Q14, Q19, Q34, Q68, Q26, Q21, Q65
+> and Q70 held, including that Q65's miss is `unanswered` rather than a wrong
+> query. That check is a statement by its author, not evidence a reader can
+> repeat.
+
 The first measurement taken by `tests/fixtures/eval/run.py` rather than by hand.
 Run because the schema and the rendering both moved (`schema_bytes` 15,407 →
 5,356; one notation per row), which `docs/50-self-improvement.md` § 4 names as
 Tier 3's trigger.
 
 **210/225 first-attempt correct (93%). 70/75 questions passed a majority of
-three rounds.** Per round 71/75, 71/75, 68/75. Histogram 3x:67 2x:3 1x:3 0x:2.
+three rounds.** **[UNBACKED]** Per round 71/75, 71/75, 68/75. Histogram 3x:67 2x:3 1x:3 0x:2.
 Tree `95d032f`, model `claude-opus-5`, seed 1, schema page sha `f00beda11363`,
 $2.836 at $0.038/agent, 96 s of agents at 4 in flight.
 
@@ -718,6 +746,8 @@ This is the **working** bank. It is not comparable to the frozen bank's 85/90,
 which is a different question set against a different fixture.
 
 ### The isolation is not quite what the page claims
+
+*(From `run.py probe`, which keeps no artifact; independent of the lost runs.)*
 
 `run.py probe` reports the agent sees no tools and no working directory and
 cannot read a canary — but it also reports a system-reminder carrying the
@@ -727,6 +757,8 @@ the bank or the expected answers, so the measurement stands; the sentence does
 not, and is corrected here rather than in a footnote to a score.
 
 ### Q20's reference answer is wrong, and the agents were right
+
+**[UNBACKED]** — "all three rounds returned the larger set" was read from the lost run's `answers.tsv`. The defect itself is checkable: the reference is in `tests/fixtures/eval/working/expected.tsv` and the bank.
 
 > *Which definitions state a bounded visibility, or state none where the
 > grammar offers the slot?*
@@ -743,6 +775,8 @@ measured. The question and its query are reconciled separately, and whatever
 the next run reports is the next run's number.
 
 ### The one systematic failure: `count` must be bound first
+
+**[UNBACKED]** — the "four of six attempts" were read from the lost run's `answers.tsv`. The engine error text and the two query shapes can be re-run by anyone.
 
 Four of the six aggregate attempts, across Q26 and Q60, were rejected with
 
@@ -771,7 +805,7 @@ Expected to recover up to four samples. It changes the schema page, so it is
 measured by re-running this bank and reporting both numbers — which is an
 experiment, not a re-roll, as long as the before number stays on this page.
 
-### The three glosses, measured — 2026-10-20
+### The three glosses, measured — 2026-10-20 **[UNBACKED]**
 
 The run #85 predicted, at the prediction's floor. `20261020T210211Z`, tree
 `81c913cb7e84`, schema page 5,505 bytes `sha256 73378faa701a`, seed 1.
@@ -820,7 +854,7 @@ spending anything). `--keep-chains` from #91 was deliberately **not** used — i
 would have changed what six questions were asked and made the number
 incomparable.
 
-### The `count` fix, measured — 2026-10-20
+### The `count` fix, measured — 2026-10-20 **[UNBACKED]**
 
 Both changes the run above called for, and the re-run that priced them.
 
@@ -863,6 +897,8 @@ condition under which re-running is an experiment and not a re-roll.
 ---
 
 # The four survivors, read — 2026-10-20 (#85)
+
+**[UNBACKED]** — every "wrote" and "N of 6 samples" below was read from the two lost runs' `answers.tsv` and `outcomes.json`. The "defective-reference check" is the exception: it recomputes from the bank and can be repeated.
 
 Q14, Q19, Q34 and Q68 of the working bank, read from the two Tier 3 runs'
 `answers.tsv` and `outcomes.json` (the run that scored 210/225 and the one that
