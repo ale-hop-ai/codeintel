@@ -133,7 +133,16 @@ Non-negotiable, per milestone in [docs/plan.md](docs/plan.md):
   cannot be: a method, a field, an enum variant and a TypeScript constructor are
   nodes only inside their parent, so 59 of 167 fixture definitions fail the
   slice-alone parse with exact spans (#98).
-- **Determinism:** every query byte-identical across 100 runs.
+- **Determinism:** every query byte-identical across repeated runs, with the
+  count justified where it is paid. The engine's conformance suite runs 100
+  over four synthetic programs (`crates/datalog/src/conformance.rs:342`); the
+  real-index suite runs `RUNS = 10` over the documented corpus
+  (`crates/codeintel/tests/documented_queries.rs:332`), where one pass is
+  ~3.5 s in the test profile and 100 would be ~6 minutes inside a gate that
+  takes about one. Ten runs is nine comparisons against the first, so a
+  hash-seed-dependent order that flips half the time is missed with
+  probability ~2^-9. This read "across 100 runs", which was true of the cheap
+  enforcer and unaffordable for the one where it bites (#99).
 - **Idempotence:** index twice → identical segments. Shuffle file order →
   identical facts.
 - **Surface budget:** asserted in CI.
