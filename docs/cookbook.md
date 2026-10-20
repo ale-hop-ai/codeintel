@@ -235,6 +235,15 @@ them.
   invisible call, so a symbol can look unreferenced when it is not.
 - `entrypoint` **inverts**: a callable looks like an entrypoint precisely when
   its callers were not resolved.
+- `entrypoint_exact` is a **candidate list, not a dead-code list**, and `_exact`
+  does not fix that (#111). It never consults `scip_impl`/`implements`, so a
+  trait or interface method called through the trait lists its implementations
+  as uncalled; `is_test` is path-only, so Rust's in-file `#[cfg(test)]`
+  functions list; a definition the anchor join did not reach (`codeintel status`
+  prints `anchored: n/m`) is in neither answer. Read every row before acting on
+  it. The one filter the schema supports for the first class is free functions
+  only, which a trait cannot dispatch to:
+  `?- entrypoint_exact(S), parent(S, P), def(P, _, "module", _), def(S, F, _, N).`
 
 ### `uses_package` names the indexer's package, not the import's
 

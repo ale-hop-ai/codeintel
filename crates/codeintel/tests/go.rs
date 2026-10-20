@@ -251,6 +251,43 @@ fn a_conformance_rule_fires_and_then_stops_firing() {
     assert!(stderr.contains("status=ok"), "{stderr}");
 }
 
+/// #111: `entrypoint_exact` never consults `scip_impl`. With scip-go's rows
+/// present the implementing method still lists, and the dependency closure the
+/// response reports does not name the relation, so no indexer can fix it.
+#[test]
+fn entrypoint_exact_ignores_scip_impl_even_when_the_indexer_fills_it() {
+    let dir = tree();
+    index(dir.path());
+    let (impls, stderr) = query(dir.path(), "?- scip_impl(S, T).");
+    assert!(stderr.contains("status=ok"), "{stderr}");
+    assert!(!impls.is_empty(), "scip-go writes is_implementation rows");
+
+    let (listed, _) = query(
+        dir.path(),
+        r"?- entrypoint_exact(S), scip_impl(S, T), def(S, F, _, N).",
+    );
+    assert!(
+        !listed.is_empty(),
+        "an implementing method lists as uncalled"
+    );
+
+    let out = run(
+        dir.path(),
+        &["query", "?- entrypoint_exact(S).", "--format", "json"],
+    );
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout).expect("json");
+    let depends: Vec<&str> = body["stats"]["depends"]
+        .as_array()
+        .expect("depends")
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect();
+    assert!(
+        !depends.contains(&"scip_impl") && !depends.contains(&"implements"),
+        "{depends:?}"
+    );
+}
+
 #[test]
 fn a_method_is_reachable_through_its_type() {
     // `within/2` recurses through `parent`, so a method parented to its file

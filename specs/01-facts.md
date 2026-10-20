@@ -1008,6 +1008,27 @@ than illustrative. Over a `name`-provenance graph it does not degrade, it
 in the repo reports as an entrypoint. That is why it carries a twin even though
 nothing in the cookbook asks for one.
 
+**What `entrypoint_exact` sees, exactly (#111).** A row is a callable with a
+`resolved` anchor and no `calls_exact` edge into it; `calls_exact` is a
+`scip_ref` enclosed by a non-module `def`. Its dependency closure is `def`,
+`extern`, `name_export`, `name_ref`, `parent`, `resolved`, `scip_ref`,
+`visibility`: **`scip_impl` is not in it**, so a better indexer does not change
+the answer — Go's `scip-go` fills `scip_impl` and the implementing method still
+lists. It therefore answers "no resolved reference", not "unused":
+
+| Class | Effect on the answer |
+|---|---|
+| Method called through a trait/interface (callers name the trait's method) | implementation lists, live |
+| `#[cfg(test)]` function in a source file (`is_test` is path-only) | lists |
+| Called only from file-scope code (no enclosing `def`; `calls_at`) | lists |
+| Definition with no `resolved` row (the anchor rate in `status`) | never lists, live or dead |
+| Called from outside the index (other crates, FFI, reflection, macros) | lists |
+
+Not a status: the answer is `ok`, because nothing the index lacks decided it.
+The caveat rides on the rule's schema line and here. A hint that fired on
+`scip_impl = 0` was rejected: Go populates it and the false positives remain, so
+the detector would tell the reader that a better indexer fixes it.
+
 ### Row provenance — `tier/4`
 
 The promise is that every answer says which tier produced it. `ref/7`,
