@@ -126,10 +126,14 @@ verb, so the surface budget is unchanged.
 Copy-pasteable, not a description of one. It never runs one: `--run-indexers`
 is not built ([docs/plan.md](../docs/plan.md) M3, § Explicitly deferred).
 
-Prints a summary to stderr: files indexed/skipped/unchanged, facts per relation,
+Prints a summary to stderr: files indexed/skipped/unchanged, facts produced,
 SCIP coverage, anchor rate, SCIP occurrences skipped because their column is
 ambiguous ([02-extraction.md](02-extraction.md) § Position normalization),
-elapsed. Skipped files are summarized **by reason**
+elapsed. The facts line reads `tier-A defs`, the same words as the anchor rate
+below and the same quantity: distinct symbols tree-sitter found in this run,
+not `def` rows and not the store's total. `refs` and `imports` beside it are
+row counts, which is why the one that is not says so. Skipped files are
+summarized **by reason**
 — "3 too large, 88 unsupported (`.scala`)" — because a silently unindexed
 subtree is the single most confusing failure this tool can have.
 
@@ -161,11 +165,29 @@ one that goes to zero when document paths do not match. The denominator is
 which carries `resolved` by construction, so dividing by them measures how much
 of the store came from SCIP rather than how well the join worked. Both counts
 are per distinct symbol, not per declaration, so an overload set or a
-getter/setter pair counts once on each side, matching the single `def` row it
-produces (§ One symbol, several declarations in
-[01-facts.md](01-facts.md)). `status` prints the same line for the same store,
-which it did not before: it divided `resolved` rows by `def` rows and read
-several points high under the same label (#77).
+getter/setter pair counts once on each side (§ One symbol, several declarations
+in [01-facts.md](01-facts.md)). `status` prints the same line for the same
+store, which it did not before: it divided `resolved` rows by `def` rows and
+read several points high under the same label (#77).
+
+**That count is not `def`'s row count, and it is not meant to be.** This
+paragraph used to finish "matching the single `def` row it produces", which was
+wrong twice over and both ways made the number look like a row count it never
+was (#106). `def` is distinct over `(S, F, Kind, Name)`, so a symbol whose
+declarations differ in `Kind` is one symbol and **two** rows; and `def` also
+holds the tier-B-only definitions this counter excludes by construction. On
+deno the counter reads 84,068 against 84,091 `def` rows, and the 23 are real
+symbols, named on #106 — TypeScript declaration merging (`class` + `interface`:
+`EventEmitter`, `URL`, `Duplex`, eleven more) and, against the issue's own
+premise, seven in **Rust**: `#[cfg]`-gated `struct` + `typealias`
+(`MaybeDashMap`, `UnixStreamResource`), `enum` + `typealias`, and a `macro`
+sharing a name with a `function`.
+
+The two quantities are both wanted, so neither moves: the rate needs symbols
+because anchoring is per symbol — a denominator in rows would make the
+percentage wrong wherever a symbol carries two kinds — and `def`'s row count is
+what a query reads. Having one number serve both is what this says it does not
+do.
 
 **There is no `ignored` count.** For the *walk*: the `ignore` crate does not
 report the entries its matchers drop, so the number costs a second full
