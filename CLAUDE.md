@@ -90,7 +90,11 @@ the ones that get broken by a well-meaning commit:
 
 ## Language support
 
-Nine out of the box, in two tiers ([docs/plan.md](docs/plan.md) M5). Adding one
+Four out of the box — Rust, Go, Python, TypeScript/TSX — in two tiers
+([docs/plan.md](docs/plan.md) M5). Five `lang.rs` rows, since TSX is its own
+grammar. This read "nine", which is the number M5 narrowed to four and
+[specs/00-overview.md](specs/00-overview.md) § Layout gives the reason for: the
+extractor, not the engine, was the under-estimate (#101). Adding one
 is a grammar crate, two **authored** `.scm` files, and a `lang.rs` row — **if
 you find yourself writing per-language Rust, the extractor is wrong.** Fix the
 extractor.
@@ -123,15 +127,31 @@ Non-negotiable, per milestone in [docs/plan.md](docs/plan.md):
 - **Engine:** differential testing against the naive evaluator. A semi-naive bug
   drops rows silently; this is the only practical defence.
 - **Extraction:** golden fact files, diffed as text. Span exactness asserted by
-  re-slicing and re-parsing.
+  re-parsing the **file** and checking every `def_span` against node boundaries
+  in context ([specs/02-extraction.md](specs/02-extraction.md) § Validation 2).
+  This read "re-slicing and re-parsing", which names a check that is not run and
+  cannot be: a method, a field, an enum variant and a TypeScript constructor are
+  nodes only inside their parent, so 59 of 167 fixture definitions fail the
+  slice-alone parse with exact spans (#98).
 - **Determinism:** every query byte-identical across 100 runs.
 - **Idempotence:** index twice → identical segments. Shuffle file order →
   identical facts.
 - **Surface budget:** asserted in CI.
 - **Cost:** `tests/counters.rs` pins `derived`, `demand` and `transformed` for a
-  fixed query set. If it fails, read the diff: rows unchanged means a cost
-  change, rows moved means a correctness change. `UPDATE_GOLDEN=1` only once you
-  can say which, and why.
+  fixed query set over the fixtures. `tests/corpus_counters.rs` pins `status`,
+  `truncated`, `rows`, `derived`, `demand` and a digest of the rows for the
+  pinned corpora, and is in the gate too (#94) — the corpus baselines used to
+  be compared only by a local wall-clock run, which is how fd's `derived` moved
+  and sat for weeks (#88). `UPDATE_GOLDEN=1` / `UPDATE_COUNTERS=1` only once
+  you can say which changed and why:
+
+  - `rows` moved → the answer set changed size. Correctness.
+  - `rows` same, `digest` moved → different rows, same number of them.
+    Correctness, and the one a count alone cannot see (#88).
+  - rows and digest same, `derived` moved → same answer, different work. Cost.
+
+  The fixture test has no digest, so "rows unchanged means a cost change" holds
+  only there, and only until it does not.
 - **Performance claims** cite `provision apply tasks/bench.yml`
   (`target/bench/<name>.json`) against the pinned corpora. A hand-run table on
   an unpinned tree is not evidence.
