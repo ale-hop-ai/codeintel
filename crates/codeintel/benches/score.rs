@@ -52,6 +52,11 @@ use serde_json::{Value, json};
 struct Pair {
     /// The rule's name, and the key it is reported under.
     rule: &'static str,
+    /// `positive` -- the `_exact` twin is a filter, so `exact_only` is 0 by
+    /// construction. `negated` -- negation inverts the containment, so
+    /// `exact_only` is meaningful and means the opposite of a recall miss
+    /// (`docs/50-self-improvement.md` section 2).
+    shape: &'static str,
     /// The goal that asks the name twin.
     name_goal: &'static str,
     /// The goal that asks the oracle.
@@ -82,6 +87,7 @@ struct Pair {
 const PAIRS: &[Pair] = &[
     Pair {
         rule: "calls",
+        shape: "positive",
         name_goal: "?- calls(A, B).",
         exact_goal: "?- calls_exact(A, B).",
         key: 2,
@@ -90,6 +96,7 @@ const PAIRS: &[Pair] = &[
     },
     Pair {
         rule: "dead_export",
+        shape: "negated",
         name_goal: "?- dead_export(S).",
         exact_goal: "?- dead_export_exact(S).",
         key: 1,
@@ -98,6 +105,7 @@ const PAIRS: &[Pair] = &[
     },
     Pair {
         rule: "entrypoint",
+        shape: "negated",
         name_goal: "?- entrypoint(S).",
         exact_goal: "?- entrypoint_exact(S).",
         key: 1,
@@ -106,6 +114,7 @@ const PAIRS: &[Pair] = &[
     },
     Pair {
         rule: "depends",
+        shape: "positive",
         name_goal: "?- depends(F, G).",
         exact_goal: "?- depends_exact(F, G).",
         key: 2,
@@ -114,6 +123,7 @@ const PAIRS: &[Pair] = &[
     },
     Pair {
         rule: "uses_package",
+        shape: "positive",
         name_goal: "?- uses_package(F, P).",
         exact_goal: "?- uses_package_exact(F, P).",
         key: 2,
@@ -122,6 +132,7 @@ const PAIRS: &[Pair] = &[
     },
     Pair {
         rule: "ref",
+        shape: "positive",
         name_goal: "?- ref(S, F, L, C, From, Role, Prov).",
         exact_goal: "?- ref(S, F, L, C, From, Role, \"exact\").",
         key: 6,
@@ -132,7 +143,7 @@ const PAIRS: &[Pair] = &[
 
 /// Every scoreboard number that is judged, and which way is better.
 ///
-/// Counts — `tp`, `fp`, `fn`, `flagged`, `wrong`, `files`, `defs` — are
+/// Counts — `confirmed`, `unconfirmed`, `exact_only`, `files`, `defs` — are
 /// reported and not judged: they move whenever the rules move, and reading the
 /// diff is the point. The ratios above them are what a hypothesis targets.
 const JUDGED: &[(&str, Direction)] = &[
@@ -145,7 +156,6 @@ const JUDGED: &[(&str, Direction)] = &[
     ("/coverage/span_coverage", Direction::Higher),
     ("/coverage/role_known", Direction::Higher),
     ("/coverage/scip_impl_rows", Direction::Higher),
-    ("/calibration/calibration", Direction::Higher),
 ];
 
 /// Which way a metric improves.
@@ -208,7 +218,7 @@ fn run() -> Result<bool> {
         cost.schema_bytes, cost.p50, cost.p95, cost.total, cost.rows
     );
 
-    let (precision, calibration) = precision(&corpus, &index_dir)?;
+    let confirmation = confirmation(&corpus, &index_dir)?;
     let coverage = coverage(&census);
 
     let current = json!({
@@ -236,13 +246,8 @@ fn run() -> Result<bool> {
             "answer_bytes_total": cost.total,
             "bytes_per_row": ratio(cost.total, cost.rows),
         },
-        "precision": precision,
+        "confirmation": confirmation,
         "coverage": coverage,
-        "calibration": {
-            "flagged": calibration.flagged,
-            "wrong": calibration.wrong,
-            "calibration": ratio(calibration.flagged, calibration.wrong),
-        },
     });
 
     let out = manifest_dir
@@ -476,22 +481,17 @@ fn weigh(line: &str) -> Result<Weighed> {
     })
 }
 
-/// How many wrong rows said so.
-#[derive(Default)]
-struct Calibration {
-    flagged: usize,
-    wrong: usize,
-}
-
-/// Per-rule precision and recall against the `_exact` oracle, and the
-/// calibration those same wrong rows imply.
+/// Per-rule confirmation against the `_exact` twin.
+///
+/// Not precision: the twin is a filter on `Prov`, not an independent oracle,
+/// so an unconfirmed row is one SCIP did not resolve and **not** one judged
+/// wrong (`docs/50-self-improvement.md` § 2, Confirmation).
 ///
 /// Never averaged across rules: `docs/50-self-improvement.md` § 8, which is
 /// invariant 2 one level up.
-fn precision(root: &Path, index_dir: &Path) -> Result<(Value, Calibration)> {
+fn confirmation(root: &Path, index_dir: &Path) -> Result<Value> {
     let mut oracle = Oracle::open(root, index_dir)?;
     let mut out = serde_json::Map::new();
-    let mut calibration = Calibration::default();
     for pair in PAIRS {
         let mut predicted = oracle.keys(pair.name_goal, pair.key, pair.prov)?;
         if let Some(goal) = pair.tier_goal {
@@ -511,34 +511,33 @@ fn precision(root: &Path, index_dir: &Path) -> Result<(Value, Calibration)> {
         }
         let exact = oracle.keys(pair.exact_goal, pair.key, None)?;
         let truth: BTreeSet<&Vec<Atom>> = exact.keys().collect();
-        let (mut tp, mut fp, mut wrong_flagged) = (0_usize, 0_usize, 0_usize);
-        for (key, flagged) in &predicted {
+        let (mut tp, mut fp) = (0_usize, 0_usize);
+        for key in predicted.keys() {
             if truth.contains(key) {
                 tp += 1;
             } else {
                 fp += 1;
-                wrong_flagged += usize::from(*flagged);
             }
         }
         let missed = truth.len() - tp;
-        calibration.wrong += fp;
-        calibration.flagged += wrong_flagged;
         println!(
-            "{:<13} tp {tp:>7}  fp {fp:>7}  fn {missed:>7}  precision {:>6}  recall {:>6}",
+            "{:<13} {:<8} confirmed {tp:>7}  unconfirmed {fp:>7}  exact_only {missed:>7}  rate {:>6}",
             pair.rule,
+            pair.shape,
             show(&ratio(tp, tp + fp)),
-            show(&ratio(tp, tp + missed)),
         );
         out.insert(
             pair.rule.to_string(),
             json!({
-                "tp": tp, "fp": fp, "fn": missed,
-                "precision": ratio(tp, tp + fp),
-                "recall": ratio(tp, tp + missed),
+                "shape": pair.shape,
+                "confirmed": tp,
+                "unconfirmed": fp,
+                "exact_only": missed,
+                "confirmation_rate": ratio(tp, tp + fp),
             }),
         );
     }
-    Ok((Value::Object(out), calibration))
+    Ok(Value::Object(out))
 }
 
 /// What the extractor saw, straight off the census.

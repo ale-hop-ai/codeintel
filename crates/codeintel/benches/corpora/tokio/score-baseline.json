@@ -1,8 +1,47 @@
 {
-  "calibration": {
-    "calibration": 1.0,
-    "flagged": 6288,
-    "wrong": 6288
+  "confirmation": {
+    "calls": {
+      "confirmation_rate": 0.903,
+      "confirmed": 15009,
+      "exact_only": 0,
+      "shape": "positive",
+      "unconfirmed": 1613
+    },
+    "dead_export": {
+      "confirmation_rate": 0.7301,
+      "confirmed": 944,
+      "exact_only": 16,
+      "shape": "negated",
+      "unconfirmed": 349
+    },
+    "depends": {
+      "confirmation_rate": 0.9907,
+      "confirmed": 4914,
+      "exact_only": 0,
+      "shape": "positive",
+      "unconfirmed": 46
+    },
+    "entrypoint": {
+      "confirmation_rate": 0.7256,
+      "confirmed": 3097,
+      "exact_only": 19,
+      "shape": "negated",
+      "unconfirmed": 1171
+    },
+    "ref": {
+      "confirmation_rate": 0.9799,
+      "confirmed": 151889,
+      "exact_only": 0,
+      "shape": "positive",
+      "unconfirmed": 3109
+    },
+    "uses_package": {
+      "confirmation_rate": 1.0,
+      "confirmed": 2485,
+      "exact_only": 0,
+      "shape": "positive",
+      "unconfirmed": 0
+    }
   },
   "corpus": {
     "defs": 11422,
@@ -22,54 +61,10 @@
     "scip_impl_rows": 0,
     "span_coverage": 0.3453
   },
-  "precision": {
-    "calls": {
-      "fn": 0,
-      "fp": 1613,
-      "precision": 0.903,
-      "recall": 1.0,
-      "tp": 15009
-    },
-    "dead_export": {
-      "fn": 16,
-      "fp": 349,
-      "precision": 0.7301,
-      "recall": 0.9833,
-      "tp": 944
-    },
-    "depends": {
-      "fn": 0,
-      "fp": 46,
-      "precision": 0.9907,
-      "recall": 1.0,
-      "tp": 4914
-    },
-    "entrypoint": {
-      "fn": 19,
-      "fp": 1171,
-      "precision": 0.7256,
-      "recall": 0.9939,
-      "tp": 3097
-    },
-    "ref": {
-      "fn": 0,
-      "fp": 3109,
-      "precision": 0.9799,
-      "recall": 1.0,
-      "tp": 151889
-    },
-    "uses_package": {
-      "fn": 0,
-      "fp": 0,
-      "precision": 1.0,
-      "recall": 1.0,
-      "tp": 2485
-    }
-  },
   "scip": {
     "anchor_rate": 0.7362,
     "index": "blake3:8ebe48dc91053fec37448dd309882f668ab9a38a51b0b63610f5736234632ee9",
     "status": "ok"
   },
-  "tool": "a9e1e462b59d"
+  "tool": "391184cf74be-dirty"
 }

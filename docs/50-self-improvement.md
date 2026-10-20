@@ -78,20 +78,51 @@ because coverage holds the floor.
 Bytes, not tokens. Bytes are exact and tokenizer-independent; the ratio to
 tokens is stable enough that a 3x byte cut is a 3x token cut.
 
-### Precision — whether the answer is true
+### Confirmation — how much of the answer a compiler also produces
 
-For each rule with an `_exact` twin, over a corpus whose SCIP index is **fresh**
-(`status: "ok"`, never `scip-stale` — a stale index inflates name-only rows and
-makes the metric lie):
+**Renamed from "precision" on 2026-10-20, because it was not precision.** The
+original definition treated the `_exact` twin as ground truth and called every
+name-only row a false positive. Three things are wrong with that, and all three
+were found by the harness measuring itself.
+
+**1. `_exact` is a filter, not an independent oracle.** `calls_exact(From, S) :-
+calls_at(From, S, _, _, "exact")` is `calls` restricted to one `Prov` value.
+A row it omits was not *judged wrong* — SCIP simply did not resolve that
+occurrence. SCIP is incomplete, so **an unconfirmed row is not a wrong row**,
+and scoring it as a false positive claims a certainty nobody measured. That is
+the same overstatement invariant 1 forbids an extractor from making.
+
+**2. Containment runs in opposite directions, and the rules do not say which.**
+
+| shape | rules | containment |
+|---|---|---|
+| positive | `calls`, `depends`, `uses_package`, `ref` | `exact` ⊆ `name`, so `fn` is **0 by construction** |
+| negated | `dead_export`, `entrypoint` | negation inverts it, and `resolved(S)` cuts it back again |
+
+`dead_export(S) :- exported(S), def(S,F,_,_), !ref_outside(S,F)`. Since
+`ref_outside_exact` ⊆ `ref_outside`, its negation is a *superset*, so the
+`_exact` twin reports **more** dead exports, not fewer. Four of the six recalls
+therefore carry no information, and the two that do mean the opposite of what a
+recall normally means.
+
+**3. The metric must not be averaged across those two shapes.** Reported per
+rule, always, with the shape named.
 
 ```
-tp = rows in both        fp = rows in name only       fn = rows in exact only
-precision = tp / (tp + fp)        recall = tp / (tp + fn)
+confirmed   = rows both the rule and its _exact twin yield
+unconfirmed = rows only the rule yields       (NOT "wrong")
+exact_only  = rows only the _exact twin yields (0 for positive rules)
+confirmation_rate = confirmed / (confirmed + unconfirmed)
 ```
 
-Reported per rule, never averaged into a single score. Averaging provenance is
-invariant 2's exact prohibition, and averaging precision across rules is the
-same mistake one level up.
+Read `confirmation_rate` as **"how much of this answer a compiler-grade indexer
+independently reproduces"** — a measure of how much of the result is text
+matching. It is the right number for deciding whether to trust name provenance.
+It is *not* accuracy, and no change may describe it as such.
+
+Measuring real accuracy needs ground truth SCIP cannot supply — hand-labelled
+samples. Until that exists, this project does not know its own error rate, and
+says so rather than substituting a number that looks like one.
 
 ### Coverage — what the extractor saw
 
@@ -106,48 +137,31 @@ Two of those are zero. `Role` being entirely `unknown` means `is_test`'s SCIP
 clause is inert and the read/write/import vocabulary is advertised with no data
 behind it.
 
-### Calibration — whether the tool knows what it does not know
+### Calibration — retired 2026-10-20, as tautological
 
-codeintel does not promise to be right. It promises to say which tier answered,
-so an agent knows when to distrust it. That promise has never been measured.
+It was defined as the share of oracle-wrong rows that carried `Prov="name"` or a
+non-`ok` status, and it was the metric this document told you to refuse to
+regress on.
 
-```
-calibration = (oracle-wrong rows carrying Prov="name" or status != "ok")
-            / (oracle-wrong rows)
-```
+`tier/4` (exp/prov-rows) drove it to 1.0 on both corpora — and the agent that
+built it said in the same commit why that is worthless: `tier` defines `exact`
+as "the `_exact` twin also yields it", which is the oracle's own definition. A
+row the oracle calls wrong is therefore `name` **by construction**. The metric
+could not have returned anything else.
 
-A perfect 1.0 means every wrong answer was flagged. **This is the metric to
-refuse to regress on**, because it is the one that makes invariant 2 worth
-having. A change that raises precision while lowering calibration has made the
-tool more confidently wrong, and that is worse than leaving it alone.
+The "or `status != ok`" half was inert too: the harness refuses to measure a
+corpus whose status is not `ok`.
 
-**What the first scoreboard found, and it is worse than a low score.** fd reads
-0.50 and tokio 0.4944 — and *every flagged row is a `ref` row*. `calls`,
-`dead_export`, `entrypoint`, `depends` and `uses_package` carry no `Prov`
-column in their own tuples, so a wrong row from any of them is **structurally
-unflaggable**. The "or `status != ok`" clause is inert by construction, because
-the harness refuses to measure a corpus whose status is not `ok`.
+**Retired rather than repaired.** A calibration number needs an oracle
+independent of the label being checked, and `_exact` is not independent of
+`Prov` — it *is* `Prov`. Inventing a proxy would be the thing § 8 forbids.
+`tier/4` still ships and is still the right change: an agent can now ask which
+tier produced a row, which is the capability. What cannot be claimed is a
+measurement of how well that tier tracks truth.
 
-So this metric today reports one thing: the share of wrong rows that came from
-`ref`. And the claim above it — that codeintel "promises to say which tier
-answered" — is **false at the row level for five of the six rules**. The promise
-holds for the relation an agent reads through `ref/7`, and nowhere else.
-
-That is a finding about the tool, not about the metric, and it outranks every
-cost hypothesis in § 7: a cheaper answer that is still silently wrong is a worse
-tool, not a better one. Until a rule's output can carry its own provenance, the
-honest reading of this number is **"undefined for five of six rules"**, and it
-may not be averaged into a headline.
-
-**Closed by `tier/4` (exp/prov-rows).** One added relation hands `Prov` back to
-the five rules without changing any head (`specs/01-facts.md` § Row
-provenance); calibration reads 1.0 on fd and tokio, with every precision, recall
-and answer byte unchanged. Read the 1.0 for what it is: the oracle is the
-`_exact` twin and `tier`'s `exact` is defined as "the twin also yields it", so a
-row the oracle calls wrong is `name` by construction. The metric now verifies
-that the promise is *kept*, not that `name` is *calibrated* — a `name` row that
-is right still counts as an honest guess. The promise holds only for an agent
-that asks `tier`; the bare heads are unchanged.
+**The lesson is about the loop, not the metric.** A number that only ever moves
+one way is not a gate. The next metric proposed here gets asked, before it is
+committed, what result would make it go *down*.
 
 ---
 
@@ -164,16 +178,21 @@ and a comparison against a different tree is an error, not a warning.
   "cost":    { "schema_bytes": 18304, "answer_bytes_p50": 0,
                "answer_bytes_p95": 0, "answer_bytes_total": 0,
                "bytes_per_row": 0.0 },
-  "precision": {
-    "calls":        { "tp": 0, "fp": 0, "fn": 0, "precision": 0.0, "recall": 0.0 },
-    "dead_export":  { "tp": 0, "fp": 0, "fn": 0, "precision": 0.0, "recall": 0.0 },
-    "entrypoint":   { "tp": 0, "fp": 0, "fn": 0, "precision": 0.0, "recall": 0.0 },
-    "depends":      { "tp": 0, "fp": 0, "fn": 0, "precision": 0.0, "recall": 0.0 },
-    "uses_package": { "tp": 0, "fp": 0, "fn": 0, "precision": 0.0, "recall": 0.0 },
-    "ref":          { "tp": 0, "fp": 0, "fn": 0, "precision": 0.0, "recall": 0.0 }
+  "confirmation": {
+    "calls":        { "shape": "positive", "confirmed": 0, "unconfirmed": 0,
+                      "exact_only": 0, "confirmation_rate": 0.0 },
+    "dead_export":  { "shape": "negated",  "confirmed": 0, "unconfirmed": 0,
+                      "exact_only": 0, "confirmation_rate": 0.0 },
+    "entrypoint":   { "shape": "negated",  "confirmed": 0, "unconfirmed": 0,
+                      "exact_only": 0, "confirmation_rate": 0.0 },
+    "depends":      { "shape": "positive", "confirmed": 0, "unconfirmed": 0,
+                      "exact_only": 0, "confirmation_rate": 0.0 },
+    "uses_package": { "shape": "positive", "confirmed": 0, "unconfirmed": 0,
+                      "exact_only": 0, "confirmation_rate": 0.0 },
+    "ref":          { "shape": "positive", "confirmed": 0, "unconfirmed": 0,
+                      "exact_only": 0, "confirmation_rate": 0.0 }
   },
-  "coverage":    { "span_coverage": 0.0, "role_known": 0.0, "scip_impl_rows": 0 },
-  "calibration": { "flagged": 0, "wrong": 0, "calibration": 0.0 }
+  "coverage":    { "span_coverage": 0.0, "role_known": 0.0, "scip_impl_rows": 0 }
 }
 ```
 

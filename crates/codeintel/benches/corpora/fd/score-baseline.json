@@ -1,8 +1,47 @@
 {
-  "calibration": {
-    "calibration": 1.0,
-    "flagged": 60,
-    "wrong": 60
+  "confirmation": {
+    "calls": {
+      "confirmation_rate": 0.9779,
+      "confirmed": 531,
+      "exact_only": 0,
+      "shape": "positive",
+      "unconfirmed": 12
+    },
+    "dead_export": {
+      "confirmation_rate": 0.8649,
+      "confirmed": 32,
+      "exact_only": 0,
+      "shape": "negated",
+      "unconfirmed": 5
+    },
+    "depends": {
+      "confirmation_rate": 1.0,
+      "confirmed": 71,
+      "exact_only": 0,
+      "shape": "positive",
+      "unconfirmed": 0
+    },
+    "entrypoint": {
+      "confirmation_rate": 0.9542,
+      "confirmed": 271,
+      "exact_only": 0,
+      "shape": "negated",
+      "unconfirmed": 13
+    },
+    "ref": {
+      "confirmation_rate": 0.9965,
+      "confirmed": 8590,
+      "exact_only": 0,
+      "shape": "positive",
+      "unconfirmed": 30
+    },
+    "uses_package": {
+      "confirmation_rate": 1.0,
+      "confirmed": 125,
+      "exact_only": 0,
+      "shape": "positive",
+      "unconfirmed": 0
+    }
   },
   "corpus": {
     "defs": 638,
@@ -22,54 +61,10 @@
     "scip_impl_rows": 0,
     "span_coverage": 0.3675
   },
-  "precision": {
-    "calls": {
-      "fn": 0,
-      "fp": 12,
-      "precision": 0.9779,
-      "recall": 1.0,
-      "tp": 531
-    },
-    "dead_export": {
-      "fn": 0,
-      "fp": 5,
-      "precision": 0.8649,
-      "recall": 1.0,
-      "tp": 32
-    },
-    "depends": {
-      "fn": 0,
-      "fp": 0,
-      "precision": 1.0,
-      "recall": 1.0,
-      "tp": 71
-    },
-    "entrypoint": {
-      "fn": 0,
-      "fp": 13,
-      "precision": 0.9542,
-      "recall": 1.0,
-      "tp": 271
-    },
-    "ref": {
-      "fn": 0,
-      "fp": 30,
-      "precision": 0.9965,
-      "recall": 1.0,
-      "tp": 8590
-    },
-    "uses_package": {
-      "fn": 0,
-      "fp": 0,
-      "precision": 1.0,
-      "recall": 1.0,
-      "tp": 125
-    }
-  },
   "scip": {
     "anchor_rate": 0.9373,
     "index": "blake3:8c40e05f250c077efa9ff807b735d0df0b3ec5d4281aa41adced32100f7d4c6f",
     "status": "ok"
   },
-  "tool": "a9e1e462b59d"
+  "tool": "391184cf74be-dirty"
 }
