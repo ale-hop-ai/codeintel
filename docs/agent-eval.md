@@ -771,6 +771,55 @@ Expected to recover up to four samples. It changes the schema page, so it is
 measured by re-running this bank and reporting both numbers — which is an
 experiment, not a re-roll, as long as the before number stays on this page.
 
+### The three glosses, measured — 2026-10-20
+
+The run #85 predicted, at the prediction's floor. `20261020T210211Z`, tree
+`81c913cb7e84`, schema page 5,505 bytes `sha256 73378faa701a`, seed 1.
+
+| | before | after |
+|---|---|---|
+| first-attempt | 216/225 (96%) | **221/225 (98%)** |
+| majority of 3 | 72/75 | **75/75** |
+| never passed (0x) | 0 | 0 |
+| rounds | 71, 70, 75 | 74, 72, **75** |
+| `schema_bytes` (bank) | 5,299 | 5,505 |
+| cost | $2.882 | $2.921 |
+
+**The prediction was 221–223/225 and 74–75/75, written before the edits and
+left on this page unchanged.** It landed at 221 and 75. The two rows #85 called
+testable both moved the way it said: **Q19 from 1/3 to 3/3** and **Q14 from 1/3
+to 3/3**, neither appearing in this run's failure list. Neither falsification
+condition fired — Q19's miss was not about `visibility` values, and Q14's was
+not the question's word "module".
+
+**Q34 and Q68 also went to 3/3, and that is reported as uninformative**, which
+is what #85 said in advance: each failed one sample in six across two runs, and
+one re-run of three cannot separate a fixed gap from variance. They are counted
+in the total and claimed for nothing.
+
+The four survivors are all 2/3, and only one is the same question as before:
+
+- **Q26** — one round returned an engine error. Already the surviving miss after
+  the `count` fix, and still not about the binding form.
+- **Q21, Q65, Q70** — new at 2/3, where Q65's miss is an unanswered rather than
+  a wrong query. Three questions that passed 3/3 before and lost one sample
+  each. With the histogram at `3x:71 2x:4 0x:0` and nothing passing zero times,
+  this is the distribution moving, not a new defect — and saying so costs
+  nothing, where diagnosing four samples as a finding would be the re-roll this
+  page exists to refuse.
+
+**The price was 206 bytes**, declared in advance under § 6's *A declared price*:
+5,299 → 5,505, +3.9%. No confirmation rate moved, which is the half of the gate
+that is not spendable, and no rule changed — all three edits are documentation
+lines.
+
+**This run is comparable to the one below and not to the 85/90 frozen bank.**
+The partition is the recorded one: same seed, `repeated pairs 0`, and the groups
+match the recorded plan question for question (verified by `--dry-run` before
+spending anything). `--keep-chains` from #91 was deliberately **not** used — it
+would have changed what six questions were asked and made the number
+incomparable.
+
 ### The `count` fix, measured — 2026-10-20
 
 Both changes the run above called for, and the re-run that priced them.
