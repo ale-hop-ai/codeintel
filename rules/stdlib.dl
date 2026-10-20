@@ -302,6 +302,11 @@ is_test(F) :- file(F, _), match(F, "(^|/)(tests?|__tests__)/").
 is_test(F) :- file(F, _), match(F, "_test\\.(go|py|rs)$").
 is_test(F) :- file(F, _), match(F, "(^|/)(test_[^/]*|tests|conftest)\\.py$").
 is_test(F) :- file(F, _), match(F, "\\.(test|spec)\\.(ts|tsx|js|jsx)$").
+% The last clause is inert today: no indexer measured emits SymbolRole::Test
+% (0 rows of "test" in all four fixtures' SCIP), and scip.rs ranks read/write
+% above test, so a test+read occurrence reports `read`. It stays because it is
+% correct the day an indexer sets the bit; until then `scip_ref` hands this
+% rule nothing and `is_test` is path-only. specs/01-facts.md § Role.
 is_test(F) :- scip_ref(_, F, _, _, _, "test").
 
 % === orientation: everything about one symbol, in one round trip =======

@@ -74,7 +74,12 @@ did resolve, so it gets its own atom — as `Kind` does for the same reason.
 emits no role on any reference (all `unknown`); scip-go emits `ReadAccess` on
 every reference regardless of use, so `read` there is "a reference", not a
 read; scip-typescript emits none. No indexer measured emits `write`, `import`,
-`test`, `generated` or `forward`. The vocabulary is the SCIP protocol's, not a
+`test`, `generated` or `forward`. `test` in particular is 0 rows in all four
+fixtures' SCIP, and `ROLES` (`scip.rs`) ranks `read`/`write` above it, so an
+occurrence carrying both would report `read` — one atom per occurrence, and the
+more informative bit wins. `is_test`'s final clause (`scip_ref(..., "test")`)
+is therefore inert until an indexer sets the bit; `is_test` is path-only today.
+The vocabulary is the SCIP protocol's, not a
 promise about any indexer; `codeintel schema`'s per-role counts say what this
 index holds. A non-`unknown` share is not a measure of information: Go reaches
 1.0 with none (`docs/50-self-improvement.md` § 2, `role_known`).
@@ -889,6 +894,11 @@ is_test(F) :- file(F, _), match(F, "(^|/)(tests?|__tests__)/").
 is_test(F) :- file(F, _), match(F, "_test\\.(go|py|rs)$").
 is_test(F) :- file(F, _), match(F, "(^|/)(test_[^/]*|tests|conftest)\\.py$").
 is_test(F) :- file(F, _), match(F, "\\.(test|spec)\\.(ts|tsx|js|jsx)$").
+% The last clause is inert today: no indexer measured emits SymbolRole::Test
+% (0 rows of "test" in all four fixtures' SCIP), and scip.rs ranks read/write
+% above test, so a test+read occurrence reports `read`. It stays because it is
+% correct the day an indexer sets the bit; until then `scip_ref` hands this
+% rule nothing and `is_test` is path-only. § Role.
 is_test(F) :- scip_ref(_, F, _, _, _, "test").
 
 % --- orientation: everything about one symbol, in one round trip -------
