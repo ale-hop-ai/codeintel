@@ -1454,8 +1454,13 @@ fn a_rule_file_that_widens_an_earlier_rule_file_is_reported() {
 /// the answer carried the defaults of a run that never started: `derived: 0`,
 /// `depends: []`, `demand: "disabled"`, on a run that spent its whole budget.
 ///
-/// The budget is the derived-tuple cap rather than the clock so the number is
-/// not a race. A six-way cross product of `def` reaches it in a few seconds.
+/// **Which** cap fires is deliberately not asserted. A six-way cross product of
+/// `def` races two of them — the derived-tuple cap and the clock — and which
+/// one wins is a property of how fast the host is, not of the code. Pinning it
+/// to `budget-exceeded` made this test fail on a loaded machine at 6.7M derived
+/// tuples, with the clock reaching 5 s first. There is no CLI flag for
+/// `max_time_ms`, so the race cannot be settled from here; both statuses are
+/// correct, and neither is what this test is about.
 #[test]
 fn an_aborted_query_reports_what_it_measured_not_defaults() {
     let dir = tree();
@@ -1472,11 +1477,15 @@ fn an_aborted_query_reports_what_it_measured_not_defaults() {
         ],
     );
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
-    assert_eq!(json["status"], "budget-exceeded", "{json}");
+    let status = json["status"].as_str().unwrap_or_default();
+    assert!(
+        matches!(status, "budget-exceeded" | "timeout"),
+        "an abort during evaluation, by either cap: {json}"
+    );
     let stats = &json["stats"];
     assert!(
-        stats["derived"].as_u64().unwrap_or(0) > 10_000_000,
-        "a run that exhausted the derived-tuple budget reported {}",
+        stats["derived"].as_u64().unwrap_or(0) > 1_000_000,
+        "a run that spent its whole budget reported {}",
         stats["derived"]
     );
     assert_eq!(
