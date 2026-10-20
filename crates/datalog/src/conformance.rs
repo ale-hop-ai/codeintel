@@ -443,6 +443,78 @@ fn max_time_ms_aborts_with_timeout() {
     assert!(diagnostic.message.contains("max_time_ms"), "{diagnostic}");
 }
 
+/// A base relation `edge` holding a chain, and the closure rule over it. A
+/// base relation, because a fact written in the program is a rule and would
+/// not appear in `depends`.
+fn chain(n: usize) -> Engine {
+    let mut e = Engine::new(Box::new(Strings::new()));
+    let mut rel = crate::relation::Relation::new(2);
+    for i in 0..n {
+        let tuple = [
+            e.intern(&i.to_string()).expect("interns"),
+            e.intern(&(i + 1).to_string()).expect("interns"),
+        ];
+        assert!(rel.push(&tuple));
+    }
+    e.insert_relation("edge", rel);
+    e.load_rules("reaches(X, Y) :- edge(X, Y). reaches(X, Z) :- reaches(X, Y), edge(Y, Z).")
+        .expect("the rules load");
+    e
+}
+
+/// An evaluation that exhausts a budget reports what it measured (#90). The
+/// engine decides `depends`, `demand` and `transformed` before the first tuple
+/// and counts `derived` throughout; an abort used to drop all of it, and the
+/// host filled the response with defaults — `derived: 0` on a run that spent
+/// its whole budget.
+#[test]
+fn a_budget_abort_carries_the_stats_it_measured() {
+    let query = "?- reaches(X, Y).";
+    let done = chain(40)
+        .query(query, &Limits::default())
+        .expect("completes");
+    let limits = Limits {
+        max_derived_tuples: 50,
+        ..Limits::default()
+    };
+    let diagnostic = chain(40).query(query, &limits).expect_err("aborts");
+    assert_eq!(diagnostic.status, crate::diag::Status::BudgetExceeded);
+    let seen = diagnostic.stats.expect("an aborted evaluation has stats");
+    assert!(seen.derived > 50, "derived {}", seen.derived);
+    assert_eq!(seen.depends, vec!["edge".to_string()]);
+    assert_eq!(seen.depends, done.stats.depends);
+    assert_eq!(seen.demand, done.stats.demand);
+    assert_eq!(seen.transformed, done.stats.transformed);
+}
+
+#[test]
+fn a_timeout_carries_the_stats_it_measured() {
+    // About 8M tuples of closure against a 20 ms clock: derived in the debug
+    // build before the clock fires, and nowhere near the tuple cap.
+    let limits = Limits {
+        max_time_ms: 20,
+        ..Limits::default()
+    };
+    let diagnostic = chain(4000)
+        .query("?- reaches(X, Y).", &limits)
+        .expect_err("aborts");
+    assert_eq!(diagnostic.status, crate::diag::Status::Timeout);
+    let seen = diagnostic.stats.expect("an aborted evaluation has stats");
+    assert!(seen.derived > 0, "a timeout reported derived 0");
+    assert!(seen.elapsed_ms >= 20, "elapsed {}", seen.elapsed_ms);
+    assert_eq!(seen.depends, vec!["edge".to_string()]);
+}
+
+/// The other half: a failure before evaluation ran has no stats, and `None` is
+/// how a caller tells it from a run that derived nothing.
+#[test]
+fn a_rejected_query_carries_no_stats() {
+    let diagnostic = engine(GRAPH)
+        .query("?- nosuch(X).", &Limits::default())
+        .expect_err("rejected");
+    assert!(diagnostic.stats.is_none());
+}
+
 #[test]
 fn max_body_literals_is_rejected_at_planning() {
     let limits = Limits {

@@ -554,10 +554,23 @@ fn evaluate(
     let result = match loaded.engine.query(program, &limits) {
         Ok(result) => result,
         Err(diagnostic) => {
-            return Answer::of(
+            let mut answer = Answer::of(
                 Status::of(diagnostic.status),
                 format!("{}{}", diagnostic.message, host_hint(&diagnostic)),
             );
+            // An aborted evaluation reports what it measured, not the defaults
+            // of an answer that never ran (invariant 5). `None` is a failure
+            // before evaluation began, where the defaults are the truth.
+            if let Some(stats) = diagnostic.stats {
+                answer.derived = stats.derived;
+                answer.elapsed_ms = stats.elapsed_ms;
+                answer.transformed = stats.transformed;
+                answer.demand = stats.demand;
+                answer.depends = stats.depends;
+                answer.shadowed = stats.shadowed;
+                answer.widened.clone_from(&loaded.widened);
+            }
+            return answer;
         }
     };
 

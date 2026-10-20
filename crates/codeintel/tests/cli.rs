@@ -1449,3 +1449,43 @@ fn a_rule_file_that_widens_an_earlier_rule_file_is_reported() {
     assert!(entry.contains("second.dl"), "{entry}");
     assert!(!entry.contains("first.dl"), "{entry}");
 }
+
+/// An aborted evaluation reports what it measured (#90, invariant 5). Before,
+/// the answer carried the defaults of a run that never started: `derived: 0`,
+/// `depends: []`, `demand: "disabled"`, on a run that spent its whole budget.
+///
+/// The budget is the derived-tuple cap rather than the clock so the number is
+/// not a race. A six-way cross product of `def` reaches it in a few seconds.
+#[test]
+fn an_aborted_query_reports_what_it_measured_not_defaults() {
+    let dir = tree();
+    index(dir.path());
+    let out = run(
+        dir.path(),
+        &[
+            "query",
+            "?- def(A,_,_,_), def(B,_,_,_), def(C,_,_,_), def(D,_,_,_), def(E,_,_,_), \
+             def(F,_,_,_), A != B, C != D.",
+            "--no-refresh",
+            "--format",
+            "json",
+        ],
+    );
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    assert_eq!(json["status"], "budget-exceeded", "{json}");
+    let stats = &json["stats"];
+    assert!(
+        stats["derived"].as_u64().unwrap_or(0) > 10_000_000,
+        "a run that exhausted the derived-tuple budget reported {}",
+        stats["derived"]
+    );
+    assert_eq!(
+        stats["depends"],
+        serde_json::json!(["def"]),
+        "the closure was known before the first tuple"
+    );
+    assert_ne!(
+        stats["demand"], "disabled",
+        "the demand decision was made and is not the default"
+    );
+}

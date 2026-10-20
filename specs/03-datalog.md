@@ -273,6 +273,14 @@ that means; it is what lets the layer above distinguish "your code does not do
 this" from "this index could not see it" without parsing the query text
 ([05-surface.md](05-surface.md) § Status, `no-scip`).
 
+**An aborted evaluation carries its stats.** `timeout` and `budget-exceeded`
+happen after `depends`, `transformed` and `demand` were decided and while
+`derived` and the clock were running, so `Diagnostic::stats` holds all of them as
+measured at the abort. `None` means no evaluation ran — a parse, safety or
+stratification failure — which is a different statement from a run that derived
+nothing, and a host must not fill the gap with zeros (invariant 5). `plan` and
+`empty_at` are whatever had been reached; neither is a claim about the answer.
+
 - The transformation is reported in `stats.transformed`, so an unexpectedly slow
   query can be diagnosed as "demand transformation did not apply here" rather
   than guessed at.
@@ -502,6 +510,7 @@ pub struct Diagnostic {
     pub status:  Status,          // invalid-query | unstratified | timeout | budget-exceeded
     pub message: String,          // actionable, names the rule and variable
     pub span:    Option<(usize, usize)>, // byte range in the submitted source
+    pub stats:   Option<Box<Stats>>,     // measured so far; Some only for an abort
 }
 ```
 
