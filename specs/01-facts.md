@@ -122,18 +122,29 @@ Descriptor suffixes follow SCIP: `/` namespace, `#` type, `.` term, `().` method
 `local 4` must not collide.
 
 A trait implementation qualifies its members the way rust-analyzer does
-(`impl#[Config][Handler]handle().`): the trait's final identifier in `[...]`
-between the type and the member, and the implemented type as written after it
-when that is more than the bare name. `impl Display for A` and `impl Debug for
-A` therefore give their two `fmt` methods two symbols, and `impl T for A` and
+(`impl#[Config][Handler]handle().`): **one `[...]` segment per name the
+implementation writes**, between the type and the member. The trait's final
+identifier always, and the implemented type as written in a second segment when
+that says more than the bare name. `impl Display for A` and `impl Debug for A`
+therefore give their two `fmt` methods two symbols, and `impl T for A` and
 `impl T for &A` differ too:
 ```
 local src/kinds.rs Config#[Handler]handle().
 local src/kinds.rs Config#[Display]fmt().
-local src/kinds.rs Key#[`Handler for &Key`]handle().
+local src/kinds.rs Key#[Handler][`&Key`]handle().
 ```
 The `impl` block's own symbol stays the type's, so `parent` still names the
 type.
+
+**One segment per name, never one segment holding a joined phrase.** The
+second form is what shipped first — `` [`Handler for &Key`] `` — and the
+` for ` in it was Rust's surface syntax inside a `SymId` (#86). A second
+language with implementation blocks does not spell it that way, and a `SymId`
+carries no syntax: segmenting is what the descriptor grammar is for, and
+`impl#[Config][Handler]` is the precedent this paragraph already cited. Each
+segment is escaped on its own, so only a segment that is not an identifier
+takes backticks — `&Key` does, `Handler` does not, and the common
+`impl Handler for Config` writes no second segment at all.
 
 When both tiers cover a definition, **ingest unifies them**: the tree-sitter def
 adopts the SCIP symbol string as its `SymId` and `resolved(S)` is emitted. There
