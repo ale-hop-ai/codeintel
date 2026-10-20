@@ -21,7 +21,7 @@
 % itself (`visibility`); whether that makes it visible outside the crate is a
 % question about its ancestors, which is a join and not a token.
 
-%% exported(S)  S is visible outside its crate.
+%% exported(S)  S is visible outside its crate: public, inherited from parent, or in name_export.
 exported(S) :- visibility(S, "public").
 
 % An enum variant, a trait item and a trait-impl method have nowhere to write
@@ -308,7 +308,7 @@ is_test(F) :- scip_ref(_, F, _, _, _, "test").
 % Heterogeneous rows sharing a discriminator column. One query instead of six,
 % and the definition of "orientation" stays editable.
 
-%% about(S, Rel, A, B, Line)  all of S in one trip. Rel = sig|doc|defined|parent|caller|
+%% about(S, Rel, A, B, Line)  all of S in one trip. A,B,Line = file, name, line of the RELATED symbol (sig/doc: A = text). Rel = sig|doc|defined|parent|caller|
 %%   callee|implements|implementor|test|extern
 about(S, "sig",         Sig, "", 0) :- def_sig(S, Sig).
 about(S, "doc",         Doc, "", 0) :- def_doc(S, Doc).

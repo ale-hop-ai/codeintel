@@ -918,9 +918,13 @@ recorded run was asked; if Q14 survives the edit, reword it and say so.
 **One run settles Q14's cause** (page vs wording) and nothing cheaper does; that
 is a ~$2.88 call and is left to the owner.
 
-## Side finding
+## Side finding — corrected
 
-A two-line `%%` doc in `stdlib.dl` is joined into one page line with the
-continuation's leading spaces kept, and the page's own `about` line is already
-cut mid-list (`caller| callee`). Single-line `%%` docs were used for the pricing
-above to avoid it.
+The first draft of this section blamed `%%` joining. It was wrong. Continuation
+lines are joined with one space by design (`caller| callee` is that join, and is
+cosmetic). What I saw while pricing was my own continuation line containing a
+`)`: `schema::rules` reads any `%%` line with a `)` as a new signature
+(`crates/codeintel/src/schema.rs:55`), so it became a phantom rule. That is a
+trap, but a guarded one: `the_rule_list_matches_the_rules` fails loudly
+(`... is advertised but not defined at that arity`), reproduced by appending
+`(see about)` to `about`'s continuation. Not filed: nothing ships wrong.

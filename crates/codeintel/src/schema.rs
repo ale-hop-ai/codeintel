@@ -143,6 +143,7 @@ impl fmt::Display for Schema<'_> {
              count binds, it does not compare: `N = count{..}, N > 3`, never\n    \
              `count{..} > 3`. It groups by every variable bound OUTSIDE it.\n  \
              a symbol column prints `Name path:line`, not the SymId; --raw prints it.\n  \
+             a quoted \"scip ...\" or \"local ...\" string IS a SymId: pass it as S, never as Name.\n  \
              Prov \"name\" is text matching: method calls x.f() are mostly MISSING.\n    \
              For precision use the _exact rules; `codeintel status` says if SCIP\n    \
              is present and fresh.\n\n\
