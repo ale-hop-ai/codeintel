@@ -39,6 +39,32 @@ use datalog::{Engine, Limits, Strings};
 const WORKING_EMPTY: &[&str] = &["49"];
 const HELDOUT_EMPTY: &[&str] = &["23"];
 
+/// Openers whose subject is the *previous* question's.
+///
+/// `run.py`'s partition is a fresh shuffle per round, retried until no pair of
+/// questions shares a group twice, so a question and its referent are almost
+/// never read together and the rule actively pushes them apart. A question that
+/// does not carry its own subject is therefore read by the agent as written:
+/// without one.
+const REFERENTIAL: &[&str] = &["The same", "The other", "Likewise", "Again,"];
+
+/// Questions that open referentially and are kept as they are.
+///
+/// Not an excuse list — a record of six that a scored run has already been
+/// measured against (#88). Rewording one changes what a recorded run was asked,
+/// which `docs/agent-eval.md` § Rescored has already withdrawn a score for, so
+/// the six are the owner's call and this list is what stops a seventh arriving
+/// silently. Each is named with the question it refers to.
+const WORKING_REFERENTIAL: &[&str] = &[
+    "28", // -> Q27, the call graph on either provenance.
+    "32", // -> Q31, the blast radius of `Store#put()`.
+    "34", // -> Q33, what `init()` calls directly or transitively.
+    "40", // -> Q39, callable definitions called by nothing.
+    "43", // -> Q42, exported definitions never referenced outside their file.
+    "46", // -> Q45, files referencing something defined in another file.
+];
+const HELDOUT_REFERENTIAL: &[&str] = &[];
+
 #[test]
 fn working_bank_reference_answers_still_hold() {
     holds("working", WORKING_EMPTY, true);
@@ -47,6 +73,55 @@ fn working_bank_reference_answers_still_hold() {
 #[test]
 fn heldout_bank_reference_answers_still_hold() {
     holds("heldout", HELDOUT_EMPTY, false);
+}
+
+#[test]
+fn working_bank_questions_carry_their_own_subject() {
+    carries_its_subject("working", WORKING_REFERENTIAL);
+}
+
+#[test]
+fn heldout_bank_questions_carry_their_own_subject() {
+    carries_its_subject("heldout", HELDOUT_REFERENTIAL);
+}
+
+/// No question leans on the previous one's subject, except those recorded as
+/// doing so.
+///
+/// Ids only, never text: this runs over the held-out bank too.
+fn carries_its_subject(bank: &str, allowed: &[&str]) {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/eval");
+    let questions =
+        std::fs::read_to_string(dir.join(bank).join("questions.tsv")).expect("a bank file");
+    let referential: BTreeSet<&str> = questions
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| {
+            let mut f = l.split('\t');
+            let id = f.next()?;
+            let text = f.nth(1)?;
+            REFERENTIAL
+                .iter()
+                .any(|o| text.starts_with(o))
+                .then_some(id)
+        })
+        .collect();
+    let allowed: BTreeSet<&str> = allowed.iter().copied().collect();
+
+    let undeclared: Vec<&&str> = referential.difference(&allowed).collect();
+    assert!(
+        undeclared.is_empty(),
+        "{bank}: Q{undeclared:?} open with a back-reference to the previous \
+         question. The partition reads them apart, so the agent never sees the \
+         referent. Give the question its own subject, or add it to \
+         WORKING_REFERENTIAL with the question it refers to."
+    );
+    let stale: Vec<&&str> = allowed.difference(&referential).collect();
+    assert!(
+        stale.is_empty(),
+        "{bank}: Q{stale:?} are listed as referential but no longer open that \
+         way — drop them from the list."
+    );
 }
 
 struct Question<'a> {
