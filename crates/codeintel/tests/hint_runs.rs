@@ -142,7 +142,20 @@ fn the_scip_stale_hints_are_valid_shell(fixture: &str) {
             String::from_utf8_lossy(&out.stderr)
         )
     };
-    run(&["index", ".", "--scip", "index.scip"]);
+    // Asserted, not discarded. This call used to throw its status away, so a
+    // failed setup surfaced three assertions later as `no run: in <output>` --
+    // which names the hint and says nothing about the index that was never
+    // built. #110 has three sightings and no usable message, and this is one
+    // reason why: the first thing that can fail was the one thing not checked.
+    //
+    // Only the setup is asserted. The calls below are `query` and `status` on
+    // a deliberately degraded index, where a non-zero exit is the answer being
+    // measured rather than a failure.
+    let indexed = run(&["index", ".", "--scip", "index.scip"]);
+    assert!(
+        indexed.contains("indexed") && indexed.contains("scip:"),
+        "{fixture}: indexing the copy did not ingest a SCIP index: {indexed}"
+    );
     // Bytes the SCIP index did not see, in a file the index holds.
     let source = first_source(dir.path());
     assert!(source.is_some(), "{fixture} has a source file");
