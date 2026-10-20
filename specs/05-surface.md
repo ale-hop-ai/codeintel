@@ -564,7 +564,7 @@ no index for /repo. run: cd /repo && codeintel index . && rust-analyzer scip . &
   SCIP set ingested without anyone being told is the worse outcome. The shell
   reports which command failed.
 - When discovery found indexes that were not adopted, the hint names them
-  first: `no index for /repo; found one at /repo/daemon`. The found path is the
+  first: `no index for /repo; found an index at /repo/daemon` (`found indexes at a, b` for several). The found path is the
   **root**, not its store directory — that is what the caller passes to
   `--path`, and under [04-storage.md](04-storage.md) § Location the store
   directory is not somewhere the caller ever types.
@@ -655,8 +655,9 @@ VALUES   closed sets, with counts from THIS index. A kind at 0 is a kind you
   Kind   function 4,201  class 812  module 96  interface 41
          method 0  struct 0  enum 0  trait 0  constant 0  field 0
          constructor 0  variable 0  macro 0  typealias 0  type 0  unknown 1,340
-  Role   def 5,150  read 0  write 0  import 402  test 0
-  Prov   name 18,904  exact 0
+  Role   read 0  write 0  import 402  test 0  generated 0  forward 0  unknown 5,150
+  Prov   exact 0 (scip_ref rows)  name 18,904 (name_ref rows)
+  Lang   go 7 files  python 11 files  rust 102 files
 Generated from the manifest, not printed as a constant. A static list
 advertising sixteen kinds when the index holds four is this document's own
 invariant 5 broken by its own onboarding text.
@@ -976,8 +977,8 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
 
 - **`hint` is non-null whenever `status != "ok"` OR the result is empty.** On an
   empty result it names the first body literal that matched nothing:
-  `"def/4 with Kind=\"method\" matched 0 rows; this index contains 0 method
-  definitions"`. As originally specified, `hint` was guaranteed null in exactly
+  `` `def(S,F,"class",N)` matched 0 rows; "class" has 0 rows in this index. the
+  column holds: module 19 type 1 interface 0 ... ``. As originally specified, `hint` was guaranteed null in exactly
   the case the taxonomy exists to disambiguate — a valid query returning zero
   rows, which is indistinguishable from a typo, a wrong `Kind`, a path that is
   not indexed, and a missing SCIP index. The engine already evaluates
