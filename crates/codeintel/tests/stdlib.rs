@@ -923,6 +923,29 @@ fn implements_answers_by_name_without_scip() {
     assert!(!rows(r#"?- about(S, "implementor", A, B, L)."#).is_empty());
 }
 
+/// #120: `implements` is a floor. `Config` has `impl Display` and `impl Debug`
+/// blocks in `src/kinds.rs`; both traits live in `core`, so neither has a `def`,
+/// and the rule says nothing while `status` is `ok`. The gloss is the only
+/// place a reader learns that, so it must say it: the schema line names the
+/// floor and what it excludes.
+#[test]
+fn implements_is_a_floor_and_says_so() {
+    let ext = rows(r#"?- name_impl(F, "Config", T, L), T != "Handler"."#);
+    assert_eq!(ext.len(), 2, "Display and Debug blocks: {ext:?}");
+    assert!(
+        rows(r#"?- implements(S, T, _), def(S, _, _, "Config"), !def(T, _, "trait", "Handler")."#)
+            .is_empty(),
+        "an external trait must not gain a row from a name match"
+    );
+    let gloss = include_str!("../../../rules/stdlib.dl")
+        .lines()
+        .find(|l| l.starts_with("%% implements("))
+        .expect("stdlib.dl documents implements/3");
+    for must in ["FLOOR", "Display", "never methods"] {
+        assert!(gloss.contains(must), "gloss lacks {must:?}: {gloss}");
+    }
+}
+
 /// The helper under `implements`, which resolves the written names.
 #[test]
 fn impl_sym_resolves_both_sides_of_the_for() {

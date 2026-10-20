@@ -48,7 +48,17 @@ exported(S) :- name_export(F, N), def(S, F, _, N).
 % indexer bothers to — rust-analyzer never does — and tier A can state it by
 % name from one file's syntax.
 
-%% implements(S, T, Prov)  S implements or overrides T.
+% What this can and cannot see (#120). On rust-analyzer, which fills no
+% `scip_impl`, every row is a type -> trait pair resolved BY NAME, and the trait
+% must have a `def` in the index (`trait_sym`). An `impl Display for Key` names
+% a trait declared in `core`: no `def`, so no row, `status: ok`. On this
+% repository that is 35 of 42 `name_impl` rows. Method-level `overrides` is
+% never carried on Rust -- `scip_impl` is the only source and it is empty.
+% Not widened from `extern`: that holds the SYMBOL STRING, `name_impl` holds a
+% final identifier, and no rule can compare them -- `match`/`suffix` take
+% literals only, so the join is not expressible, and a position-based
+% substitute (the one `extern` type ref on the impl line) is a guess.
+%% implements(S, T, Prov)  FLOOR: type -> trait declared in THIS index, by name. Never std/dependency traits (Display, Debug), never methods. 0 rows is not "none".
 implements(S, T, "exact") :- scip_impl(S, T).
 
 % Tier A resolves both written names with the policy `ref` uses, reusing
