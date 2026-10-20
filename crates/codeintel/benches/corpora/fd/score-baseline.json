@@ -1,0 +1,75 @@
+{
+  "calibration": {
+    "calibration": 0.5,
+    "flagged": 30,
+    "wrong": 60
+  },
+  "corpus": {
+    "defs": 638,
+    "files": 24,
+    "name": "fd",
+    "rev": "b422e5d8c9cffaa1ae43ba68e7b97a60fb3e8ae5"
+  },
+  "cost": {
+    "answer_bytes_p50": 7192,
+    "answer_bytes_p95": 55070,
+    "answer_bytes_total": 125390,
+    "bytes_per_row": 166.2997,
+    "schema_bytes": 15407
+  },
+  "coverage": {
+    "role_known": 0.0,
+    "scip_impl_rows": 0,
+    "span_coverage": 0.3675
+  },
+  "precision": {
+    "calls": {
+      "fn": 0,
+      "fp": 12,
+      "precision": 0.9779,
+      "recall": 1.0,
+      "tp": 531
+    },
+    "dead_export": {
+      "fn": 0,
+      "fp": 5,
+      "precision": 0.8649,
+      "recall": 1.0,
+      "tp": 32
+    },
+    "depends": {
+      "fn": 0,
+      "fp": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 71
+    },
+    "entrypoint": {
+      "fn": 0,
+      "fp": 13,
+      "precision": 0.9542,
+      "recall": 1.0,
+      "tp": 271
+    },
+    "ref": {
+      "fn": 0,
+      "fp": 30,
+      "precision": 0.9965,
+      "recall": 1.0,
+      "tp": 8590
+    },
+    "uses_package": {
+      "fn": 0,
+      "fp": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "tp": 125
+    }
+  },
+  "scip": {
+    "anchor_rate": 0.9373,
+    "index": "blake3:8c40e05f250c077efa9ff807b735d0df0b3ec5d4281aa41adced32100f7d4c6f",
+    "status": "ok"
+  },
+  "tool": "6f7861adcb8c"
+}
