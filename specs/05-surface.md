@@ -1071,8 +1071,12 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
 - On `invalid-query`, `hint` contains the corrected shape where it can be
   inferred — an arity mismatch reports the expected arity. An agent should be
   able to self-correct in one retry.
-- Text format wins by default. It is ~4× denser than JSON for tabular results
-  and every consumer is a language model.
+- Text format wins by default. JSON costs 1.2× to 2.6× the bytes of the text for
+  the same rows at 8 to 202 rows, and more for a smaller answer, whose fixed
+  envelope dominates (`tests/fixtures/cost/expected.tsv`: 202 rows 7,539 text vs
+  9,020 JSON; 35 rows 733 vs 1,202). It was ~4× while JSON carried each row in
+  two notations (§ `query`, one notation per answer). Every consumer is a
+  language model.
 
 ### The consumer
 
