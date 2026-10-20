@@ -514,6 +514,22 @@ fn every_status_verdict_carries_its_remedy_on_both_formats() {
     assert!(json["hint"].is_null(), "{json}");
 }
 
+/// One JSON-RPC response per stdout line. A server that died says why on stderr.
+#[track_caller]
+fn responses(out: &Output) -> Vec<serde_json::Value> {
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|l| {
+            let why = format!(
+                "`codeintel mcp` exited {:?}; line {l:?} is not a JSON-RPC response. stderr: {}",
+                out.status.code(),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            serde_json::from_str(l).expect(&why)
+        })
+        .collect()
+}
+
 /// One JSON-RPC exchange per line, in; the responses, out.
 fn rpc(root: &Path, requests: &[serde_json::Value]) -> Vec<serde_json::Value> {
     use std::io::Write as _;
@@ -525,7 +541,7 @@ fn rpc(root: &Path, requests: &[serde_json::Value]) -> Vec<serde_json::Value> {
         .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("the server starts");
     {
@@ -535,10 +551,7 @@ fn rpc(root: &Path, requests: &[serde_json::Value]) -> Vec<serde_json::Value> {
         }
     }
     let out = child.wait_with_output().expect("the server exits");
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .map(|l| serde_json::from_str(l).expect("a JSON-RPC response"))
-        .collect()
+    responses(&out)
 }
 
 #[test]
@@ -759,7 +772,7 @@ fn rpc_bytes(root: &Path, input: &[u8]) -> Vec<serde_json::Value> {
         .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("the server starts");
     child
@@ -769,10 +782,7 @@ fn rpc_bytes(root: &Path, input: &[u8]) -> Vec<serde_json::Value> {
         .write_all(input)
         .expect("write");
     let out = child.wait_with_output().expect("the server exits");
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .map(|l| serde_json::from_str(l).expect("a JSON-RPC response"))
-        .collect()
+    responses(&out)
 }
 
 #[test]

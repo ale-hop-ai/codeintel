@@ -289,7 +289,7 @@ fn the_mcp_server_rooted_at_the_repository_answers_from_the_subdirectory() {
         .env("HOME", sandbox.cache.path())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("the server starts");
     {
@@ -309,9 +309,13 @@ fn the_mcp_server_rooted_at_the_repository_answers_from_the_subdirectory() {
     }
     let out = child.wait_with_output().expect("the server exits");
     let stdout = String::from_utf8_lossy(&out.stdout);
+    let why = format!(
+        "`codeintel mcp` exited {:?} and printed {stdout:?}. stderr: {}",
+        out.status.code(),
+        String::from_utf8_lossy(&out.stderr)
+    );
     let response: serde_json::Value =
-        serde_json::from_str(stdout.lines().nth(1).expect("a second response"))
-            .expect("a JSON-RPC response");
+        serde_json::from_str(stdout.lines().nth(1).expect(&why)).expect(&why);
 
     let structured = &response["result"]["structuredContent"];
     assert_eq!(structured["status"], "ok", "{response}");

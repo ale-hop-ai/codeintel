@@ -119,7 +119,11 @@ fn two_roots_get_two_indexes() {
         .current_dir(other.path())
         .output()
         .expect("runs");
-    assert!(out.status.success());
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert_eq!(world.cached().len(), 2);
 }
 
@@ -161,7 +165,11 @@ fn the_flag_beats_the_env_var_beats_the_default() {
         .args(["index", "."])
         .output()
         .expect("runs");
-    assert!(out.status.success());
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert!(by_env.join("manifest.json").exists());
     assert!(world.cached().is_empty(), "the default is not used");
     assert!(!world.tree.path().join(".codeintel").exists());
@@ -258,7 +266,7 @@ fn mcp_honours_the_override() {
         .arg(&dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("starts");
     let init = serde_json::json!({
@@ -273,8 +281,14 @@ fn mcp_honours_the_override() {
     writeln!(stdin, "{init}").expect("write");
     writeln!(stdin, "{request}").expect("write");
     let out = child.wait_with_output().expect("exits");
-    let line = out.stdout.split(|b| *b == b'\n').nth(1).expect("a line");
-    let response: serde_json::Value = serde_json::from_slice(line).expect("JSON-RPC");
+    let why = format!(
+        "`codeintel mcp` exited {:?} and printed {} byte(s). stderr: {}",
+        out.status.code(),
+        out.stdout.len(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let line = out.stdout.split(|b| *b == b'\n').nth(1).expect(&why);
+    let response: serde_json::Value = serde_json::from_slice(line).expect(&why);
     assert_eq!(
         response["result"]["structuredContent"]["status"], "ok",
         "{response}"

@@ -1192,7 +1192,12 @@ fn a_closed_pipe_is_not_a_panic() {
     }
     std::fs::write(src.join("lib.rs"), body).expect("write");
     let out = run(dir.path(), &["index", "."]);
-    assert!(out.status.success(), "{:?}", out.status);
+    assert!(
+        out.status.success(),
+        "{:?}: {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     for args in [
         r#"query|?- def(S, F, "function", N).|--no-refresh"#,
