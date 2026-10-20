@@ -56,6 +56,7 @@
 )]
 
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -79,6 +80,19 @@ pub(crate) const MAX_LOAD_PER_CORE: f64 = 0.5;
 /// leaves room for that and still catches an external arrival, which is what
 /// this is looking for.
 pub(crate) const MAX_END_LOAD_PER_CORE: f64 = MAX_LOAD_PER_CORE * 2.0;
+
+/// How long [`settle`] waits for the machine to go quiet, in seconds, before
+/// it gives up and says so.
+///
+/// Five minutes is longer than the scanner took to work through a copy of the
+/// largest corpus and far shorter than the run it protects — deno's is close
+/// to an hour, so waiting is cheap next to measuring across a scan and
+/// discarding the result.
+pub(crate) const SETTLE_TIMEOUT_S: u64 = 300;
+
+/// How often [`settle`] re-reads the load average. The one-minute average
+/// cannot move faster than this is worth polling.
+const SETTLE_POLL_S: u64 = 5;
 
 /// The logical CPUs the **operating system** reports, which is the stable
 /// number, or `None` where it cannot be read.
@@ -279,6 +293,76 @@ impl Verdict {
     }
 }
 
+/// What waiting for a quiet machine achieved.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Settled {
+    /// The reading the wait ended on. This is the run's start reading.
+    pub(crate) conditions: Conditions,
+    /// How long it waited, in seconds.
+    pub(crate) waited_s: f64,
+    /// Whether it gave up rather than seeing a quiet machine.
+    pub(crate) timed_out: bool,
+}
+
+/// The configured wait, in seconds. `CODEINTEL_BENCH_SETTLE_SECS` overrides
+/// it; `0` skips the wait entirely, which is what the tests and an
+/// already-quiet CI-style host want.
+fn settle_timeout() -> Duration {
+    let secs = std::env::var("CODEINTEL_BENCH_SETTLE_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(SETTLE_TIMEOUT_S);
+    Duration::from_secs(secs)
+}
+
+/// Wait for the machine to go quiet, bounded.
+///
+/// Called **after** the corpus copy and before any measurement, because the
+/// copy is what disturbs the host: on macOS the endpoint scanner reads every
+/// file the bench has just written, and with the runs sequential each corpus
+/// was measured under the previous one's scan as well as its own (#84). A
+/// reading taken before the copy describes a machine that no longer exists by
+/// the time the first metric is timed.
+///
+/// Waiting rather than sleeping a fixed amount: the harness already has the
+/// number that says whether the host is quiet, so it can watch that number
+/// instead of guessing at a duration. Giving up is reported, never silent —
+/// the run then proceeds exactly as any other run on a busy host, warning and
+/// refusing to write a baseline.
+#[must_use]
+pub(crate) fn settle() -> Settled {
+    settle_with(
+        settle_timeout(),
+        Duration::from_secs(SETTLE_POLL_S),
+        Conditions::now,
+    )
+}
+
+/// [`settle`] with its clock and its source of readings supplied, so the
+/// waiting can be exercised in a test without a busy machine or a real wait.
+#[must_use]
+pub(crate) fn settle_with(
+    timeout: Duration,
+    poll: Duration,
+    mut read: impl FnMut() -> Conditions,
+) -> Settled {
+    let started = Instant::now();
+    loop {
+        let now = read();
+        let waited = started.elapsed();
+        if now.trustworthy() || waited >= timeout {
+            return Settled {
+                conditions: now,
+                waited_s: waited.as_secs_f64(),
+                timed_out: !now.trustworthy(),
+            };
+        }
+        // Saturating: `waited < timeout` here, but a clamp is cheaper than
+        // trusting that across an edit.
+        std::thread::sleep(poll.min(timeout.saturating_sub(waited)));
+    }
+}
+
 /// Whether the machine stayed quiet for the whole run.
 ///
 /// A run is only worth committing if it began quiet **and** was still quiet at
@@ -298,8 +382,13 @@ pub(crate) fn held_steady(start: Conditions, end: Conditions) -> bool {
 /// every run, so folding it in there would quietly stop wall clock from ever
 /// being compared again.
 #[must_use]
-pub(crate) fn report(start: Conditions, end: Conditions) -> Value {
+pub(crate) fn report(settled: Settled, end: Conditions) -> Value {
+    let start = settled.conditions;
     json!({
+        // What the wait for a quiet machine achieved, before the first metric
+        // was timed. A wait that gave up is a reported degradation.
+        "settle_waited_s": settled.waited_s,
+        "settle_timed_out": settled.timed_out,
         "load_average_start": start.load1,
         "load_average_end": end.load1,
         "load_per_core_start": start.per_core(),

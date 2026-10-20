@@ -12,6 +12,11 @@ description: wall-clock bench over the pinned corpora — docs/plan.md M6
 # measured, and the bench refuses to compare against a different tree. Bump a
 # pin here, then run that corpus once with `UPDATE_BASELINE=1`.
 #
+# Each run copies its corpus to a temp directory and then waits for the host to
+# go quiet before measuring: on macOS the scanner reads everything the copy just
+# wrote, and sequential runs otherwise measure under each other's leftovers
+# (#84). `CODEINTEL_BENCH_SETTLE_SECS` bounds that wait, `0` disables it.
+#
 # `provision apply --stream tasks/bench.yml` to watch the numbers; without it a
 # passing step prints only its verdict. The results are
 # `target/bench/<name>-<run-id>.json`, stamped with the rev that produced them
