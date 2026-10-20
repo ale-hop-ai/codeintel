@@ -69,6 +69,19 @@ Out — and these are **non-goals, not backlog items**:
   context.
 - **A server, a daemon beyond `codeintel mcp`, a database, or a network
   protocol of our own.**
+- **Project manifests, task runners, build or test commands.** `tasks.yml`,
+  `Makefile`, `package.json`, `Cargo.toml` metadata. "How do I run this
+  repository's tests" is not a fact about source code, and the harness already
+  knows it. Running commands is the agent's job; `codeintel` describes
+  structure.
+
+**The list is illustrative, not exhaustive.** Every entry is something that was
+tempting enough to need refusing in writing, and the absence of a ninth entry is
+not a permission. What decides is the Goal above together with invariant 1:
+every tuple traces to a byte range or a SCIP field. A feature that would have
+`codeintel` answer from anything else is out whether or not it has a bullet
+here — and a feature that sounds adjacent, is cheap to build, and has a real
+consumer story is exactly the one this section exists to stop.
 
 ## Invariants
 
