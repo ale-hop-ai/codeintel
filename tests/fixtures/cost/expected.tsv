@@ -55,3 +55,7 @@ id	fixture	wire	status	rows	truncated	bytes
 14	go	json	ok	18	false	2273
 14	go	mcp-text	ok	18	false	2743
 14	go	mcp-json	ok	18	false	4744
+15	rust	text	truncated	2836	true	262116
+15	rust	json	truncated	987	true	262064
+15	rust	mcp-text	truncated	698	true	261950
+15	rust	mcp-json	truncated	450	true	262112

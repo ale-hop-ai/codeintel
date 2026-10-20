@@ -14,6 +14,13 @@
 //! count that is not what was sent is not a cost metric
 //! (`specs/05-surface.md` § `query`, the byte cap).
 //!
+//! A row of `queries.tsv` may carry a fourth column, `limit`: the row cap passed
+//! as `--limit`. Without it the default applies, and `max_result_rows` would
+//! fire long before `max_result_bytes` can, which is why the widest fixture
+//! answer sat at 51 KB against a 262 KB budget and the byte cut was never
+//! measured. A bigger fixture would have re-pinned every golden and
+//! `counters.rs` with it; a query that is wide by construction costs one row.
+//!
 //! Each query is measured once per wire, because the wire is an input: the
 //! byte cap is enforced against the wire's own encoding, so the surface can
 //! decide which rows survive.
@@ -25,12 +32,13 @@
 //! `UPDATE_GOLDEN=1 cargo test -p codeintel --test cost`.
 
 use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{Duration, SystemTime};
+use std::path::Path;
 
-use codeintel::Wire;
 use codeintel::query::{self, Options};
+use codeintel::{Row, Wire};
+
+mod common;
+use common::{diff, fixtures, indexed};
 
 const QUERIES: &str = include_str!("../../../tests/fixtures/cost/queries.tsv");
 
@@ -46,10 +54,6 @@ const WIRES: [(Wire, &str); 4] = [
     (Wire::McpJson, "mcp-json"),
 ];
 
-fn fixtures() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures")
-}
-
 #[test]
 fn every_fixed_query_costs_the_bytes_the_golden_says() {
     let rust = indexed("rust");
@@ -60,13 +64,16 @@ fn every_fixed_query_costs_the_bytes_the_golden_says() {
         .lines()
         .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
     {
-        let mut fields = line.splitn(3, '\t');
-        let shape = "queries.tsv rows are id<TAB>fixture<TAB>query";
+        let mut fields = line.splitn(4, '\t');
+        let shape = "queries.tsv rows are id<TAB>fixture<TAB>query[<TAB>limit]";
         let (id, fixture, goal) = (
             fields.next().expect(shape),
             fields.next().expect(shape),
             fields.next().expect(shape),
         );
+        let limit = fields
+            .next()
+            .map(|n| n.parse::<usize>().expect("the limit column is a row count"));
         let root = [("rust", &rust), ("go", &go)]
             .into_iter()
             .find(|(name, _)| *name == fixture)
@@ -77,8 +84,8 @@ fn every_fixed_query_costs_the_bytes_the_golden_says() {
             // byte-identical output. A byte count that moves between two runs
             // of one index is that invariant broken, and comparing it against
             // a golden would flake rather than say so.
-            let first = record(root, goal, wire);
-            let second = record(root, goal, wire);
+            let first = record(root, goal, limit, wire);
+            let second = record(root, goal, limit, wire);
             assert_eq!(
                 first, second,
                 "query {id} on the {name} wire cost different bytes on two runs \
@@ -104,15 +111,123 @@ fn every_fixed_query_costs_the_bytes_the_golden_says() {
     );
 }
 
+/// The product of two `def` rows: 77 x 77 rows on the rust fixture, each eight
+/// columns wide. Wide enough that every wire's encoding of the whole answer is
+/// over `max_result_bytes`, so the cut — the one place the surface decides
+/// which rows survive — fires on all four. It is a row of `queries.tsv`, so
+/// the golden pins what each wire keeps.
+const WIDE: &str = "?- def(A, F, K, N), def(B, G, L, M).";
+
+/// Rows, so that the engine's `max_result_rows` is never the cap that fires.
+const WIDE_LIMIT: usize = 100_000;
+
+/// `specs/05-surface.md` § Symbol rendering: the sort runs before the byte cap,
+/// "so a truncated answer is a stable prefix of the ordered rows".
+///
+/// The golden pins how many rows survive; this pins *which*. The oracle is
+/// built without the cut: `WIDE` is re-asked one `A` at a time, each slice far
+/// under the budget, and the union is sorted by the spec's key — the rendered
+/// row, then the raw row. A truncated answer must be exactly the first `n` of
+/// that, and `n` must be the longest prefix that fits: the next row would not.
+#[test]
+fn a_truncated_answer_is_a_stable_prefix_of_the_ordered_rows() {
+    assert!(
+        QUERIES.contains(&format!("{WIDE}\t{WIDE_LIMIT}\n")),
+        "queries.tsv must pin WIDE at WIDE_LIMIT, or the golden measures a different query"
+    );
+    let rust = indexed("rust");
+    let root = rust.path();
+    let budget = datalog::Limits::default().max_result_bytes;
+
+    let symbols = query::run(
+        root,
+        "?- def(A, _, _, _).",
+        &Options {
+            no_refresh: true,
+            raw: true,
+            ..Options::default()
+        },
+    )
+    .expect("the query runs");
+    let mut ordered: Vec<Row> = Vec::new();
+    for row in &symbols.rows {
+        let symbol = &row.raw[0];
+        assert!(
+            !symbol.contains(['"', '\\']),
+            "{symbol} would need escaping in a literal"
+        );
+        let slice = query::run(
+            root,
+            &format!("?- A = \"{symbol}\", def(A, F, K, N), def(B, G, L, M)."),
+            &Options {
+                no_refresh: true,
+                limit: WIDE_LIMIT,
+                ..Options::default()
+            },
+        )
+        .expect("the query runs");
+        assert!(!slice.truncated, "a slice must fit, or it is not an oracle");
+        ordered.extend(slice.rows);
+    }
+    ordered.sort_by(|a, b| a.display.cmp(&b.display).then_with(|| a.raw.cmp(&b.raw)));
+    ordered.dedup_by(|a, b| a.display == b.display && a.raw == b.raw);
+
+    let mut kept_by_wire = Vec::new();
+    for (wire, name) in WIRES {
+        let options = Options {
+            no_refresh: true,
+            wire,
+            limit: WIDE_LIMIT,
+            ..Options::default()
+        };
+        let answer = query::run(root, WIDE, &options).expect("the query runs");
+        let n = answer.rows.len();
+        assert!(answer.truncated, "{name}: WIDE no longer reaches the cap");
+        assert_eq!(answer.cap, Some(datalog::Cap::Bytes), "{name}");
+        assert!(
+            0 < n && n < ordered.len(),
+            "{name}: kept {n} of {} rows",
+            ordered.len()
+        );
+        for (i, (got, want)) in answer.rows.iter().zip(&ordered).enumerate() {
+            assert!(
+                got.display == want.display && got.raw == want.raw,
+                "{name}: row {i} is not the {i}th of the ordered rows — a truncated \
+                 answer must be a stable prefix, not a selection\n got  {:?}\n want {:?}",
+                got.display,
+                want.display
+            );
+        }
+        let fits = wire.bytes(&answer, options.raw);
+        assert!(fits <= budget, "{name}: {fits} bytes against {budget}");
+        // The longest prefix that fits: one more row would not.
+        let mut longer = answer.clone();
+        longer.rows.push(ordered[n].clone());
+        let over = wire.bytes(&longer, options.raw);
+        assert!(
+            over > budget,
+            "{name}: row {n} also fits ({over} <= {budget} bytes), so the cut dropped more than it had to"
+        );
+        kept_by_wire.push(n);
+    }
+    // A wire that encodes more per row keeps fewer: the cap is on the bytes
+    // sent, so the surface, not the engine, chose the survivors.
+    assert!(
+        kept_by_wire.iter().any(|&n| n != kept_by_wire[0]),
+        "every wire kept the same rows {kept_by_wire:?}, so the cap is not measuring the wire"
+    );
+}
+
 /// One query's cost on one wire, tab-separated.
 ///
 /// `rows` and `truncated` travel beside `bytes` so the diff separates the two
 /// kinds of change: bytes alone is a number that cannot say whether the answer
 /// got cheaper or merely smaller.
-fn record(root: &Path, goal: &str, wire: Wire) -> String {
+fn record(root: &Path, goal: &str, limit: Option<usize>, wire: Wire) -> String {
     let options = Options {
         no_refresh: true,
         wire,
+        limit: limit.unwrap_or(Options::default().limit),
         ..Options::default()
     };
     let answer = query::run(root, goal, &options).expect("the query runs");
@@ -123,91 +238,4 @@ fn record(root: &Path, goal: &str, wire: Wire) -> String {
         answer.truncated,
         wire.bytes(&answer, options.raw),
     )
-}
-
-/// The lines that differ, as `-expected` / `+got`, keyed by position. The
-/// query set is ordered by id and each id by wire, so a position is one
-/// query on one surface.
-fn diff(expected: &str, got: &str) -> String {
-    let (old, new): (Vec<&str>, Vec<&str>) = (expected.lines().collect(), got.lines().collect());
-    let mut out = String::new();
-    for i in 0..old.len().max(new.len()) {
-        let (a, b) = (old.get(i).copied(), new.get(i).copied());
-        if a != b {
-            if let Some(a) = a {
-                writeln!(out, "-{a}").expect("writes to a String");
-            }
-            if let Some(b) = b {
-                writeln!(out, "+{b}").expect("writes to a String");
-            }
-        }
-    }
-    out
-}
-
-/// A copy of a fixture, indexed with both tiers.
-///
-/// The clock is pinned the way `tests/scip.rs` and `tests/counters.rs` pin it:
-/// every source at a fixed past instant and `index.scip` a minute later. A copy
-/// that crosses a second boundary would otherwise leave some sources newer than
-/// the SCIP index, they would index tier A only, and every answer reading them
-/// would lose rows — and so bytes.
-fn indexed(fixture: &str) -> tempfile::TempDir {
-    let dir = tempfile::tempdir().expect("tempdir");
-    copy(&fixtures().join(fixture), dir.path());
-    drop(std::fs::remove_file(dir.path().join("expected.facts")));
-    backdate(dir.path(), SOURCE_MTIME);
-    set_mtime(&dir.path().join("index.scip"), SOURCE_MTIME + 60);
-    let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
-        .args(["index", ".", "--scip", "index.scip"])
-        .current_dir(dir.path())
-        .env("CODEINTEL_INDEX_DIR", dir.path().join(".codeintel"))
-        .output()
-        .expect("the binary runs");
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    dir
-}
-
-const SOURCE_MTIME: u64 = 1_700_000_000;
-
-fn copy(from: &Path, to: &Path) {
-    std::fs::create_dir_all(to).expect("mkdir");
-    for entry in std::fs::read_dir(from).expect("readable") {
-        let entry = entry.expect("entry");
-        let name = entry.file_name();
-        if name == "target" || name == ".codeintel" {
-            continue;
-        }
-        let target = to.join(&name);
-        if entry.file_type().expect("file type").is_dir() {
-            copy(&entry.path(), &target);
-        } else {
-            std::fs::copy(entry.path(), target).expect("copy");
-        }
-    }
-}
-
-fn backdate(dir: &Path, secs: u64) {
-    for entry in std::fs::read_dir(dir).expect("readable") {
-        let path = entry.expect("entry").path();
-        if path.is_dir() {
-            backdate(&path, secs);
-        } else {
-            set_mtime(&path, secs);
-        }
-    }
-}
-
-fn set_mtime(path: &Path, secs: u64) {
-    let when = SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .open(path)
-        .expect("opens for set_times");
-    file.set_times(std::fs::FileTimes::new().set_modified(when))
-        .expect("sets mtime");
 }

@@ -1,5 +1,7 @@
 # The fixed query set behind `crates/codeintel/tests/cost.rs`.
-# id<TAB>fixture<TAB>query. Lines starting with `#` are comments.
+# id<TAB>fixture<TAB>query[<TAB>limit]. Lines starting with `#` are comments.
+# `limit` is the row cap (`--limit`); omit it for the default. Query 15 raises it
+# so the byte cap, not the row cap, is what cuts the answer.
 #
 # Chosen for cost shape, not for evaluation shape: the floor an empty answer
 # still pays, a one-row answer, answers whose columns are symbols (where the
@@ -21,3 +23,4 @@
 12	go	?- def(S, F, K, N).
 13	go	?- calls(A, B).
 14	go	?- dead_export(S).
+15	rust	?- def(A, F, K, N), def(B, G, L, M).	100000

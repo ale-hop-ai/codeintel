@@ -11,19 +11,16 @@
 //! `UPDATE_GOLDEN=1 cargo test -p codeintel --test counters`.
 
 use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{Duration, SystemTime};
+use std::path::Path;
 
 use codeintel::query::{self, Options};
+
+mod common;
+use common::{diff, fixtures, indexed};
 
 const QUERIES: &str = include_str!("../../../tests/fixtures/counters/queries.tsv");
 
 const HEADER: &str = "id\tfixture\tstatus\trows\ttruncated\tderived\tdemand\ttransformed\n";
-
-fn fixtures() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures")
-}
 
 #[test]
 fn every_fixed_query_costs_what_the_golden_says() {
@@ -90,89 +87,4 @@ fn record(root: &Path, goal: &str) -> String {
         answer.demand,
         answer.transformed.join(","),
     )
-}
-
-/// The lines that differ, as `-expected` / `+got`, keyed by position. The
-/// query set is ordered by id, so a position is a query.
-fn diff(expected: &str, got: &str) -> String {
-    let (old, new): (Vec<&str>, Vec<&str>) = (expected.lines().collect(), got.lines().collect());
-    let mut out = String::new();
-    for i in 0..old.len().max(new.len()) {
-        let (a, b) = (old.get(i).copied(), new.get(i).copied());
-        if a != b {
-            if let Some(a) = a {
-                writeln!(out, "-{a}").expect("writes to a String");
-            }
-            if let Some(b) = b {
-                writeln!(out, "+{b}").expect("writes to a String");
-            }
-        }
-    }
-    out
-}
-
-/// A copy of a fixture, indexed with both tiers.
-///
-/// The clock is pinned the way `tests/scip.rs` pins it: every source at a fixed
-/// past instant and `index.scip` a minute later. A copy that crosses a second
-/// boundary would otherwise leave some sources newer than the SCIP index,
-/// they would index tier A only, and every counter reading them would flake.
-fn indexed(fixture: &str) -> tempfile::TempDir {
-    let dir = tempfile::tempdir().expect("tempdir");
-    copy(&fixtures().join(fixture), dir.path());
-    drop(std::fs::remove_file(dir.path().join("expected.facts")));
-    backdate(dir.path(), SOURCE_MTIME);
-    set_mtime(&dir.path().join("index.scip"), SOURCE_MTIME + 60);
-    let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
-        .args(["index", ".", "--scip", "index.scip"])
-        .current_dir(dir.path())
-        .env("CODEINTEL_INDEX_DIR", dir.path().join(".codeintel"))
-        .output()
-        .expect("the binary runs");
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    dir
-}
-
-const SOURCE_MTIME: u64 = 1_700_000_000;
-
-fn copy(from: &Path, to: &Path) {
-    std::fs::create_dir_all(to).expect("mkdir");
-    for entry in std::fs::read_dir(from).expect("readable") {
-        let entry = entry.expect("entry");
-        let name = entry.file_name();
-        if name == "target" || name == ".codeintel" {
-            continue;
-        }
-        let target = to.join(&name);
-        if entry.file_type().expect("file type").is_dir() {
-            copy(&entry.path(), &target);
-        } else {
-            std::fs::copy(entry.path(), target).expect("copy");
-        }
-    }
-}
-
-fn backdate(dir: &Path, secs: u64) {
-    for entry in std::fs::read_dir(dir).expect("readable") {
-        let path = entry.expect("entry").path();
-        if path.is_dir() {
-            backdate(&path, secs);
-        } else {
-            set_mtime(&path, secs);
-        }
-    }
-}
-
-fn set_mtime(path: &Path, secs: u64) {
-    let when = SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .open(path)
-        .expect("opens for set_times");
-    file.set_times(std::fs::FileTimes::new().set_modified(when))
-        .expect("sets mtime");
 }
