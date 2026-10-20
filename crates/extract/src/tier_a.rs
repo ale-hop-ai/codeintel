@@ -24,7 +24,16 @@ const SIG_CAP: usize = 512;
 /// How many facts one file produced, by shape. For `index`'s summary.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Counts {
-    /// `def` rows.
+    /// Distinct symbols this file declares — **not** `def` rows, and the gap
+    /// is not a rounding one (#106).
+    ///
+    /// `def` is distinct over `(S, F, Kind, Name)`, so a symbol whose
+    /// declarations differ in `Kind` — `class Widget` beside
+    /// `interface Widget`, a `#[cfg]`-gated `struct` against a `typealias` —
+    /// is one here and two there; `def` also carries the tier-B-only
+    /// definitions this never sees. It stays a symbol count because it is the
+    /// anchor rate's denominator and anchoring is per symbol
+    /// (`specs/05-surface.md` § The anchor rate).
     pub defs: usize,
     /// `name_ref` rows.
     pub refs: usize,

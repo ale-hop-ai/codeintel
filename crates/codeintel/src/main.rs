@@ -450,8 +450,11 @@ fn index_cmd(
         "codeintel: {} indexed, {} unchanged, {} removed in {} ms",
         report.indexed, report.unchanged, report.removed, report.elapsed_ms
     );
+    // `tier-A defs`, the anchor line's words, because this count is that
+    // line's denominator and not `def`'s row count (#106). `refs` and
+    // `imports` beside it are row counts; the one that is not says so.
     eprintln!(
-        "  facts: {} defs, {} refs, {} imports",
+        "  facts: {} tier-A defs, {} refs, {} imports",
         report.counts.defs, report.counts.refs, report.counts.imports
     );
     let mut skipped = Vec::new();

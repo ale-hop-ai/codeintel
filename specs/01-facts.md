@@ -190,6 +190,25 @@ body's span. `parent` stays one row because the declarations share an owner.
 declarations that state different ones give two rows, because that is what the
 source says.
 
+**"Since its columns do not differ" is a condition, not an aside, and `Kind`
+can break it.** `def` is distinct over `(S, F, Kind, Name)`, so two declarations
+of one symbol that tree-sitter tags differently are **two** rows, on the same
+principle that gives `visibility` two. Declaration merging is the common shape —
+`class Widget` beside `interface Widget` is one `S` with `class` and `interface`
+— and it is not TypeScript's alone: Rust reaches it through `#[cfg]`-gated
+alternatives that are not the same kind, `struct Handle` against
+`type Handle = u64`, or an `enum` against a `typealias`. Both rows are correct
+and nothing picks between them, for the reason below: which declaration is the
+real one is a question about one language's grammar.
+
+The clause read as decoration for as long as every input that could falsify it
+was absent, and a counter was written against the unconditional reading (#106).
+A consumer counting symbols counts distinct `S`; one counting declarations
+reads `def_name`; `def`'s row count is neither. On deno those are three
+different numbers — 84,068 symbols, 88,514 declarations, 84,091 `def` rows —
+and the pre-#103 baseline recorded 88,514, which is to say `index` was counting
+declarations and calling them defs.
+
 Nothing picks one declaration as the real one. Which declaration is the
 implementation is a question about one language's grammar, and these facts are
 language-neutral. This is within one file only: a symbol an index defines in

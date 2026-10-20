@@ -525,6 +525,61 @@ fn index_and_status_agree_on_the_anchor_rate() {
     assert!(line(&indexed).contains("tier-A defs"), "{indexed}");
 }
 
+/// The summary's definition count is **symbols**, and `def`'s row count is
+/// larger whenever one symbol is declared under two kinds.
+///
+/// #77 said the two "agree exactly" and four fixtures agreed, because every
+/// one of them declares each symbol under a single `Kind` — so the claim was
+/// checked against the only inputs that cannot falsify it, which is the shape
+/// `71dde10` had too (#88, #106). On deno they are 84,068 against 84,091, and
+/// the 23 are real: TypeScript declaration merging, and `#[cfg]`-gated Rust
+/// alternatives that are not the same kind.
+///
+/// Built here rather than added to `tests/fixtures/typescript`: that fixture
+/// carries a committed `index.scip`, and new source in it is source the SCIP
+/// input has not seen, which reads as `scip-stale` and strands the anchor
+/// tests until someone can run `scip-typescript` again.
+#[test]
+fn the_summary_counts_symbols_and_def_counts_rows() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // One symbol, two kinds, twice — once the way TypeScript reaches it and
+    // once the way Rust does.
+    std::fs::write(
+        dir.path().join("merged.ts"),
+        "export interface Widget {\n  id: string;\n}\nexport class Widget {\n  constructor(public \
+         id: string) {}\n}\n",
+    )
+    .expect("writes");
+    std::fs::write(
+        dir.path().join("cfg.rs"),
+        "#[cfg(unix)]\npub struct Handle(i32);\n#[cfg(not(unix))]\npub type Handle = u64;\n",
+    )
+    .expect("writes");
+
+    let summary = index(dir.path());
+    let defs: usize = summary
+        .lines()
+        .map(str::trim)
+        .find_map(|l| l.strip_prefix("facts: "))
+        .and_then(|l| l.split(" tier-A defs").next()?.parse().ok())
+        .unwrap_or_else(|| panic!("no facts line in {summary}"));
+
+    let rows = status_json(dir.path())
+        .pointer("/relations/def")
+        .and_then(serde_json::Value::as_u64)
+        .map(|n| usize::try_from(n).unwrap_or(usize::MAX))
+        .expect("status reports every relation's rows");
+
+    // Four symbols — Widget, Handle, the constructor and the field — and six
+    // rows, because Widget and Handle each carry two kinds.
+    assert_eq!(defs, 4, "{summary}");
+    assert_eq!(rows, 6, "{summary}");
+    assert!(
+        defs < rows,
+        "the summary counts symbols and `def` counts rows; {defs} vs {rows}"
+    );
+}
+
 #[test]
 fn removing_the_scip_index_drops_the_files_only_it_covered() {
     // A file tier A will not parse — over the size cap here, an unsupported
