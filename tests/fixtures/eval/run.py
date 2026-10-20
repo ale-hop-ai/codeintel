@@ -293,7 +293,13 @@ def main():
                     help="keep a back-referring question in its referent's group (#91)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--merge", action="store_true", help="required for --bank heldout")
-    ap.add_argument("--out", type=Path, default=ROOT / "target" / "eval")
+    # NOT under `target/`. These are the evidence a number on
+    # docs/agent-eval.md rests on, and `cargo clean` removed four runs' worth
+    # on 2026-10-20 -- including the run the page's most recent figure cites.
+    # A build command must not be able to delete the record (#112). Ignored by
+    # git today; committing them is one .gitignore line away once the question
+    # of whether raw agent transcripts belong in the record is settled.
+    ap.add_argument("--out", type=Path, default=HERE / "runs")
     a = ap.parse_args()
 
     if a.mode == "probe":
