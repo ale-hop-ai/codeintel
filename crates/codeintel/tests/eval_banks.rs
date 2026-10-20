@@ -25,8 +25,9 @@
 //! `docs/50-self-improvement.md` § 5.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Write as _;
 use std::path::Path;
+
+mod rot;
 
 use codeintel::{Regexes, STDLIB, load_facts, render_row};
 use datalog::{Engine, Limits, Strings};
@@ -154,81 +155,21 @@ fn holds(bank: &str, known_empty: &[&str], show_queries: bool) {
     load_facts(&mut engine, &facts).expect("bank.dl loads");
     engine.load_rules(STDLIB).expect("the stdlib loads");
 
-    // id -> (reference query, `count<TAB>payload` as score.py writes it).
-    let mut computed: BTreeMap<&str, (&str, String)> = BTreeMap::new();
-    let mut broken = String::new();
+    let mut computed = rot::Computed::new();
     for q in questions
         .lines()
         .filter(|l| !l.trim().is_empty())
         .map(parse)
     {
-        match project(&mut engine, q.reference, &q.vars) {
-            Ok(payload) => {
-                let count = if payload.is_empty() {
-                    0
-                } else {
-                    payload.split('|').count()
-                };
-                computed.insert(q.id, (q.reference, format!("{count}\t{payload}")));
-            }
-            // A diagnostic can quote the query, which the held-out bank may not show.
-            Err(why) if show_queries => {
-                writeln!(broken, "Q{}: {why}", q.id).expect("writes to a String");
-            }
-            Err(_) => writeln!(broken, "Q{}: reference query does not run", q.id)
-                .expect("writes to a String"),
-        }
+        let answer = project(&mut engine, q.reference, &q.vars).map(|p| rot::line(&p));
+        computed.insert(q.id, (q.reference, answer));
     }
-
     let recorded: BTreeMap<&str, &str> = recorded
         .lines()
         .filter(|l| !l.is_empty())
         .filter_map(|l| l.split_once('\t'))
         .collect();
-
-    // `score.py` compares only ids present on both sides, so a question added
-    // without an answer, or an answer left behind by a deleted question, passes
-    // there silently. Here both are findings.
-    let ids = |pred: &dyn Fn(&str, &(&str, String)) -> bool| -> Vec<&str> {
-        computed
-            .iter()
-            .filter(|(id, v)| pred(id, v))
-            .map(|(id, _)| *id)
-            .collect()
-    };
-    let unrecorded = ids(&|id, _| !recorded.contains_key(id));
-    let moved = ids(&|id, (_, line)| recorded.get(id).is_some_and(|r| r != line));
-    let empty = ids(&|id, (_, line)| line.ends_with('\t') && !known_empty.contains(&id));
-    let stale = ids(&|id, (_, line)| known_empty.contains(&id) && !line.ends_with('\t'));
-    let orphaned: Vec<&str> = recorded
-        .keys()
-        .copied()
-        .filter(|id| !computed.contains_key(id))
-        .collect();
-
-    let mut findings = broken;
-    for (what, ids) in [
-        ("no recorded answer", &unrecorded),
-        ("recorded answer for no question", &orphaned),
-        ("reference answer moved", &moved),
-        (
-            "reference answer is EMPTY and not a known conformance question",
-            &empty,
-        ),
-        ("listed as known-empty but now returns rows", &stale),
-    ] {
-        if !ids.is_empty() {
-            writeln!(findings, "{what}: Q{}", ids.join(", Q")).expect("writes to a String");
-        }
-    }
-    if show_queries {
-        for id in &moved {
-            if let (Some((reference, line)), Some(was)) = (computed.get(id), recorded.get(id)) {
-                writeln!(findings, "Q{id}: {reference}\n  -{was}\n  +{line}")
-                    .expect("writes to a String");
-            }
-        }
-    }
+    let findings = rot::findings(&computed, &recorded, known_empty, show_queries);
     assert!(
         findings.is_empty(),
         "{bank} bank reference answers do not hold — the facts or rules changed what these \
