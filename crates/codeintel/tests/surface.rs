@@ -551,6 +551,13 @@ fn rpc(root: &Path, requests: &[serde_json::Value]) -> Vec<serde_json::Value> {
         }
     }
     let out = child.wait_with_output().expect("the server exits");
+    assert!(
+        out.status.success(),
+        "`codeintel mcp` exited {:?} after {} byte(s) of stdout. stderr: {}",
+        out.status.code(),
+        out.stdout.len(),
+        String::from_utf8_lossy(&out.stderr)
+    );
     responses(&out)
 }
 
@@ -782,6 +789,13 @@ fn rpc_bytes(root: &Path, input: &[u8]) -> Vec<serde_json::Value> {
         .write_all(input)
         .expect("write");
     let out = child.wait_with_output().expect("the server exits");
+    assert!(
+        out.status.success(),
+        "`codeintel mcp` exited {:?} after {} byte(s) of stdout. stderr: {}",
+        out.status.code(),
+        out.stdout.len(),
+        String::from_utf8_lossy(&out.stderr)
+    );
     responses(&out)
 }
 
