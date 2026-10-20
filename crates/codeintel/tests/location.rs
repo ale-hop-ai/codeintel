@@ -261,13 +261,19 @@ fn mcp_honours_the_override() {
         .stderr(Stdio::null())
         .spawn()
         .expect("starts");
+    let init = serde_json::json!({
+        "jsonrpc": "2.0", "id": 0, "method": "initialize",
+        "params": {"protocolVersion": "2025-06-18"}
+    });
     let request = serde_json::json!({
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-        "params": {"name": "code_query", "arguments": {"query": "?- def(_, _, _, _).", "format": "json"}}
+        "params": {"name": "code_query", "arguments": {"query": "?- def(_, _, _, _)."}}
     });
-    writeln!(child.stdin.as_mut().expect("stdin"), "{request}").expect("write");
+    let stdin = child.stdin.as_mut().expect("stdin");
+    writeln!(stdin, "{init}").expect("write");
+    writeln!(stdin, "{request}").expect("write");
     let out = child.wait_with_output().expect("exits");
-    let line = out.stdout.split(|b| *b == b'\n').next().expect("a line");
+    let line = out.stdout.split(|b| *b == b'\n').nth(1).expect("a line");
     let response: serde_json::Value = serde_json::from_slice(line).expect("JSON-RPC");
     assert_eq!(
         response["result"]["structuredContent"]["status"], "ok",

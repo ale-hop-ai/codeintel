@@ -340,7 +340,7 @@ with the same function that sends it:
 | Surface | Measured |
 |---|---|
 | CLI `query`, text | the rows on stdout (the status goes to stderr) |
-| CLI `query --format json` | the whole document: both notations of every row, JSON escaping included |
+| CLI `query --format json` | the whole document: one notation of every row, JSON escaping included |
 | MCP `code_query` | the tool result object, one body (§ The consumer) |
 
 An earlier version measured the printed text everywhere. That bounded the text
@@ -645,7 +645,7 @@ prose to learn that a kind is at zero — that is the same defect as handing
 **`schema` carries a `status` like every response, and exits 0 without an
 index.** With no index the status is `no-index` and the hint is the
 usual `run: codeintel index <root>`: `status=` and `hint:` on stderr for text,
-`status` and `hint` fields for `--format json`, `structuredContent` over MCP.
+`status` and `hint` fields for `--format json`, and over MCP in whichever field the client reads (§ The consumer).
 It used to say `ok` in every form and leave the difference to a sentence inside
 the text — invariant 6, which a consumer must be able to branch on without
 reading prose. The status goes to stderr in text mode so stdout stays exactly
@@ -744,7 +744,6 @@ as totals only, rather than joined through `def` to invent a language for them.
       "query":  { "type": "string", "description": "Datalog program ending in a ?- goal." },
       "schema": { "type": "boolean", "description": "Return the relation catalog and exit." },
       "limit":  { "type": "integer", "default": 200 },
-      "format": { "type": "string", "enum": ["text", "json"], "default": "text" },
       "raw":    { "type": "boolean", "description": "SymIds instead of `Name path:line`." }
     }
   }
@@ -808,33 +807,48 @@ surface no client of this tool needs. **`tools/call` names its tool.** A `name`
 other than `code_query` — or none — is `-32602` naming the one tool that exists,
 rather than running `code_query` under whatever name was sent.
 
-**`content` and `structuredContent` carry the same answer, not a split of it.**
-`content` is the whole answer in the format asked for: the rows as text with a
-`status=` line and any `hint:` line appended, or, with `format: "json"`, the
-document in § Response contract. `structuredContent` is that same document —
-`status`, `columns`, `rows`, `display`, `truncated`, `cap`, `hint`, `stats` —
-always as JSON, regardless of what `format` asked for in `content`. This was
-not the original design: a first version sent `structuredContent` as the
-envelope alone (everything but `rows`/`display`), reasoned from the 2024-11-05
-spec text, which does not define `structuredContent` at all, on the theory that
-a client speaking that revision reads only `content`. That reasoning was
-never tested against a real client. It was: Claude Code (confirmed against
-`anthropics/claude-code#55677`, `#64316`, and duplicates) shows the model
-`structuredContent` and **drops `content` entirely** whenever
-`structuredContent` is present in the result, independent of the negotiated
-`protocolVersion` — the MCP spec added `structuredContent` in 2025-06-18 with
-no precedence rule between the two fields, and in practice clients branch on
-field presence, not on the version they negotiated. A server that keeps the
-real answer only in `content` is invisible to that client. `structuredContent`
-must therefore be self-sufficient on its own, exactly as `content` is — the
-"rows travel once" design is retired. This is the shape the official Go MCP SDK
-already produces for `dex` (`go-sdk`'s `AddTool` marshals the handler's output
-into `structuredContent` and copies that same JSON into `content` as one text
-block), which is why dex never hit this failure and codeintel's hand-rolled
-transport did.
+**A result carries one body: `content` or `structuredContent`, by what the
+client declared at `initialize`.** The tool result's `content` is the answer as
+text — the rows, a `status=` line, any `root=` and `hint:` line — and
+`structuredContent` is the same answer as the JSON document of § Response
+contract. Exactly one carries it.
+
+*Which one.* MCP has no capability that says "I read `structuredContent`";
+the field arrived with revision 2025-06-18, and the declaration a client makes
+is the `protocolVersion` it asks for. A client that asks for 2025-06-18 or a
+later date is answered with 2025-06-18 and gets `structuredContent`, with an
+empty `content` (`[]`: the result schema requires the field, and an empty list
+is not the answer sent twice). Every other client — an older revision, a
+`protocolVersion` that is not a date, an `initialize` with no params, no
+`initialize` at all — is answered with 2024-11-05 as before and gets `content`
+only, because `content` is the field every client reads. The choice is made per
+connection at `initialize` and is not an argument.
+
+*Why not both.* This was the design — `structuredContent` self-sufficient and
+`content` the same answer beside it — and it was reasoned from a measured
+client: Claude Code shows the model `structuredContent` and **drops `content`
+entirely** whenever `structuredContent` is present (`anthropics/claude-code#55677`,
+`#64316`), so a server that kept the answer only in `content` was invisible to
+it. The fix for that was to fill both, and filling both put every row on the
+wire three times (rows, display, and the text copy of each): a 202-row answer
+cost 51,044 bytes against 7,539 on the CLI, and a zero-row answer cost 926
+against 0. The visibility failure is cured by sending the field the client
+reads, not by sending both. `format` is gone from the tool's arguments for
+the same reason: with the body fixed by the client, it was inert for every
+client that prefers `structuredContent` and advertised anyway. `raw` stays and
+is live in both bodies: it chooses the notation of the rows.
+
+*A finding, not a decision.* On the 202-row answer the text body is 8,009
+bytes and the JSON body 9,070 (`tests/fixtures/cost/expected.tsv`). The JSON
+body is the larger of the two for the same rows, and the only reason to send it
+is that a client reads nothing else. If a client reads `content` when it is the
+only field present — which is what the issues above describe — then the
+declaration at `initialize` buys a client nothing and costs this server a
+state machine. That has not been tested against a live Claude Code and is the
+experiment that would settle it.
 
 **An argument the tool does not have is refused.** `code_query` takes `query`,
-`schema`, `limit`, `format` and `raw`, and nothing else; the input schema says
+`schema`, `limit` and `raw`, and nothing else; the input schema says
 `additionalProperties: false` and the handler enforces it, because a hand-rolled
 transport cannot rely on the client validating. Unknown arguments used to be
 ignored, and the one a caller reaches for first is `path` — the CLI takes
@@ -845,21 +859,19 @@ a well-formed, confident answer about the wrong codebase, which is exactly the
 failure invariant 6 exists to prevent. The repository is the server's working
 directory, one server per repository, and the refusal says so.
 
-**The budget still bounds the whole result, not just `content`.** Doubling what
-`structuredContent` carries does not double-count against `max_result_bytes`:
-the cap is measured on the tool result object as actually serialized
-(`crate::wire::Wire::bytes`), so a heavier `structuredContent` simply leaves
-less headroom for rows before a cut, the same as any other field would
-(§ Truncation, above).
+**The budget bounds the whole result, whichever field carries it.** The cap
+is measured on the tool result object as actually serialized
+(`crate::wire::Wire::bytes`), through the same `tool_result` that sends it, so
+the envelope — `isError`, the empty `content`, and `stats` in the JSON body —
+leaves less headroom for rows before a cut (§ Truncation, above).
 
-**The catalog travels the same way.** `schema: true` puts the catalog in
-`content` in the format asked for — the text `codeintel schema` prints, or,
-with `format: "json"`, the document `codeintel schema --format json`
-prints — and `structuredContent` carries that same JSON document (the
-`codeintel schema --format json` shape) always, whatever `format` was asked
-for in `content`, so a client that only reads `structuredContent` still gets
-the full catalog rather than a bare `{status, hint}`. `isError` is false
-whenever the catalog was delivered, including `no-index` (§ `schema`).
+**The catalog travels the same way.** `schema: true` puts the catalog text in
+`content` for a client that reads it. For a client that takes `structuredContent`
+it is `{status, hint, text}` there — the same catalog text once, not again as
+`rules`, `relations`, `kinds` and `roles`, which are `codeintel schema --format
+json`'s restatement of that text for a parser and which no consumer of this tool
+is. `isError` is false whenever the catalog was delivered, including `no-index`
+(§ `schema`).
 
 **Both surfaces print one answer.** A ground goal that holds prints `true` in
 an MCP text result exactly as on the CLI; one function writes the rows for
@@ -972,11 +984,12 @@ Three rules follow, and they supersede the earlier drafts named at each site:
    `raw`. Not `rows` *and* `display`.
 2. **One body per MCP tool result.** A result carries `content` or
    `structuredContent`, never the same answer in both. Which one is chosen by
-   what the client declared at `initialize`; a client that takes
-   `structuredContent` gets only that, and one that does not gets `content`.
-   Sending both made `format` and `raw` inert for every client that prefers
-   structured content — the parameters were advertised and did nothing — and
-   cost 3717 bytes to deliver a 1131-byte answer.
+   what the client declared at `initialize` (§ MCP); a client that takes
+   `structuredContent` gets only that, and one that does not — or declared
+   nothing — gets `content`. Sending both made `format` and `raw` inert for
+   every client that prefers structured content — the parameters were
+   advertised and did nothing — and cost 3717 bytes to deliver a 1131-byte
+   answer.
 3. **The schema is a budget, not an inventory.** It is read once per session
    before any question is asked, so its bytes are charged to every session
    including the ones that ask one question. It is currently 18,304 bytes.

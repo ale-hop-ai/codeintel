@@ -621,7 +621,7 @@ fn query_cmd(
     let answer = query::run(path, &source, options)?;
 
     match format {
-        Format::Json => outln(&wire::json(&answer).to_string())?,
+        Format::Json => outln(&wire::json(&answer, options.raw).to_string())?,
         Format::Text => {
             // The same rows an MCP result carries, `true` for a ground goal
             // included: one function writes both (`specs/05-surface.md` § MCP).

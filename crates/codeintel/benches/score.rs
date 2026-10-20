@@ -360,12 +360,22 @@ struct Cost {
 
 /// Drive one `codeintel mcp` session and weigh what it sent back.
 ///
-/// Called the way an agent calls it: the schema first, then every query at the
-/// default limit. **Bytes of the tool result**, not of the JSON-RPC envelope
+/// Called the way an agent calls it: `initialize` as Claude Code does, then the
+/// schema, then every query at the default limit. The initialize is part of the
+/// measurement because it decides which body the server sends
+/// (`specs/05-surface.md` § The consumer): a session that declared nothing
+/// would be weighed on the text body and read back through the JSON one. **Bytes of the tool result**, not of the JSON-RPC envelope
 /// around it — the envelope's `id` is the client's own bytes echoed back
 /// (`specs/05-surface.md` § Symbol rendering).
 fn cost(root: &Path, index_dir: &Path, set: &[(String, String)]) -> Result<Cost> {
     let mut input = String::new();
+    writeln!(
+        input,
+        "{}",
+        json!({"jsonrpc": "2.0", "id": -1, "method": "initialize",
+               "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                          "clientInfo": {"name": "score", "version": "0"}}})
+    )?;
     writeln!(
         input,
         "{}",
@@ -387,7 +397,12 @@ fn cost(root: &Path, index_dir: &Path, set: &[(String, String)]) -> Result<Cost>
     let mut sizes = Vec::new();
     let mut rows = 0;
     let mut schema_bytes = 0;
-    for (i, line) in text.lines().filter(|l| !l.trim().is_empty()).enumerate() {
+    for (i, line) in text
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .skip(1)
+        .enumerate()
+    {
         let weighed = weigh(line)?;
         let (bytes, got) = (weighed.bytes, weighed.rows);
         if weighed.failed {

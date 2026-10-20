@@ -23,8 +23,37 @@ use crate::schema::Schema;
 use crate::status::Status;
 use crate::wire::{self, Wire};
 
-/// The MCP revision this server speaks.
+/// The revision a client that declared nothing newer is answered with.
 const PROTOCOL_VERSION: &str = "2024-11-05";
+
+/// The first revision that defines `structuredContent`, and the one a client
+/// that asks for it or anything later is answered with.
+const STRUCTURED_VERSION: &str = "2025-06-18";
+
+/// What one connection declared at `initialize`, and so which field of a tool
+/// result it reads (`specs/05-surface.md` § The consumer).
+///
+/// The default is the client that declared nothing: `content`, which every MCP
+/// client reads, rather than a field only some do.
+#[derive(Debug, Clone, Copy, Default)]
+struct Session {
+    /// The client asked for a revision that defines `structuredContent`.
+    structured: bool,
+}
+
+/// Whether `version`, as a client's `protocolVersion`, is a date at or after
+/// [`STRUCTURED_VERSION`]. Anything that is not a date declares nothing.
+fn takes_structured(version: &str) -> bool {
+    let shaped = version.len() == STRUCTURED_VERSION.len()
+        && version.bytes().enumerate().all(|(i, b)| {
+            if matches!(i, 4 | 7) {
+                b == b'-'
+            } else {
+                b.is_ascii_digit()
+            }
+        });
+    shaped && version >= STRUCTURED_VERSION
+}
 
 /// The only tool. Growing to two requires deleting this one
 /// (`specs/00-overview.md` § Surface budget).
@@ -65,6 +94,7 @@ pub fn serve(
     // One loaded index for the life of the session, rebuilt when a refresh
     // moves the manifest (`specs/05-surface.md` § MCP).
     let mut warm = Warm::default();
+    let mut session = Session::default();
     let mut line = Vec::new();
     loop {
         line.clear();
@@ -77,7 +107,7 @@ pub fn serve(
             return Ok(());
         }
         let response = if line.last() == Some(&b'\n') || read < MAX_LINE_BYTES {
-            respond(root, index_dir, &mut warm, &line)
+            respond(root, index_dir, &mut warm, &mut session, &line)
         } else {
             // The cap stopped the read mid-line. Skip the rest without holding
             // it: bounding the buffer is the point.
@@ -101,6 +131,7 @@ fn respond(
     root: &Path,
     index_dir: Option<&Path>,
     warm: &mut Warm,
+    session: &mut Session,
     line: &[u8],
 ) -> Option<serde_json::Value> {
     // No id can be read out of these, so the error goes to `id: null` — the
@@ -150,9 +181,16 @@ fn respond(
         .unwrap_or(serde_json::json!({}));
 
     Some(match method {
-        "initialize" => ok(&id, &initialize()),
+        "initialize" => {
+            let asked = params
+                .get("protocolVersion")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            session.structured = takes_structured(asked);
+            ok(&id, &initialize(session.structured))
+        }
         "tools/list" => ok(&id, &serde_json::json!({ "tools": [tool()] })),
-        "tools/call" => match call(root, index_dir, warm, &params) {
+        "tools/call" => match call(root, index_dir, warm, *session, &params) {
             Ok(result) => ok(&id, &result),
             Err((code, message)) => error(&id, code, &message),
         },
@@ -161,10 +199,12 @@ fn respond(
     })
 }
 
-/// What this server is and what it can do.
-fn initialize() -> serde_json::Value {
+/// What this server is and what it can do. A client that took
+/// `structuredContent` is answered with the revision that defines it, so what
+/// was negotiated is what is sent.
+fn initialize(structured: bool) -> serde_json::Value {
     serde_json::json!({
-        "protocolVersion": PROTOCOL_VERSION,
+        "protocolVersion": if structured { STRUCTURED_VERSION } else { PROTOCOL_VERSION },
         "capabilities": { "tools": {} },
         "serverInfo": {
             "name": "codeintel",
@@ -196,11 +236,6 @@ fn tool() -> serde_json::Value {
                     "description": "Return the relation catalog and exit.",
                 },
                 "limit": { "type": "integer", "default": 200 },
-                "format": {
-                    "type": "string",
-                    "enum": ["text", "json"],
-                    "default": "text",
-                },
                 "raw": {
                     "type": "boolean",
                     "description": "Print SymIds instead of `Name path:line`. \
@@ -225,7 +260,7 @@ fn tool() -> serde_json::Value {
 /// repository, asked for `path: "<another repository>"`, answered from its own
 /// tree with `status: "ok"` — a well-formed, confident answer about the wrong
 /// codebase, which is the one failure mode invariant 6 exists to prevent.
-const ARGUMENTS: [&str; 5] = ["query", "schema", "limit", "format", "raw"];
+const ARGUMENTS: [&str; 4] = ["query", "schema", "limit", "raw"];
 
 /// Run one `code_query` call.
 ///
@@ -236,6 +271,7 @@ fn call(
     root: &Path,
     index_dir: Option<&Path>,
     warm: &mut Warm,
+    session: Session,
     params: &serde_json::Value,
 ) -> Result<serde_json::Value, (i64, String)> {
     // Any other name ran `code_query` anyway, which answers a question the
@@ -298,9 +334,9 @@ fn call(
         _ => {}
     }
 
-    let json = arguments.get("format").and_then(serde_json::Value::as_str) == Some("json");
+    let structured = session.structured;
     if wants_schema {
-        return schema(root, index_dir, json);
+        return schema(root, index_dir, structured);
     }
 
     let options = Options {
@@ -322,7 +358,11 @@ fn call(
         rules: Vec::new(),
         index_dir: index_dir.map(Path::to_path_buf),
         // `max_result_bytes` is measured on the result this call returns.
-        wire: if json { Wire::McpJson } else { Wire::McpText },
+        wire: if structured {
+            Wire::McpJson
+        } else {
+            Wire::McpText
+        },
     };
     let answer = match warm.run(root, program.unwrap_or_default(), &options) {
         Ok(answer) => answer,
@@ -331,14 +371,14 @@ fn call(
         // candidate, `corrupt`, tells the agent to delete a healthy index.
         Err(e) => return Err((INTERNAL_ERROR, format!("codeintel: {e:#}"))),
     };
-    Ok(wire::tool_result(&answer, json, options.raw))
+    Ok(wire::tool_result(&answer, structured, options.raw))
 }
 
 /// The catalog, which needs no query and works with no index.
 fn schema(
     root: &Path,
     index_dir: Option<&Path>,
-    json: bool,
+    structured: bool,
 ) -> Result<serde_json::Value, (i64, String)> {
     let counted = facts::store::locate(root, index_dir)
         .and_then(|dir| facts::Store::open(root, dir, &extract::fingerprint()))
@@ -351,43 +391,48 @@ fn schema(
         Err(e) => {
             let text = format!("codeintel: {e}");
             return match facts::fault(&e) {
-                Some(fault) => Ok(failed(Status::of_fault(fault), &text)),
+                Some(fault) => Ok(failed(Status::of_fault(fault), &text, structured)),
                 None => Err((INTERNAL_ERROR, text)),
             };
         }
     };
     let schema = Schema { census: &census };
-    // `content` carries the catalog in the format asked for — what
-    // `codeintel schema` prints in that format. `structuredContent` carries
-    // the same catalog, always as JSON, so a client that only reads one field
-    // still gets the whole thing (`specs/05-surface.md` § MCP).
-    let structured = wire::schema_json(&schema, &census, root, index_dir, &refreshed);
-    let body = if json {
-        structured.to_string()
-    } else {
-        schema.to_string()
-    };
     // `no-index` with no index, and still not an error: the catalog was
     // delivered, and it is the call a session makes before indexing anything
     // (`specs/05-surface.md` § `schema`).
+    let body = schema.to_string();
+    if structured {
+        // The catalog text is the catalog. `codeintel schema --format json`
+        // restates it as rules, relations and counts for a parser, which no
+        // consumer of this tool is (`specs/05-surface.md` § The consumer).
+        let (status, hint) = wire::schema_status(&census, root, index_dir, &refreshed);
+        return Ok(serde_json::json!({
+            "content": [],
+            "structuredContent": { "status": status.as_str(), "hint": hint, "text": body },
+            "isError": false,
+        }));
+    }
     Ok(serde_json::json!({
         "content": [{ "type": "text", "text": body }],
-        "structuredContent": structured,
         "isError": false,
     }))
 }
 
-/// A tool result that is an error, carrying the text the caller needs.
-///
-/// `structuredContent` is present here too: the promise is that a consumer
-/// never parses prose to find the status, and an error path is exactly where
-/// it would otherwise have to.
-fn failed(status: Status, text: &str) -> serde_json::Value {
-    serde_json::json!({
-        "content": [{ "type": "text", "text": text }],
-        "structuredContent": { "status": status.as_str(), "hint": text },
-        "isError": true,
-    })
+/// A tool result that is an error, carrying the text the caller needs, in the
+/// field the client reads.
+fn failed(status: Status, text: &str, structured: bool) -> serde_json::Value {
+    if structured {
+        serde_json::json!({
+            "content": [],
+            "structuredContent": { "status": status.as_str(), "hint": text },
+            "isError": true,
+        })
+    } else {
+        serde_json::json!({
+            "content": [{ "type": "text", "text": text }],
+            "isError": true,
+        })
+    }
 }
 
 fn ok(id: &serde_json::Value, result: &serde_json::Value) -> serde_json::Value {
