@@ -392,6 +392,26 @@ cut does not set `truncated`, which means rows were dropped; the marker in the
 hint says what was cut. On the CLI text surface the hint goes to stderr and is
 not counted, so it is never cut there.
 
+**A runnable chain is atomic to the cut**, because the cut marker is an append
+and § Response contract forbids appending to the line a chain ends. A prefix
+cut lands wherever the budget runs out, and both places it can land are wrong:
+inside a command it leaves half of one, and immediately *after* one it is worse
+— `rust-analyzer scip . ... [hint cut to fit max_result_bytes]` is a command
+whose arguments are the marker's own words, which is #104's failure reached
+through the cut rather than through composition (#108).
+
+So the chain is kept whole with the prose cut around it, or dropped whole. It
+is **kept** by preference: the prose says what is wrong and the chain says what
+to type, and under pressure the second is worth more. When the chain alone will
+not fit the budget, the budget wins — the chain is dropped and the marker says
+so, ` ... [hint cut to fit max_result_bytes; recovery command dropped]`, because
+a hint that quietly loses its command cannot be told from one that never had
+one (invariant 5).
+
+Below the floor — a budget smaller than the envelope plus the shorter marker —
+nothing complies, and no cut can change that. That floor is a property of the
+budget, not of the hint.
+
 For that to be true the engine's own cap must not be the one that fires. The
 rendered form is **shorter** than the raw one — a ~68-character `SymId` becomes
 `name path:line` — so an engine holding the printed budget would truncate rows
