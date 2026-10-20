@@ -42,7 +42,7 @@ const NOT_RUNNABLE: &[(&str, &str)] = &[
     ),
     (
         "?- entrypoint_exact(S), def(S, F, _, N), !is_test(F), !in_tests(S).",
-        "needs the in_tests rule shown above it; `in_tests_rule_composes_with_entrypoint_exact` runs the program",
+        "needs the in_tests rule shown above it; `in_tests_excludes_tests_and_test_and_misses_every_other_name` runs the program",
     ),
     (
         "?- NAME(A, B, Vars...)",
@@ -222,47 +222,85 @@ const IN_TESTS: &str = r#"in_tests(S) :- within(S, A), def(A, _, "module", "test
 in_tests(S) :- within(S, A), def(A, _, "module", "test").
 "#;
 
-fn rows_of(program: &str) -> Vec<serde_json::Value> {
+/// A crate with no SCIP index, written so each class of function is one row.
+///
+/// `entrypoint_exact` is the cookbook's example but it requires `resolved`, so
+/// over any tree without an index it is empty and a comparison over it passes
+/// whatever the filter does. `entrypoint` has rows here, and `in_tests` is a
+/// conjunct that does not care which twin it is composed with.
+const CRATE: &str = r"fn live() { helper(); }
+fn helper() {}
+fn dead() {}
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn in_a_tests_module() {}
+}
+#[cfg(test)]
+mod vocabulary {
+    fn in_an_unguessed_module() {}
+}
+";
+
+fn names(root: &Path, program: &str) -> Vec<String> {
     let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
-        .args(["query", "--format", "json", "--no-refresh", program])
-        .current_dir(root())
-        .env("CODEINTEL_INDEX_DIR", repo_index())
+        .args(["query", "--no-refresh", program])
+        .current_dir(root)
+        .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
         .output()
         .expect("the binary runs");
-    let response: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
-    let status = response
-        .get("status")
-        .and_then(|s| s.as_str())
-        .unwrap_or("?");
+    // `no-scip` is the status of tier A alone, which is what this tree is for.
     assert!(
-        matches!(status, "ok" | "no-scip"),
-        "{program}: {status}: {:?}",
-        response.get("hint")
+        String::from_utf8_lossy(&out.stderr).contains("status=no-scip"),
+        "{program}: {}",
+        String::from_utf8_lossy(&out.stderr)
     );
-    response
-        .get("rows")
-        .and_then(|r| r.as_array())
-        .cloned()
-        .unwrap_or_default()
+    let mut names: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| l.split_whitespace().next().map(str::to_string))
+        .collect();
+    names.sort();
+    names
 }
 
 /// The cookbook's `in_tests` program (#111), which the goal extractor cannot
-/// run because its rule lives beside the goal rather than in it.
+/// run because its rule lives beside the goal rather than in it. Pins both
+/// halves of the claim: it excludes `mod tests`, and it misses a module named
+/// anything else, which is the ~7.5% the cookbook states.
 #[test]
-fn in_tests_rule_composes_with_entrypoint_exact() {
-    let inside = rows_of(&format!(
-        "{IN_TESTS}?- in_tests(S), def(S, F, \"function\", N), !is_test(F)."
-    ));
-    assert!(!inside.is_empty(), "this repository has `mod tests` blocks");
-    let all = rows_of("?- entrypoint_exact(S), def(S, F, _, N), !is_test(F).");
-    let kept = rows_of(&format!(
-        "{IN_TESTS}?- entrypoint_exact(S), def(S, F, _, N), !is_test(F), !in_tests(S)."
-    ));
-    assert!(kept.len() <= all.len(), "{} > {}", kept.len(), all.len());
-    assert!(
-        kept.iter().all(|r| all.contains(r)),
-        "the filter only removes rows"
+fn in_tests_excludes_tests_and_test_and_misses_every_other_name() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("lib.rs"), CRATE).expect("write");
+    let index = Command::new(env!("CARGO_BIN_EXE_codeintel"))
+        .args(["index", "."])
+        .current_dir(dir.path())
+        .env("CODEINTEL_INDEX_DIR", dir.path().join(".codeintel"))
+        .output()
+        .expect("the binary runs");
+    assert!(index.status.success());
+
+    let all = names(
+        dir.path(),
+        "?- entrypoint(S), def(S, F, _, N), !is_test(F).",
     );
+    for want in [
+        "dead",
+        "in_a_tests_module",
+        "in_an_unguessed_module",
+        "live",
+    ] {
+        assert!(all.iter().any(|n| n == want), "{want} must list: {all:?}");
+    }
+    let kept = names(
+        dir.path(),
+        &format!("{IN_TESTS}?- entrypoint(S), def(S, F, _, N), !is_test(F), !in_tests(S)."),
+    );
+    assert!(!kept.iter().any(|n| n == "in_a_tests_module"), "{kept:?}");
+    assert!(
+        kept.iter().any(|n| n == "in_an_unguessed_module"),
+        "`vocabulary` is the documented miss; if it is now excluded the cookbook is stale: {kept:?}"
+    );
+    assert!(kept.iter().any(|n| n == "dead"), "{kept:?}");
 }
 
 // ── determinism (#99) ───────────────────────────────────────────────────────
