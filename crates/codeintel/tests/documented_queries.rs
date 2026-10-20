@@ -57,26 +57,37 @@ fn root() -> PathBuf {
         .expect("repo root")
 }
 
-/// An index of this repository, built once and shared by every test here.
+/// An index of this repository, shared by every test here and every process
+/// running them.
+///
+/// `nextest` runs each test in its own process, so a `OnceLock` shares nothing
+/// between tests: the first version of this built the 129-file index once per
+/// test, three times in the gate. The index lives in `CARGO_TARGET_TMPDIR`
+/// instead, and every process runs `index .` against it under a file lock. The
+/// first builds it, the rest are the incremental no-op (0 files indexed), and
+/// because that run refreshes against the live tree the index is never stale.
+/// Readers take no lock: a commit is an atomic rename, and these only query.
 fn repo_index() -> &'static Path {
-    static INDEX: OnceLock<tempfile::TempDir> = OnceLock::new();
-    INDEX
-        .get_or_init(|| {
-            let index = tempfile::tempdir().expect("tempdir");
-            let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
-                .args(["index", "."])
-                .current_dir(root())
-                .env("CODEINTEL_INDEX_DIR", index.path())
-                .output()
-                .expect("the binary runs");
-            assert!(
-                out.status.success(),
-                "{}",
-                String::from_utf8_lossy(&out.stderr)
-            );
-            index
-        })
-        .path()
+    static INDEX: OnceLock<PathBuf> = OnceLock::new();
+    INDEX.get_or_init(|| {
+        let home = Path::new(env!("CARGO_TARGET_TMPDIR")).join("documented-queries");
+        std::fs::create_dir_all(&home).expect("a scratch directory");
+        let lock = std::fs::File::create(home.join("lock")).expect("a lock file");
+        lock.lock().expect("takes the lock");
+        let index = home.join("index");
+        let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
+            .args(["index", "."])
+            .current_dir(root())
+            .env("CODEINTEL_INDEX_DIR", &index)
+            .output()
+            .expect("the binary runs");
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        index
+    })
 }
 
 /// `text` over `range`, which every caller derives from a `char_indices` offset.
@@ -267,16 +278,43 @@ fn assert_stable(
     answer
 }
 
-#[test]
-fn every_documented_query_is_byte_identical_across_runs() {
+/// The documented queries are split over [`CHUNKS`] tests so the gate runs them
+/// side by side: one test looping over all of them was the longest in the gate
+/// and set its wall time. Goal `i` belongs to chunk `i % CHUNKS`, so the chunks
+/// partition the corpus and drop nothing.
+const CHUNKS: usize = 4;
+
+fn documented_stable(chunk: usize) {
     let index = repo_index();
     let root = root();
-    for (goal, places) in &documented() {
-        if NOT_RUNNABLE.iter().any(|(skip, _)| skip == goal) {
-            continue;
-        }
+    let runnable: Vec<_> = documented()
+        .into_iter()
+        .filter(|(goal, _)| !NOT_RUNNABLE.iter().any(|(skip, _)| skip == goal))
+        .collect();
+    assert!(runnable.len() >= CHUNKS * 4, "{} goals", runnable.len());
+    for (goal, places) in runnable.iter().skip(chunk).step_by(CHUNKS) {
         assert_stable(&places.join(", "), &root, index, goal, &Options::default());
     }
+}
+
+#[test]
+fn every_documented_query_is_byte_identical_across_runs_chunk_0() {
+    documented_stable(0);
+}
+
+#[test]
+fn every_documented_query_is_byte_identical_across_runs_chunk_1() {
+    documented_stable(1);
+}
+
+#[test]
+fn every_documented_query_is_byte_identical_across_runs_chunk_2() {
+    documented_stable(2);
+}
+
+#[test]
+fn every_documented_query_is_byte_identical_across_runs_chunk_3() {
+    documented_stable(3);
 }
 
 /// The shapes the engine can produce that the documented corpus does not pin,
@@ -287,8 +325,7 @@ fn every_documented_query_is_byte_identical_across_runs() {
 ///
 /// `transformed` is asserted where the label claims the demand rewrite ran, so
 /// a shape cannot quietly stop being the shape it names.
-#[test]
-fn every_query_shape_is_byte_identical_across_runs() {
+fn shapes_stable(chunk: usize) {
     let index = repo_index();
     let root = root();
     let seeded = r#"?- def(S, _, "function", "locate"), impact_of(S, C)."#;
@@ -367,10 +404,31 @@ fn every_query_shape_is_byte_identical_across_runs() {
             |_| {},
         ),
     ];
-    for (label, program, options, check) in shapes {
+    assert!(shapes.len() >= CHUNKS, "{} shapes", shapes.len());
+    for (label, program, options, check) in shapes.iter().skip(chunk).step_by(CHUNKS) {
         let answer = assert_stable(&format!("shape: {label}"), &root, index, program, options);
         check(&answer);
     }
+}
+
+#[test]
+fn every_query_shape_is_byte_identical_across_runs_chunk_0() {
+    shapes_stable(0);
+}
+
+#[test]
+fn every_query_shape_is_byte_identical_across_runs_chunk_1() {
+    shapes_stable(1);
+}
+
+#[test]
+fn every_query_shape_is_byte_identical_across_runs_chunk_2() {
+    shapes_stable(2);
+}
+
+#[test]
+fn every_query_shape_is_byte_identical_across_runs_chunk_3() {
+    shapes_stable(3);
 }
 
 /// Both provenance tiers in one store. This repository is indexed without

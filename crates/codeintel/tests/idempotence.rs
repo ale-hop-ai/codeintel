@@ -94,53 +94,76 @@ fn touch(path: &Path) {
         .expect("sets mtime");
 }
 
-#[test]
-fn indexing_twice_with_scip_is_byte_identical() {
-    for fixture in FIXTURES {
-        let dir = common::indexed(fixture);
-        let first = bytes_of(dir.path());
-        let stderr = reindex(dir.path(), &[]);
-        assert!(stderr.contains("0 indexed"), "{fixture}: {stderr}");
-        assert_same(fixture, "a second index", &first, &bytes_of(dir.path()));
-    }
+fn indexing_twice_with_scip_is_byte_identical(fixture: &str) {
+    let dir = common::indexed(fixture);
+    let first = bytes_of(dir.path());
+    let stderr = reindex(dir.path(), &[]);
+    assert!(stderr.contains("0 indexed"), "{fixture}: {stderr}");
+    assert_same(fixture, "a second index", &first, &bytes_of(dir.path()));
 }
 
 /// A SCIP index whose mtime moved is re-read and every file is re-extracted
 /// against it: the whole of tier B runs again, and nothing may differ.
-#[test]
-fn re_ingesting_the_scip_index_is_byte_identical() {
-    for fixture in FIXTURES {
-        let dir = common::indexed(fixture);
-        let first = bytes_of(dir.path());
-        let manifest =
-            std::fs::read(dir.path().join(".codeintel/manifest.json")).expect("manifest");
-        touch(&dir.path().join("index.scip"));
-        reindex(dir.path(), &[]);
-        assert_ne!(
-            manifest,
-            std::fs::read(dir.path().join(".codeintel/manifest.json")).expect("manifest"),
-            "{fixture}: the touched SCIP index was not noticed, so nothing was re-ingested"
-        );
-        assert_same(
-            fixture,
-            "re-ingesting the SCIP index",
-            &first,
-            &bytes_of(dir.path()),
-        );
-    }
+fn re_ingesting_the_scip_index_is_byte_identical(fixture: &str) {
+    let dir = common::indexed(fixture);
+    let first = bytes_of(dir.path());
+    let manifest = std::fs::read(dir.path().join(".codeintel/manifest.json")).expect("manifest");
+    touch(&dir.path().join("index.scip"));
+    reindex(dir.path(), &[]);
+    assert_ne!(
+        manifest,
+        std::fs::read(dir.path().join(".codeintel/manifest.json")).expect("manifest"),
+        "{fixture}: the touched SCIP index was not noticed, so nothing was re-ingested"
+    );
+    assert_same(
+        fixture,
+        "re-ingesting the SCIP index",
+        &first,
+        &bytes_of(dir.path()),
+    );
 }
 
+fn a_rebuild_is_byte_identical_to_the_first_index(fixture: &str) {
+    let dir = common::indexed(fixture);
+    let first = bytes_of(dir.path());
+    reindex(dir.path(), &["--rebuild"]);
+    assert_same(
+        fixture,
+        "a rebuild from nothing",
+        &first,
+        &bytes_of(dir.path()),
+    );
+}
+
+/// One test per fixture and check, so the gate runs the twelve side by side
+/// instead of three loops of four. `fixtures_are_all_covered` ties the list
+/// below to [`FIXTURES`], so a fixture cannot be added to one and not the other.
+macro_rules! per_fixture {
+    ($($check:ident),*) => {$(
+        mod $check {
+            #[test]
+            fn rust() { super::$check("rust") }
+            #[test]
+            fn go() { super::$check("go") }
+            #[test]
+            fn python() { super::$check("python") }
+            #[test]
+            fn typescript() { super::$check("typescript") }
+        }
+    )*};
+}
+
+per_fixture!(
+    indexing_twice_with_scip_is_byte_identical,
+    re_ingesting_the_scip_index_is_byte_identical,
+    a_rebuild_is_byte_identical_to_the_first_index
+);
+
 #[test]
-fn a_rebuild_is_byte_identical_to_the_first_index() {
-    for fixture in FIXTURES {
-        let dir = common::indexed(fixture);
-        let first = bytes_of(dir.path());
-        reindex(dir.path(), &["--rebuild"]);
-        assert_same(
-            fixture,
-            "a rebuild from nothing",
-            &first,
-            &bytes_of(dir.path()),
-        );
-    }
+fn fixtures_are_all_covered() {
+    assert_eq!(
+        FIXTURES,
+        ["rust", "go", "python", "typescript"],
+        "per_fixture! names four fixtures; keep it and FIXTURES in step"
+    );
 }

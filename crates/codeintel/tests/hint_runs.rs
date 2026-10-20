@@ -109,76 +109,98 @@ fn the_build_one_list_that_index_prints_is_valid_shell() {
 /// indexers, so it is the paste-ready line an agent is shown most. It has no
 /// `cd` and builds its own chain, so it is checked as its own producer, for
 /// each language, rather than inferred from the `no-index` one.
-#[test]
-fn the_scip_stale_hints_are_valid_shell_for_each_language() {
+fn the_scip_stale_hints_are_valid_shell(fixture: &str) {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
-    for fixture in ["rust", "go", "python", "typescript"] {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let copied = Command::new("cp")
-            .arg("-R")
-            .arg(fixtures.join(fixture).join("."))
-            .arg(dir.path())
-            .status()
-            .expect("cp runs");
-        assert!(copied.success(), "{fixture}");
-        // `.codeintel/` is gitignored, so a developer who ran `codeintel index`
-        // inside a fixture leaves one behind and `cp -R` drags it along. The
-        // store below then points at that index instead of a fresh one, and the
-        // test fails with `stale` — schema 2 against a build speaking 3 — on
-        // that machine only. `cli.rs:45` already skips the name when it copies;
-        // this does the same, after the fact, because `cp` cannot exclude.
-        let store = dir.path().join(".codeintel");
-        if store.exists() {
-            std::fs::remove_dir_all(&store).expect("drop a copied-in store");
-        }
-        let run = |args: &[&str]| {
-            let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
-                .args(args)
-                .current_dir(dir.path())
-                .env("CODEINTEL_INDEX_DIR", &store)
-                .output()
-                .expect("the binary runs");
-            format!(
-                "{}{}",
-                String::from_utf8_lossy(&out.stdout),
-                String::from_utf8_lossy(&out.stderr)
-            )
-        };
-        run(&["index", ".", "--scip", "index.scip"]);
-        // Bytes the SCIP index did not see, in a file the index holds.
-        let source =
-            first_source(dir.path()).unwrap_or_else(|| panic!("{fixture} has a source file"));
-        let mut text = std::fs::read_to_string(&source).expect("read");
-        text.push_str("\n\n");
-        std::fs::write(&source, text).expect("write");
-        // Refresh keys on mtime at one-second grain; the copy and this edit
-        // can share a second, so move the edit past it.
-        std::fs::File::options()
-            .write(true)
-            .open(&source)
-            .and_then(|f| {
-                f.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5))
-            })
-            .expect("set mtime");
-
-        // `query` first: it refreshes the index, which is what turns bytes the
-        // SCIP index did not see into `scip-stale`. `status` only reads.
-        for (producer, args) in [
-            ("query", &["query", "?- scip_ref(S,F,L,C,From,R)."][..]),
-            ("status", &["status"][..]),
-        ] {
-            let out = run(args);
-            assert!(
-                out.contains("scip-stale") || out.contains("scip stale"),
-                "{fixture} {producer}: {out}"
-            );
-            let line = out
-                .lines()
-                .find_map(|l| l.split_once("run: ").map(|(_, rest)| rest))
-                .unwrap_or_else(|| panic!("{fixture} {producer}: no run: in {out}"));
-            assert_parses(&format!("{fixture} {producer} scip-stale hint"), line);
-        }
+    let dir = tempfile::tempdir().expect("tempdir");
+    let copied = Command::new("cp")
+        .arg("-R")
+        .arg(fixtures.join(fixture).join("."))
+        .arg(dir.path())
+        .status()
+        .expect("cp runs");
+    assert!(copied.success(), "{fixture}");
+    // `.codeintel/` is gitignored, so a developer who ran `codeintel index`
+    // inside a fixture leaves one behind and `cp -R` drags it along. The
+    // store below then points at that index instead of a fresh one, and the
+    // test fails with `stale` — schema 2 against a build speaking 3 — on
+    // that machine only. `cli.rs:45` already skips the name when it copies;
+    // this does the same, after the fact, because `cp` cannot exclude.
+    let store = dir.path().join(".codeintel");
+    if store.exists() {
+        std::fs::remove_dir_all(&store).expect("drop a copied-in store");
     }
+    let run = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
+            .args(args)
+            .current_dir(dir.path())
+            .env("CODEINTEL_INDEX_DIR", &store)
+            .output()
+            .expect("the binary runs");
+        format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    };
+    run(&["index", ".", "--scip", "index.scip"]);
+    // Bytes the SCIP index did not see, in a file the index holds.
+    let source = first_source(dir.path());
+    assert!(source.is_some(), "{fixture} has a source file");
+    let source = source.expect("checked");
+    let mut text = std::fs::read_to_string(&source).expect("read");
+    text.push_str("\n\n");
+    std::fs::write(&source, text).expect("write");
+    // Refresh keys on mtime at one-second grain; the copy and this edit
+    // can share a second, so move the edit past it.
+    std::fs::File::options()
+        .write(true)
+        .open(&source)
+        .and_then(|f| {
+            f.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5))
+        })
+        .expect("set mtime");
+
+    // `query` first: it refreshes the index, which is what turns bytes the
+    // SCIP index did not see into `scip-stale`. `status` only reads.
+    for (producer, args) in [
+        ("query", &["query", "?- scip_ref(S,F,L,C,From,R)."][..]),
+        ("status", &["status"][..]),
+    ] {
+        let out = run(args);
+        assert!(
+            out.contains("scip-stale") || out.contains("scip stale"),
+            "{fixture} {producer}: {out}"
+        );
+        let line = out
+            .lines()
+            .find_map(|l| l.split_once("run: ").map(|(_, rest)| rest));
+        assert!(line.is_some(), "{fixture} {producer}: no run: in {out}");
+        assert_parses(
+            &format!("{fixture} {producer} scip-stale hint"),
+            line.expect("checked"),
+        );
+    }
+}
+
+/// One test per language, so the four run side by side.
+#[test]
+fn the_scip_stale_hints_are_valid_shell_for_rust() {
+    the_scip_stale_hints_are_valid_shell("rust");
+}
+
+#[test]
+fn the_scip_stale_hints_are_valid_shell_for_go() {
+    the_scip_stale_hints_are_valid_shell("go");
+}
+
+#[test]
+fn the_scip_stale_hints_are_valid_shell_for_python() {
+    the_scip_stale_hints_are_valid_shell("python");
+}
+
+#[test]
+fn the_scip_stale_hints_are_valid_shell_for_typescript() {
+    the_scip_stale_hints_are_valid_shell("typescript");
 }
 
 fn first_source(dir: &Path) -> Option<std::path::PathBuf> {
