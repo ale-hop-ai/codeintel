@@ -1078,3 +1078,54 @@ fn a_mispaired_scip_root_is_an_error() {
     assert!(!out.status.success(), "{stderr}");
     assert!(stderr.contains("--scip-root given 2"), "{stderr}");
 }
+
+/// The Rust fixture at the root and the Go fixture under `go/`, each with the
+/// SCIP index its own indexer wrote, stamped after the sources (#102).
+fn polyglot() -> tempfile::TempDir {
+    let dir = tree();
+    let go = dir.path().join("go");
+    copy(&fixture().join("../go"), &go);
+    drop(std::fs::remove_file(go.join("expected.facts")));
+    backdate(&go, SOURCE_MTIME);
+    set_mtime(&go.join("index.scip"), SOURCE_MTIME + 60);
+    dir
+}
+
+/// Every indexer in the advertised chain writes `./index.scip`, so ingesting
+/// one per language is the only way a polyglot tree reaches tier B for all of
+/// them. A second input must add its rows, and `index` must name every file it
+/// read — a silent drop of the other language is invariant 5 (#102).
+#[test]
+fn a_second_scip_input_for_a_second_language_adds_its_rows() {
+    let dir = polyglot();
+    let out = run(
+        dir.path(),
+        &[
+            "index",
+            ".",
+            "--scip",
+            "index.scip",
+            "--scip",
+            "go/index.scip",
+            "--scip-root",
+            ".",
+            "--scip-root",
+            "go",
+        ],
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "{stderr}");
+    assert!(stderr.contains("scip: index.scip ("), "{stderr}");
+    assert!(stderr.contains("scip: go/index.scip ("), "{stderr}");
+
+    let go = rows(
+        dir.path(),
+        r#"?- scip_ref(_, F, _, _, _, _), suffix(F, ".go")."#,
+    );
+    let rust = rows(
+        dir.path(),
+        r#"?- scip_ref(_, F, _, _, _, _), suffix(F, ".rs")."#,
+    );
+    assert!(!go.is_empty(), "no Go scip_ref rows: {stderr}");
+    assert!(!rust.is_empty(), "no Rust scip_ref rows: {stderr}");
+}
