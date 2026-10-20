@@ -7,9 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 repository.workspace = true
-# Both benches are declared below. Without this, `benches/conditions.rs` — a
-# module the two of them share via `#[path]`, not a bench — is auto-discovered
-# as a third bench target with no `main`, and every item in it reads as dead.
+# Every bench is declared below. Without this, `benches/conditions.rs` — a
+# module some of them share via `#[path]`, not a bench — is auto-discovered as
+# a bench target of its own with no `main`, and every item in it reads as dead.
 autobenches = false
 
 [dependencies]
@@ -32,6 +32,13 @@ harness = false
 
 [[bench]]
 name = "warm_phases"
+harness = false
+
+# The scoreboard, `docs/50-self-improvement.md` § 3. Clock-free and exact, so
+# unlike `corpus` it means the same thing on any machine. `tasks/score.yml`
+# runs it.
+[[bench]]
+name = "score"
 harness = false
 
 [lints]

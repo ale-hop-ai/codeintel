@@ -1,0 +1,88 @@
+---
+description: the scoreboard over the pinned corpora — docs/50-self-improvement.md § 3
+
+# Tier 1 and Tier 2 of `docs/50-self-improvement.md` § 4. Unlike `bench.yml`
+# this one has no clock in it: every number is a byte count or a set
+# cardinality, so it means the same thing on a loaded laptop and on a quiet
+# CI runner, and it is the gate an experiment is judged by.
+#
+# The corpus pins are `tasks/bench.yml`'s, repeated here so this task stands
+# alone; a pin is bumped in both or neither. Each corpus has a directory,
+# `crates/codeintel/benches/corpora/<name>/`, holding the `queries.tsv` the
+# wall-clock bench already uses and this task's own `score-baseline.json`.
+# Bump a pin, then run that corpus once with `UPDATE_BASELINE=1`.
+#
+# Precision needs an oracle, and the oracle is a **fresh** SCIP index: the
+# bench refuses to write a scoreboard for a corpus whose status is anything
+# but `ok`, because a stale index inflates every name-only row and makes the
+# metric lie (`specs/00-overview.md` invariant 5). So each corpus is indexed
+# by `rust-analyzer scip` first. The output goes **beside** the checkout and
+# never into it, so the tree stays byte-identical to its pin — and the bench
+# reads the checkout in place rather than copying it, because `scip-stale` is
+# decided by mtime and a copy's mtimes are all `now`.
+#
+# **deno is not here, and that is a gap, not an oversight.** It is ~1M lines of
+# which the large majority is TypeScript, whose oracle is `scip-typescript` —
+# not installed, and installing it is a host change that goes through
+# ~/dotfiles + provision. Its Rust half would also need `rust-analyzer scip`
+# over deno's full dependency graph. Until both exist, deno has a wall-clock
+# baseline and no scoreboard. `bench.yml` still covers it.
+#
+# `provision apply --stream tasks/score.yml` to watch the numbers. The results
+# are `target/score/<name>.json`.
+steps:
+  - vars:
+      corpora: "{{ home }}/.cache/codeintel/corpus"
+      scip: "{{ home }}/.cache/codeintel/corpus/scip"
+      fd_rev: b422e5d8c9cffaa1ae43ba68e7b97a60fb3e8ae5
+      tokio_rev: 53542467a3b0fdfbcdcaff236e31f7ab2e9503f0
+
+  - name: "fd at {{ fd_rev }}"
+    git:
+      repo: https://github.com/sharkdp/fd.git
+      dest: "{{ corpora }}/fd"
+      ref: "{{ fd_rev }}"
+
+  - name: "tokio at {{ tokio_rev }}"
+    git:
+      repo: https://github.com/tokio-rs/tokio.git
+      dest: "{{ corpora }}/tokio"
+      ref: "{{ tokio_rev }}"
+
+  # ~20 s. Re-run after a pin bump: the bench compares file mtimes against the
+  # index's, so an index older than the checkout reads as `scip-stale` and the
+  # scoreboard is refused rather than written wrong. The output path is
+  # outside the checkout, so the tree stays clean.
+  - name: rust-analyzer scip fd
+    shell: >-
+      mkdir -p "{{ scip }}" &&
+      cd "{{ corpora }}/fd" &&
+      rust-analyzer scip . --output "{{ scip }}/fd.scip"
+    changed_when: "false"
+    timeout: 20m
+
+  # ~75 s.
+  - name: rust-analyzer scip tokio
+    shell: >-
+      mkdir -p "{{ scip }}" &&
+      cd "{{ corpora }}/tokio" &&
+      rust-analyzer scip . --output "{{ scip }}/tokio.scip"
+    changed_when: "false"
+    timeout: 60m
+
+  # Tier 1: the experiment gate. Smallest first, so a broken harness fails in
+  # seconds rather than after tokio.
+  - name: score fd
+    shell: >-
+      cargo bench --locked -p codeintel --bench score --
+      fd "{{ corpora }}/fd" "{{ scip }}/fd.scip"
+    changed_when: "false"
+    timeout: 20m
+
+  # Tier 2: pre-merge.
+  - name: score tokio
+    shell: >-
+      cargo bench --locked -p codeintel --bench score --
+      tokio "{{ corpora }}/tokio" "{{ scip }}/tokio.scip"
+    changed_when: "false"
+    timeout: 60m
