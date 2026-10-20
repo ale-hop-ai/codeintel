@@ -722,17 +722,22 @@ fn sent(answer: &mut Answer, options: &Options) -> usize {
 /// How a composed hint separates its clauses from the runnable chain one of
 /// them may end in (#104, #102).
 ///
-/// **An experiment, not an adoption.** The default is what ships today, so
-/// this branch changes no behaviour unless asked; `CODEINTEL_HINT_SHAPE`
-/// selects an outcome so the owner can read one rather than imagine it.
+/// **Adopted: [`Shape::ChainLast`].** Built as an experiment with both
+/// outcomes side by side (#102's comparison), then taken on the argument that
+/// A keeps `specs/05-surface.md`'s "one complete line" promise verbatim, costs
+/// nothing on any wire, and makes the defect impossible rather than fixed.
+/// `CODEINTEL_HINT_SHAPE` still selects any of the three, so `own-line` stays
+/// one variable away if #102 wants somewhere to put a polyglot block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shape {
-    /// Today: `condition. also: emptiness`, with the chain left wherever the
+    /// What shipped until #104: `condition. also: emptiness`, with the chain
+    /// left wherever the
     /// condition put it — which is mid-hint, so `. also: ` glues onto the last
     /// command and `scip-python index .` becomes `scip-python index ..`
     /// (#104). `..` is a valid path, so it runs, against the parent directory.
     Glued,
-    /// A: the chain moves to the end of the composed hint, still one line.
+    /// **Adopted.** The chain moves to the end of the composed hint, still one
+    /// line.
     /// Nothing can follow it, so the defect becomes impossible rather than
     /// fixed. `specs/05-surface.md`'s "one complete line" survives verbatim.
     ChainLast,
@@ -743,13 +748,17 @@ pub enum Shape {
 }
 
 impl Shape {
-    /// `CODEINTEL_HINT_SHAPE`, defaulting to what ships.
+    /// `CODEINTEL_HINT_SHAPE`, defaulting to the adopted shape.
+    ///
+    /// `glued` is kept selectable because it is what every recorded hint in
+    /// `docs/` and the specs was captured from; reproducing one needs the
+    /// shape it was written under, not an explanation of why it changed.
     #[must_use]
     pub fn current() -> Self {
         match std::env::var("CODEINTEL_HINT_SHAPE").as_deref() {
-            Ok("chain-last") => Self::ChainLast,
+            Ok("glued") => Self::Glued,
             Ok("own-line") => Self::OwnLine,
-            _ => Self::Glued,
+            _ => Self::ChainLast,
         }
     }
 }

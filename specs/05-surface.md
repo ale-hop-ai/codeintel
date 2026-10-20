@@ -983,14 +983,24 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
   is just another argument. Only a newline, or nothing following the chain at
   all, terminates a command.
 
-  **Known defect (#104): composition does exactly this today**, at all three
-  sites that compose a hint. Recorded rather than silently repaired because the
-  repair is a contract decision shared with #102 — whether a hint may contain a
-  newline, or whether the runnable chain must simply come last — and settling
-  it here would pre-empt whichever that issue lands on. The invariant a repair
-  must satisfy is the boundary above, and it is testable without a shell:
-  compose a hint, and assert its `run: ` tail is the tail it carried
-  uncomposed.
+  **The chain therefore comes last** (#104). Composition moves it to the end of
+  the composed hint rather than leaving it where the condition put it, so
+  nothing can follow it and the defect is impossible rather than fixed. The
+  hint stays one line, so the promise above survives verbatim. Both outcomes
+  were built and compared before this was taken — the alternative was to give
+  the chain its own line, which would have given #102 somewhere to put a
+  polyglot block at the cost of a hint that is no longer one line, and of a
+  fourth line in a stderr block whose other three are `key=value`.
+  `CODEINTEL_HINT_SHAPE` still selects `own-line` or the original `glued`, the
+  latter because every hint recorded in `docs/` and in these specs was captured
+  under it.
+
+  Testable without a shell, which matters because the broken form is valid
+  shell: compose a hint, and assert its `run: ` tail is the tail it carried
+  uncomposed. **Cutting is a composition too** — `max_result_bytes` trimming a
+  hint can land just after a complete command and hand the truncation marker's
+  own words to it as arguments, which is the same defect through a narrower
+  door (#108).
 - **A constant in a typed column is diagnosed against that column, not against
   the relation.** "the index holds 1448 `def` rows" is true and useless: the
   agent's error was the *value*, and the relation total says nothing about it.
