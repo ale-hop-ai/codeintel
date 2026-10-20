@@ -1,7 +1,7 @@
 {
   "cold_page_cache": null,
   "corpus": {
-    "defs": 11516,
+    "defs": 11376,
     "files": 799,
     "name": "tokio",
     "rev": "53542467a3b0fdfbcdcaff236e31f7ab2e9503f0"
