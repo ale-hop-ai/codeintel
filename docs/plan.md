@@ -334,8 +334,9 @@ Rust only. Walk → parse → extract → segment → load → query.
 - `codeintel index` on this repo, then
   `codeintel query '?- def(S, F, "function", N).'` returns real rows.
 - Golden fact file for `tests/fixtures/rust/` matches exactly.
-- Span exactness test passes: for every `def`, `src[start_byte..end_byte]`
-  reparses to the same kind and `src` at `def_name` equals `Name`.
+- Span exactness test passes: re-parsing the file, every `def`'s span is a
+  node boundary and `def_name` is exactly the identifier
+  ([02-extraction.md](../specs/02-extraction.md) § Validation 2).
 - **Kind fidelity: a fixture containing a struct, an enum, a union, a type alias,
   a trait, a const and an impl block emits seven distinct correct `Kind` values.**
   This is the test upstream's query fails.

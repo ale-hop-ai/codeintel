@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use common::{Extracted, extract_tree, fixture};
+use extract::LANGS;
 
 /// Every kind `queries/rust/tags.scm` claims to emit.
 const KINDS: &[&str] = &[
@@ -260,4 +261,86 @@ fn two_trait_impls_for_one_type_give_their_methods_two_symbols() {
             "local lib.rs T#go().",
         ]
     );
+}
+
+// `assert_spans_exact` has to fail on the spans it exists to catch. The old
+// check was containment: the span holds the name and the line at `def_name`
+// starts with it. Each case below passes that and is wrong, so the re-parse is
+// shown to see what containment could not (`specs/02-extraction.md`
+// § Validation 2).
+
+const SPAN_SRC: &str =
+    "/// Gets one.\npub fn get() -> u8 {\n    1\n}\n\npub fn getter() -> u8 {\n    2\n}\n";
+
+fn rust_lang() -> &'static extract::lang::Lang {
+    LANGS
+        .iter()
+        .find(|l| l.name == "rust")
+        .expect("rust is registered")
+}
+
+/// What `assert_spans_exact` checked before: the span holds the name, and the
+/// line at `def_name` starts with it.
+fn containment(
+    src: &str,
+    (start, end): (usize, usize),
+    name: &str,
+    (line, col): (usize, usize),
+) -> bool {
+    src.get(start..end).is_some_and(|t| t.contains(name))
+        && src
+            .lines()
+            .nth(line - 1)
+            .and_then(|l| l.get(col..))
+            .is_some_and(|t| t.starts_with(name))
+}
+
+const GET: (usize, usize) = (0, 42);
+const GET_NAME: (usize, usize) = (2, 7);
+
+#[test]
+fn the_recorded_span_of_get_is_exact() {
+    assert_eq!(
+        SPAN_SRC.get(GET.0..GET.1),
+        Some("/// Gets one.\npub fn get() -> u8 {\n    1\n}")
+    );
+    assert_eq!(
+        common::span_defect(SPAN_SRC, rust_lang(), GET, "get", GET_NAME),
+        None
+    );
+}
+
+/// Each: (what is wrong, the span, the name's position, the name).
+#[test]
+fn spans_that_pass_containment_fail_the_reparse() {
+    let swallowed_neighbour = (0, 75);
+    let ends_mid_item = (0, 36);
+    let starts_mid_item = (6, 42);
+    let cases = [
+        (
+            "swallows the next item",
+            swallowed_neighbour,
+            "get",
+            GET_NAME,
+        ),
+        ("ends inside the body", ends_mid_item, "get", GET_NAME),
+        (
+            "starts inside the doc comment",
+            starts_mid_item,
+            "get",
+            GET_NAME,
+        ),
+        // `getter` starts with `get`, and `starts_with` cannot tell.
+        ("names a longer identifier", (44, 75), "get", (6, 7)),
+    ];
+    for (what, span, name, at) in cases {
+        assert!(
+            containment(SPAN_SRC, span, name, at),
+            "{what}: the case must pass the old check or it shows nothing"
+        );
+        assert!(
+            common::span_defect(SPAN_SRC, rust_lang(), span, name, at).is_some(),
+            "{what}: the re-parse accepted a span containment also accepts"
+        );
+    }
 }
