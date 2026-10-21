@@ -114,7 +114,18 @@ two consumers.
 Builds or updates the store. `--scip` may repeat; defaults to `./index.scip` if
 present. `--rebuild` discards and rewrites, including the dictionary. `--lang`
 restricts grammars: files of every other language are neither refreshed nor
-dropped, they are carried forward unchanged.
+dropped, they are carried forward unchanged. A `--lang` that names no grammar in
+the language table (`extract::lang::LANGS`) exits 2 and lists the valid names:
+`--lang rustt` would otherwise carry every file forward, index nothing and print
+a success (#141).
+
+**A `PATH` the caller typed is a claim that it is a directory.** `index`,
+`query --path`, `schema --path`, `status` and `mcp --path` all canonicalise it
+the same way and exit 2 naming it when it does not exist or is a file, before any
+store is opened. A file indexed as a root walks to nothing and leaves a zero-file
+index keyed on that file's path, `ok` forever; and `query --path <missing>` was
+`no-index` with a hint to `cd` into the directory that is not there, while
+`status` and `schema` refused the same path (#141).
 
 An input the caller names must exist and must be a SCIP index: `--scip nope.scip`
 with no such file, and a zero-byte file (what an indexer that died after creating

@@ -1320,6 +1320,61 @@ fn schema_agrees_with_query_and_status_about_another_schema() {
     assert!(stderr.contains("schema_version 999"), "{stderr}");
 }
 
+/// #141: a path the caller typed that names no directory is refused by every
+/// verb that takes one, before any store is opened or any index is written.
+#[test]
+fn a_path_that_is_not_a_directory_is_refused_by_every_verb() {
+    let dir = tree();
+    let file = "src/lib.rs";
+    assert!(dir.path().join(file).is_file(), "fixture has {file}");
+    let query = "?- def(S, _, _, _).";
+    let cases: [(&str, &[&str]); 8] = [
+        ("index file", &["index", file]),
+        ("index missing", &["index", "nosuchdir"]),
+        ("query file", &["query", query, "--path", file]),
+        ("query missing", &["query", query, "--path", "nosuchdir"]),
+        ("schema file", &["schema", "--path", file]),
+        ("schema missing", &["schema", "--path", "nosuchdir"]),
+        ("status file", &["status", file]),
+        ("status missing", &["status", "nosuchdir"]),
+    ];
+    for (what, args) in cases {
+        let out = run(dir.path(), args);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(out.status.code(), Some(2), "{what}: {stdout}{stderr}");
+        assert!(
+            stderr.contains(file) || stderr.contains("nosuchdir"),
+            "{what} must name the path: {stderr}"
+        );
+        assert!(
+            !stdout.contains("no-index") && !stderr.contains("no-index"),
+            "{what}: a path that does not exist is not `no-index`: {stdout}{stderr}"
+        );
+    }
+    assert!(!dir.path().join(".codeintel").exists(), "a refusal wrote");
+}
+
+#[test]
+fn a_language_that_names_no_grammar_is_refused_with_the_valid_names() {
+    let dir = tree();
+    let out = run(dir.path(), &["index", ".", "--lang", "klingon"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("klingon"), "{stderr}");
+    for lang in extract::lang::LANGS {
+        assert!(
+            stderr.contains(lang.name),
+            "{} missing: {stderr}",
+            lang.name
+        );
+    }
+    assert!(!dir.path().join(".codeintel").exists(), "a refusal wrote");
+
+    let ok = run(dir.path(), &["index", ".", "--lang", "rust"]);
+    assert!(ok.status.success(), "a real name still indexes");
+}
+
 #[test]
 fn status_reports_a_store_that_will_not_load_as_corrupt() {
     let dir = tree();
