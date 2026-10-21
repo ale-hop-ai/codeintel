@@ -760,8 +760,13 @@ staleness/ambiguous columns, anchor rate, unsupported languages, fact counts per
 SCIP coverage is reported the same way `index` reports it: documents matched
 against indexed files, with the zero-match line and its `--scip-root`
 suggestion, because the state a bug report has to carry is the one `index`
-printed an hour ago and nobody kept. The anchor rate is the same line too,
-counted the same way (§ `index`). The figures still differ in *scope* — every
+printed an hour ago and nobody kept. In JSON the same figure is the
+top-level `scip_matched` (documents that named an indexed file; `null` when no
+input was ingested), read against `scip[].documents`: `0` against a non-zero
+sum is the degradation, stated without prose (#123). The verdict does not
+change — `status` has no goal and so no relation closure for `no-scip` to fire
+on (§ Status taxonomy); the verdict is `query`'s to give. The anchor rate is
+the same line too, counted the same way (§ `index`). The figures still differ in *scope* — every
 count `index` prints is the run it just did, every count `status` prints is the
 whole store — so after an incremental reindex the two describe different sets
 of files. They never describe the same set two ways.
