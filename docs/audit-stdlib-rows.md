@@ -21,7 +21,7 @@ and can never use it).
 | rule | class | evidence (rows, `status ok` unless noted) | issue |
 |---|---|---|---|
 | `exported` | B | 940 rows; `pub` in a private module counts (`tests/fixtures/rust/src/store.rs:44`; probe crate for the `mod x;` form) | #115 |
-| `undocumented_export` | B -> fixed | 40 non-test rows, 40 `pub mod x;` declarations whose file carries `//!`; 0 after `mod_file` (SCIP only: without SCIP the declarations still list) | #115 |
+| `undocumented_export` | B | 41 non-test rows, 41 are `pub mod x;` declarations whose file carries `//!` | #115 |
 | `dead_export` | B | name form: 41 non-test rows with no anchor, all module declarations | #115 |
 | `dead_export_exact` | U | 98 rows, 35 `inherited`, 63 `public` | #114 |
 | `entrypoint_exact` | B, U | 288 non-test rows; none of the 5 `main` fns list (no `resolved`) | #111 |

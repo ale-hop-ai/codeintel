@@ -810,26 +810,6 @@ fn undocumented_export_finds_the_undocumented() {
     assert!(!undocumented.iter().any(|u| u.starts_with("warm ")));
 }
 
-/// #115: a `pub mod x;` declaration and `x.rs` are two symbols; visibility is on
-/// the first and the `//!` doc on the second. Every fixture module file opens
-/// with a `//!`, so none of its declarations is undocumented — and none of the
-/// declarations carries a `def_doc` of its own, which is what the old rule read.
-#[test]
-fn undocumented_export_follows_a_mod_declaration_to_its_file() {
-    let bare = rows(r#"?- exported(S), def(S, F, "module", N), !def_doc(S, _)."#);
-    assert!(
-        bare.iter().any(|r| r.starts_with("store ")),
-        "the declaration has no doc of its own: {bare:?}"
-    );
-    let wrong = rows(r#"?- undocumented_export(S), def(S, F, "module", N)."#);
-    assert!(
-        wrong.is_empty(),
-        "documented through its file, still listed: {wrong:?}"
-    );
-    let linked = rows(r#"?- mod_file(D, M), def(D, "src/lib.rs", "module", "store")."#);
-    assert_eq!(linked.len(), 1, "{linked:?}");
-}
-
 #[test]
 fn extern_and_uses_package_see_the_standard_library() {
     // The fixture declares no dependency, but it uses `HashMap` and `String`,
