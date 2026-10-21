@@ -42,6 +42,13 @@ Read `.gate/findings.jsonl` rather than scraping terminal output. The lint block
 lives in the root `Cargo.toml` and is drift-checked — do not hand-edit it; change
 it upstream in rust-quality and bump the pin in `tasks/tools.yml`.
 
+**Run the gate as its own command and read its exit status.** Never chain a
+push behind it, and never behind a pipe: `provision apply tasks/ci.yml | tail -3
+&& git push` pushes on a red gate every time, because `tail` exits 0. This has
+put a red commit on `main` three times, twice by the agent that had just written
+the rule into someone else's brief. Capture to a file, check `$?`, read the
+file, then push as a separate command.
+
 **Investigation is read-only.** Cite `path:line`.
 
 **Classify failures before fixing.** caused-by-change / pre-existing /
