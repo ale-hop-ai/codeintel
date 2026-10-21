@@ -980,6 +980,21 @@ a well-formed, confident answer about the wrong codebase, which is exactly the
 failure invariant 6 exists to prevent. The repository is the server's working
 directory, one server per repository, and the refusal says so.
 
+**An argument of the wrong type is refused, never defaulted.** `query` is a
+string, `schema` and `raw` are booleans, `limit` is a non-negative integer, and
+the handler checks it rather than trusting the client to have validated
+`inputSchema`. A present argument that is not that type — `limit: "2"`,
+`limit: -1`, `limit: 2.5`, `raw: "true"`, `raw: 1`, `query: 5`,
+`schema: "true"`, or `null` for any of them — is `-32602` naming the argument,
+what was sent, and what is accepted. It was read as the default: `limit: "2"`
+became 200 with `ok`, which is a caller who asked for a bounded answer handed an
+unbounded one and told nothing, and `raw: "true"` handed back display rows that
+are not SymIds, so the next query was `ok` with zero rows. Omitting an argument
+is how to take its default; a value that cannot be read is not the same act.
+`arguments` that is present and not an object is refused the same way. The
+refusal is a well-formed JSON-RPC error carrying the call's `id`, as the unknown
+argument's is — not a tool result, because nothing was asked of the index.
+
 **The budget bounds the whole result, whichever field carries it.** The cap
 is measured on the tool result object as actually serialized
 (`crate::wire::Wire::bytes`), through the same `tool_result` that sends it, so
@@ -993,6 +1008,15 @@ it is `{status, hint, text}` there — the same catalog text once, not again as
 json`'s restatement of that text for a parser and which no consumer of this tool
 is. `isError` is false whenever the catalog was delivered, including `no-index`
 (§ `schema`).
+
+The text body carries the verdict too: after the catalog it ends in the same
+`status=` line, and a `hint:` line when there is one, that `query`'s text result
+ends in (`wire::text`), because a client reading `content` has no stderr and no
+other field, and `no-index` that exists only as a sentence inside the catalog is
+`no-index` a program cannot see. The lines follow the catalog and are not part
+of it: the 6,000-character budget is the catalog (§ Surface budget in
+[00-overview.md](00-overview.md)), as on the CLI, where the same two lines go to
+stderr and stdout is unchanged.
 
 **Both surfaces print one answer.** A ground goal that holds prints `true` in
 an MCP text result exactly as on the CLI; one function writes the rows for

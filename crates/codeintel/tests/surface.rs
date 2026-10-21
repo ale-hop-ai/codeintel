@@ -744,9 +744,12 @@ fn the_mcp_schema_call_works_with_no_index() {
             .is_some_and(|h| h.starts_with("no index for") && h.contains("codeintel index .")),
         "{result}"
     );
-    assert_eq!(
-        result["structuredContent"]["text"].as_str(),
-        Some(text),
+    // The structured body is the catalog; the text body is the catalog and
+    // then the verdict (#137).
+    assert!(
+        result["structuredContent"]["text"]
+            .as_str()
+            .is_some_and(|t| text.starts_with(t)),
         "{result}"
     );
     assert_eq!(result["isError"], false, "{result}");
@@ -1053,7 +1056,8 @@ fn the_mcp_schema_reaches_the_field_the_client_reads_once() {
     let result = &structured[0]["result"];
     assert_eq!(result["content"], serde_json::json!([]), "{result}");
     assert_eq!(result["structuredContent"]["status"], "no-index");
-    assert_eq!(result["structuredContent"]["text"].as_str(), Some(text));
+    let catalog = result["structuredContent"]["text"].as_str().expect("text");
+    assert!(text.starts_with(catalog) && text.len() > catalog.len());
     assert!(
         result["structuredContent"].get("relations").is_none(),
         "the catalog was sent twice: {result}"
@@ -1495,4 +1499,129 @@ fn schema_says_stale_when_it_could_not_refresh() {
         "{json}"
     );
     drop(held);
+}
+
+#[test]
+fn a_wrong_typed_argument_is_refused_naming_it_and_never_defaulted() {
+    // #136: `limit: "2"` was read as 200, `raw: "true"` as false, and a
+    // wrong-typed `query` got the missing-argument error. Every argument, every
+    // wrong shape, one well-formed JSON-RPC error carrying the call's id.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let q = "?- def(S, F, K, N).";
+    let cases = [
+        (serde_json::json!({"query": q, "limit": "2"}), "limit"),
+        (serde_json::json!({"query": q, "limit": -1}), "limit"),
+        (serde_json::json!({"query": q, "limit": 2.5}), "limit"),
+        (serde_json::json!({"query": q, "limit": 2.0}), "limit"),
+        (serde_json::json!({"query": q, "limit": null}), "limit"),
+        (serde_json::json!({"query": q, "limit": true}), "limit"),
+        (serde_json::json!({"query": q, "raw": "true"}), "raw"),
+        (serde_json::json!({"query": q, "raw": 1}), "raw"),
+        (serde_json::json!({"query": q, "raw": null}), "raw"),
+        (serde_json::json!({"query": 5}), "query"),
+        (serde_json::json!({"query": ["a"]}), "query"),
+        (serde_json::json!({"query": null}), "query"),
+        (serde_json::json!({"schema": "true"}), "schema"),
+        (serde_json::json!({"schema": 1}), "schema"),
+        (serde_json::json!({"schema": null}), "schema"),
+        (serde_json::json!("?- def(S, F, K, N)."), "arguments"),
+        (serde_json::json!([1]), "arguments"),
+    ];
+    let requests: Vec<_> = cases
+        .iter()
+        .enumerate()
+        .map(|(i, (arguments, _))| {
+            serde_json::json!({"jsonrpc":"2.0","id":i + 10,"method":"tools/call","params":{
+                "name":"code_query","arguments":arguments}})
+        })
+        .collect();
+    let out = rpc(dir.path(), &requests);
+    assert_eq!(out.len(), cases.len());
+    for (i, ((arguments, name), response)) in cases.iter().zip(&out).enumerate() {
+        assert_eq!(response["id"], i + 10, "{arguments}: {response}");
+        assert_eq!(response["error"]["code"], -32602, "{arguments}: {response}");
+        assert!(response.get("result").is_none(), "{arguments}: {response}");
+        let message = response["error"]["message"].as_str().expect("message");
+        assert!(
+            message.starts_with(&format!("`{name}` must be ")),
+            "{arguments}: {message}"
+        );
+        // What was sent, and what is accepted.
+        let sent = match arguments {
+            serde_json::Value::Object(o) => o[*name].to_string(),
+            other => other.to_string(),
+        };
+        assert!(
+            message.contains(&format!("got {sent}")),
+            "{arguments}: {message}"
+        );
+    }
+}
+
+#[test]
+fn a_well_typed_limit_and_raw_are_still_honoured() {
+    // The control: the refusal above must not catch the right types.
+    let dir = tree();
+    run(dir.path(), &["index", "."]);
+    let out = rpc_structured(
+        dir.path(),
+        &[
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+            "name":"code_query","arguments":{
+                "query":"?- def(S, F, K, N).","limit":2,"raw":true}}}),
+        ],
+    );
+    let body = &out[0]["result"]["structuredContent"];
+    assert_eq!(body["truncated"], true, "{body}");
+    assert_eq!(body["rows"].as_array().map(Vec::len), Some(2), "{body}");
+    assert!(
+        body["hint"]
+            .as_str()
+            .is_some_and(|h| h.contains("fired at 2")),
+        "{body}"
+    );
+}
+
+#[test]
+fn the_text_schema_carries_the_status_and_hint_like_the_text_query() {
+    // #137: `no-index` was a sentence inside the catalog on the wire most
+    // clients read. It is a `status=` line now, then the hint, after the catalog.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out = rpc(
+        dir.path(),
+        &[
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+            "name":"code_query","arguments":{"schema":true}}}),
+        ],
+    );
+    let text = out[0]["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text");
+    let lines: Vec<&str> = text.lines().collect();
+    let missing = format!("no `status=no-index` line in: {text}");
+    let at = lines
+        .iter()
+        .rposition(|l| *l == "status=no-index")
+        .expect(&missing);
+    assert!(
+        lines[at + 1].starts_with("hint: no index for")
+            && lines[at + 1].contains("codeintel index ."),
+        "{text}"
+    );
+    assert_eq!(lines.len(), at + 2, "the verdict is the last of it: {text}");
+
+    // An index that exists says `ok` and carries no hint.
+    let indexed = tree();
+    run(indexed.path(), &["index", "."]);
+    let out = rpc(
+        indexed.path(),
+        &[
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+            "name":"code_query","arguments":{"schema":true}}}),
+        ],
+    );
+    let text = out[0]["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text");
+    assert!(text.ends_with("\nstatus=ok\n"), "{text}");
 }

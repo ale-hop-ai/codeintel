@@ -102,23 +102,39 @@ pub fn json(answer: &Answer, raw: bool) -> serde_json::Value {
 #[must_use]
 pub fn text(answer: &Answer, raw: bool) -> String {
     let mut out = body(answer, raw);
+    verdict(
+        &mut out,
+        answer.status,
+        answer.root.as_deref(),
+        answer.hint.as_deref(),
+    );
+    out
+}
+
+/// The `status=`, `root=` and `hint:` lines that end a text result. `query` and
+/// `schema` both end in them, through here, so the two cannot drift.
+pub fn verdict(
+    out: &mut String,
+    status: crate::status::Status,
+    root: Option<&str>,
+    hint: Option<&str>,
+) {
     out.push_str("status=");
-    out.push_str(answer.status.as_str());
+    out.push_str(status.as_str());
     out.push('\n');
     // Only on a redirect. A line saying the root is the root on every answer
     // is noise, and no redirect is what the caller already assumed
     // (`specs/05-surface.md` § Response contract).
-    if let Some(root) = &answer.root {
+    if let Some(root) = root {
         out.push_str("root=");
         out.push_str(root);
         out.push('\n');
     }
-    if let Some(hint) = &answer.hint {
+    if let Some(hint) = hint {
         out.push_str("hint: ");
         out.push_str(hint);
         out.push('\n');
     }
-    out
 }
 
 /// The rows as stdout carries them: one per line, or `true` for a ground goal
