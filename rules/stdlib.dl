@@ -360,7 +360,7 @@ is_test(F) :- scip_ref(_, F, _, _, _, "test").
 % Heterogeneous rows sharing a discriminator column. One query instead of six,
 % and the definition of "orientation" stays editable.
 
-%% about(S, Rel, A, B, Line)  all of S at once. A,B,Line = file, name, line of the RELATED symbol (sig/doc: A = text). Rel = sig|doc|defined|parent|caller|
+%% about(S, Rel, A, B, Line)  all of S. A,B,Line = file, name, line of the RELATED symbol (sig/doc: A=text). Rel = sig|doc|defined|parent|caller|
 %%   callee|implements|implementor|test|extern. caller|callee|test miss trait calls.
 about(S, "sig",         Sig, "", 0) :- def_sig(S, Sig).
 about(S, "doc",         Doc, "", 0) :- def_doc(S, Doc).
