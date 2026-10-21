@@ -425,6 +425,7 @@ mod tests {
             lang: "rust".to_string(),
             tiers: vec!["ts".to_string()],
             scip_hash: None,
+            syntax_error: None,
         }
     }
 

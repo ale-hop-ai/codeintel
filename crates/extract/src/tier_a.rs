@@ -55,6 +55,37 @@ pub struct Extracted {
     pub defs: Vec<(Span, String)>,
     /// Definitions that adopted a SCIP identity.
     pub anchored: usize,
+    /// The 1-based line of the first parse error, absent when the file parsed
+    /// whole (`specs/02-extraction.md` § A file that does not parse is partial).
+    pub syntax_error: Option<u32>,
+}
+
+/// The 1-based line of the first `ERROR` or `MISSING` node under `root` in
+/// document order, `None` when the tree parsed whole.
+///
+/// Only subtrees the parser flagged are entered, so a clean file costs one
+/// `has_error` call.
+fn first_syntax_error(root: Node<'_>) -> Option<u32> {
+    if !root.has_error() {
+        return None;
+    }
+    let mut node = root;
+    'down: loop {
+        if node.is_error() || node.is_missing() {
+            return u32::try_from(node.start_position().row + 1).ok();
+        }
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.has_error() {
+                node = child;
+                continue 'down;
+            }
+        }
+        // `has_error` with no flagged child and no error node of its own is
+        // not a shape tree-sitter produces; report where the node starts
+        // rather than claim the file parsed whole.
+        return u32::try_from(node.start_position().row + 1).ok();
+    }
 }
 
 /// A parser and compiled queries for one language, reused across files.
@@ -461,6 +492,7 @@ impl Extractor {
             counts,
             defs,
             anchored: anchored_syms.len(),
+            syntax_error: first_syntax_error(root),
         })
     }
 

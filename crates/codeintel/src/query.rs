@@ -660,7 +660,10 @@ fn evaluate(
         // caller most needs both. Composed the way truncation composes above,
         // and the status stays the condition for the same reason.
         if rows.is_empty() && !truncated {
-            let empty = empty_hint(&result, &loaded.relations, &loaded.engine);
+            let mut empty = empty_hint(&result, &loaded.relations, &loaded.engine);
+            if let Some(note) = syntax_error_note(&syntax_errors(&loaded.manifest)) {
+                empty = compose(&empty, &note, ". also: ");
+            }
             hint = Some(match hint {
                 Some(condition) => compose(&condition, &empty, ". also: "),
                 None => empty,
@@ -1336,6 +1339,34 @@ pub(crate) fn name_list<'a>(names: impl IntoIterator<Item = &'a String>) -> Stri
         out.push("...");
     }
     out.join(", ")
+}
+
+/// Files that parsed with errors, in path order, with the line of the first
+/// error (`specs/02-extraction.md` § A file that does not parse is partial).
+pub(crate) fn syntax_errors(manifest: &facts::Manifest) -> Vec<(&str, u32)> {
+    manifest
+        .files
+        .iter()
+        .filter_map(|(path, entry)| Some((path.as_str(), entry.syntax_error?)))
+        .collect()
+}
+
+/// `N file(s) parsed with errors, so a definition after the error may be
+/// missing: a.go:3, b.py:9, ...` — five names, the total always shown. `None`
+/// when every file parsed.
+pub fn syntax_error_note(errors: &[(&str, u32)]) -> Option<String> {
+    if errors.is_empty() {
+        return None;
+    }
+    let named: Vec<String> = errors
+        .iter()
+        .map(|(path, line)| format!("{path}:{line}"))
+        .collect();
+    Some(format!(
+        "{} file(s) parsed with errors, so a definition after the error may be missing: {}",
+        errors.len(),
+        name_list(&named)
+    ))
 }
 
 /// The indexer command for every language the index holds files in.

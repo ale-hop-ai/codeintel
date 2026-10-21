@@ -96,6 +96,10 @@ pub struct Report {
     /// Indexed files modified after the newest SCIP input was built. Their
     /// `name_ref` rows are fresh and their `scip_ref` rows are not.
     pub scip_stale: Vec<String>,
+    /// Files in the store that parsed with errors and the line of the first
+    /// one, over the whole store and not only this run: an unchanged file that
+    /// does not parse is still partial.
+    pub syntax_errors: Vec<(String, u32)>,
     /// Wall time.
     pub elapsed_ms: u128,
 }
@@ -243,6 +247,10 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
     }
 
     record(store, plan, scip, fingerprint, started_at, &before, &report)?;
+    report.syntax_errors = crate::query::syntax_errors(store.manifest())
+        .into_iter()
+        .map(|(path, line)| (path.to_string(), line))
+        .collect();
     report.elapsed_ms = started.elapsed().as_millis();
     Ok(report)
 }
@@ -487,6 +495,7 @@ fn tier_b_only(
                     // Nothing walks it, so nothing edits it as far as this
                     // index can tell: never stale.
                     scip_hash: Some(String::new()),
+                    syntax_error: None,
                 },
             )
             .with_context(|| format!("writing the segment for {path}"))?;
@@ -844,6 +853,7 @@ fn extract(
 
     let mut entry = new_entry(candidate, &file.hash);
     entry.scip_hash = file.scip_hash;
+    entry.syntax_error = extracted.syntax_error;
     if !anchors.is_empty() || scip_counts.refs > 0 {
         entry.tiers.push("scip".to_string());
     }
@@ -863,6 +873,7 @@ fn new_entry(candidate: &Candidate, hash: &str) -> NewEntry {
         lang: candidate.lang.name.to_string(),
         tiers: vec!["ts".to_string()],
         scip_hash: None,
+        syntax_error: None,
     }
 }
 
