@@ -33,6 +33,9 @@ codeintel query '?- ui_imports_db(F, M).' --rules conformance.dl --expect-empty
 and not 2 because 2 means the query never ran: "your code violates this" and "I
 could not tell you" are different results in CI.
 
+It is also 2 on an index written by another schema, where the query never ran
+(`status=stale`). A repository with no SCIP index is a different case: see #134.
+
 ### Layering
 
 One rule per forbidden direction. Naming each one separately is what makes the

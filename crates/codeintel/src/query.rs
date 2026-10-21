@@ -163,6 +163,11 @@ pub struct Answer {
     /// repository actually does, since `--rules` is where its conformance rules
     /// live, and it was the silent one.
     pub widened: Vec<String>,
+    /// True when the engine evaluated the goal. A `stale` answer for a schema
+    /// mismatch carries `status.answered()` and zero rows without one having
+    /// run, so the status alone cannot say whether empty means "not true of
+    /// your code" (`specs/05-surface.md` § `query`, `--expect-empty`).
+    pub evaluated: bool,
 }
 
 impl Answer {
@@ -183,6 +188,7 @@ impl Answer {
             depends: Vec::new(),
             shadowed: Vec::new(),
             widened: Vec::new(),
+            evaluated: false,
         }
     }
 }
@@ -678,6 +684,7 @@ fn evaluate(
             depends: result.stats.depends.clone(),
             shadowed: result.stats.shadowed.clone(),
             widened: loaded.widened.clone(),
+            evaluated: true,
         }
     };
 

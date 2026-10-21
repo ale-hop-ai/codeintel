@@ -288,6 +288,14 @@ the violation it looks for, so finding none is the passing case. The exit code
 is 1 and not 2 because "your code violates this" and "I could not tell you" are
 different results in CI: 2 stays reserved for a query that never ran.
 
+**That includes a `stale` answer the engine never evaluated.** A schema mismatch
+is `stale` and "carries rows" only in the sense that the field is present: no
+evaluation happened, so zero rows is not "none". With `--expect-empty` it exits
+2, because the check's passing case would otherwise be reached by an index that
+could not look (#134). `no-scip`, `scip-stale` and a `stale` from a lock or a
+refresh deadline *did* evaluate, and their exit under `--expect-empty` is an
+open decision recorded on #134, not settled here.
+
 MCP always refreshes; the flag is not exposed there. An agent editing files is
 the assumed case, not the exception.
 
