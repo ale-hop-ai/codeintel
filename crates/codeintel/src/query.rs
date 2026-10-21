@@ -664,6 +664,9 @@ fn evaluate(
             if let Some(note) = syntax_error_note(&syntax_errors(&loaded.manifest)) {
                 empty = compose(&empty, &note, ". also: ");
             }
+            if let Some(note) = unread_note(&loaded.manifest) {
+                empty = compose(&empty, &note, ". also: ");
+            }
             hint = Some(match hint {
                 Some(condition) => compose(&condition, &empty, ". also: "),
                 None => empty,
@@ -1376,6 +1379,42 @@ pub fn syntax_error_note(errors: &[(&str, u32)]) -> Option<String> {
     Some(format!(
         "{} file(s) parsed with errors, so a definition after the error may be missing: {}",
         errors.len(),
+        name_list(&named)
+    ))
+}
+
+/// `N file(s) were not read, so the answer may be in one: a.rs (too large), ...`
+/// — five names, the total always shown. `None` when every file in a
+/// supported language was read.
+///
+/// An index of no files at all is the same condition seen whole, and says so
+/// first (#140): nothing was read, and no query can match.
+pub fn unread_note(manifest: &facts::Manifest) -> Option<String> {
+    let mut parts = Vec::new();
+    if manifest.files.is_empty() {
+        parts.push(
+            "the index holds 0 files, so no query can match; `codeintel status` lists \
+             the extensions no grammar covers"
+                .to_string(),
+        );
+    }
+    parts.extend(unread_note_of(&manifest.skipped));
+    (!parts.is_empty()).then(|| parts.join(". also: "))
+}
+
+/// The skipped-file half of [`unread_note`], for a caller holding the map and
+/// not a manifest.
+pub fn unread_note_of(skipped: &BTreeMap<String, facts::SkipEntry>) -> Option<String> {
+    if skipped.is_empty() {
+        return None;
+    }
+    let named: Vec<String> = skipped
+        .iter()
+        .map(|(path, entry)| format!("{path} ({})", entry.reason.words()))
+        .collect();
+    Some(format!(
+        "{} file(s) were not read, so the answer may be in one: {}",
+        named.len(),
         name_list(&named)
     ))
 }

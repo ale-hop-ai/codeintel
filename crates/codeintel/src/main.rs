@@ -472,8 +472,8 @@ fn index_cmd(
     if report.binary > 0 {
         skipped.push(format!("{} not UTF-8", report.binary));
     }
-    if report.skips.too_large > 0 {
-        skipped.push(format!("{} too large", report.skips.too_large));
+    if !report.skips.too_large.is_empty() {
+        skipped.push(format!("{} too large", report.skips.too_large.len()));
     }
     for (ext, count) in &report.skips.unsupported {
         skipped.push(format!("{count} unsupported ({ext})"));
@@ -485,6 +485,9 @@ fn index_cmd(
         // By reason, never a bare total: a silently unindexed subtree is the
         // single most confusing failure this tool can have.
         eprintln!("  skipped: {}", skipped.join(", "));
+    }
+    if let Some(note) = query::unread_note_of(&report.unread) {
+        eprintln!("  not read: {note}");
     }
     let errors: Vec<(&str, u32)> = report
         .syntax_errors

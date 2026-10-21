@@ -368,6 +368,9 @@ impl fmt::Display for Report<'_> {
             writeln!(f, "unsupported: {}", named.join(", "))?;
         }
 
+        if let Some(note) = crate::query::unread_note_of(&manifest.skipped) {
+            writeln!(f, "not read: {note}")?;
+        }
         if let Some(note) = crate::query::syntax_error_note(&crate::query::syntax_errors(manifest))
         {
             writeln!(f, "syntax errors: {note}")?;
@@ -515,6 +518,7 @@ impl Report<'_> {
         }).collect::<serde_json::Map<_, _>>(),
         "unsupported": census.unsupported,
         "changed": census.changed,
+        "skipped": manifest.skipped,
         "syntax_errors": crate::query::syntax_errors(manifest)
             .into_iter()
             .collect::<BTreeMap<_, _>>(),
@@ -554,7 +558,16 @@ fn changed_files(
     for candidate in found {
         walked.insert(candidate.path.as_str());
         let Some(entry) = manifest.files.get(&candidate.path) else {
-            out.push(candidate.path.clone());
+            // A file `index` read and refused is accounted for until its
+            // bytes move; calling it changed offers a repair that cannot
+            // clear it (#130).
+            let refused = manifest
+                .skipped
+                .get(&candidate.path)
+                .is_some_and(|s| s.mtime == candidate.mtime && s.size == candidate.size);
+            if !refused {
+                out.push(candidate.path.clone());
+            }
             continue;
         };
         if entry.is_clean(candidate.mtime, candidate.size, manifest.indexed_at) {
