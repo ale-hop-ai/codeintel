@@ -156,6 +156,11 @@ fn the_schema_fits_its_size_budget_with_the_rule_list_complete() {
     let census = worst_case();
     let text = schema::Schema { census: &census }.to_string();
 
+    eprintln!(
+        "schema worst case: {} of {MAX_SCHEMA_CHARS} chars, {} to spare",
+        text.len(),
+        MAX_SCHEMA_CHARS.saturating_sub(text.len())
+    );
     assert!(
         text.len() <= MAX_SCHEMA_CHARS,
         "schema is {} chars on the worst-case census, ceiling is {MAX_SCHEMA_CHARS}. The \
