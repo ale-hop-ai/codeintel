@@ -673,6 +673,12 @@ VALUES   closed sets, with counts from THIS index. A kind at 0 is a kind you
          constructor 0  variable 0  macro 0  typealias 0  type 0  unknown 1,340
   Role   def 5,150  read 0  write 0  import 402  test 0
   Prov   name 18,904  exact 0
+`Role` is counted over `scip_ref` only, and the line says so: `ref` also
+carries `"read"` on every name-tier row (`rules/stdlib.dl`), which a count of
+base relations cannot see, so `read 0` beside a `ref` full of `read` rows was
+the schema telling an agent not to ask a question that would have answered (#119).
+`--format json` names the relation as `roles_counted_over`. Only `Kind` is at 0
+"returns no rows".
 Generated from the manifest, not printed as a constant. A static list
 advertising sixteen kinds when the index holds four is this document's own
 invariant 5 broken by its own onboarding text.

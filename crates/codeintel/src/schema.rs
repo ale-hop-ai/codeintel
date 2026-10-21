@@ -94,7 +94,7 @@ impl fmt::Display for Schema<'_> {
             "START HERE -- you have a location, you need a symbol\n  \
              ?- innermost_at(\"src/store.rs\", 142, S).           from ripgrep / git diff / a stack trace\n  \
              ?- def(S, F, _, N), contains(N, \"auth\").           from a word\n  \
-             ?- def(S, _, _, \"Store\"), about(S, Rel, A, B, L).  everything about S, one trip\n\n\
+             ?- def(S, _, _, \"Store\"), about(S, Rel, A, B, L).  all about S, one trip\n\n\
              RELATIONS  base facts, extracted. Counts from THIS index.\n",
         )?;
         for rel in facts::RELATIONS {
@@ -108,17 +108,17 @@ impl fmt::Display for Schema<'_> {
             )?;
         }
 
-        f.write_str("\nVALUES  closed sets, counted here. A value at 0 returns no rows.\n  Kind ")?;
+        f.write_str("\nVALUES  closed sets, counted. A Kind at 0 has no rows.\n  Kind ")?;
         for kind in extract::lang::KINDS {
             write!(f, " {kind} {}", census.kinds.get(*kind).unwrap_or(&0))?;
         }
-        f.write_str("\n  Role ")?;
+        f.write_str("\n  Role  scip_ref; ref name tier = \"read\"")?;
         for role in extract::lang::ROLES {
             write!(f, " {role} {}", census.roles.get(*role).unwrap_or(&0))?;
         }
         write!(
             f,
-            "\n  Prov  exact {} (scip_ref rows)  name {} (name_ref rows)\n  Lang ",
+            "\n  Prov  exact {} (scip_ref)  name {} (name_ref)\n  Lang ",
             census.rows("scip_ref"),
             census.rows("name_ref")
         )?;
