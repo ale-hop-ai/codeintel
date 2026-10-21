@@ -1598,10 +1598,11 @@ fn the_text_schema_carries_the_status_and_hint_like_the_text_query() {
         .as_str()
         .expect("text");
     let lines: Vec<&str> = text.lines().collect();
+    let missing = format!("no `status=no-index` line in: {text}");
     let at = lines
         .iter()
         .rposition(|l| *l == "status=no-index")
-        .unwrap_or_else(|| panic_text("no `status=no-index` line", text));
+        .expect(&missing);
     assert!(
         lines[at + 1].starts_with("hint: no index for")
             && lines[at + 1].contains("codeintel index ."),
@@ -1623,9 +1624,4 @@ fn the_text_schema_carries_the_status_and_hint_like_the_text_query() {
         .as_str()
         .expect("text");
     assert!(text.ends_with("\nstatus=ok\n"), "{text}");
-}
-
-fn panic_text(what: &str, text: &str) -> usize {
-    let message = format!("{what} in: {text}");
-    None::<usize>.expect(&message)
 }
