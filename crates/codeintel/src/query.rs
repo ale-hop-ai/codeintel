@@ -997,15 +997,26 @@ fn empty_hint(
             return format!("`{text}` matched 0 rows; {column}");
         }
         return format!(
-            "`{text}` matched 0 rows; the index holds {held} `{name}` row(s). \
-             everything before it in the join matched{}",
+            "`{text}` matched 0 rows; the index holds {held} `{name}` row(s){}{}",
+            preceding(at, ". "),
             integer_hint(at, engine)
         );
     }
     format!(
-        "`{text}` matched 0 rows; everything before it in the join matched{}",
+        "`{text}` matched 0 rows{}{}",
+        preceding(at, "; "),
         integer_hint(at, engine)
     )
+}
+
+/// `everything before it in the join matched` behind `separator`, unless
+/// nothing came before it: said of the first literal it is false (#140).
+fn preceding(at: &EmptyAt, separator: &str) -> String {
+    if at.position == 0 {
+        String::new()
+    } else {
+        format!("{separator}everything before it in the join matched")
+    }
 }
 
 /// The relation a literal names, or `None` for a builtin that names none.

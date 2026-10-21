@@ -171,6 +171,9 @@ pub struct EmptyAt {
     /// The same literal, parsed. Constants are interned atoms, which the host
     /// resolves through its own dictionary.
     pub literal: Literal,
+    /// Its position in evaluation order. `0` means nothing preceded it, so
+    /// there was no earlier literal for the join to have matched.
+    pub position: usize,
 }
 
 /// What one evaluation cost. Not part of the answer, so timings here do not

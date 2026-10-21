@@ -351,9 +351,10 @@ impl Engine {
                 .run(&goal.body, &head, goal.vars.len(), None, &mut rows)
                 .map_err(|d| aborted(d, &stats))?;
             if rows.is_empty() {
+                let position = deepest.get();
                 stats.empty_at = solver
                     .plan(&goal.body, None)
-                    .get(deepest.get())
+                    .get(position)
                     .and_then(|i| goal.body.get(*i))
                     .map(|lit| {
                         let (lo, hi) = lit.span();
@@ -361,6 +362,7 @@ impl Engine {
                         EmptyAt {
                             text,
                             literal: lit.clone(),
+                            position,
                         }
                     })
                     .filter(|at| !at.text.is_empty());
