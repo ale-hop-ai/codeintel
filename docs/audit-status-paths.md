@@ -5,7 +5,8 @@ silent cap, never a silent empty; an `ok` with zero rows and a `no-index` must b
 distinguishable without reading prose. Asked of every status, hint, error and
 degraded-index path the CLI and MCP tool can produce. Run on `580c613`, release
 build, against scratch trees built for each path (not this repository: every
-path below was **triggered**, not read from source).
+path below was **triggered**, not read from source). Thirteen issues, #130-#142
+(#133 and #141 each carry several doors of one shape).
 
 Two questions per row. **J**: could a caller tell this from success with the
 JSON alone? **N**: does the message name the next step? Classes: **HONEST**,
