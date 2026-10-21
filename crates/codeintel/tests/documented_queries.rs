@@ -45,6 +45,10 @@ const NOT_RUNNABLE: &[(&str, &str)] = &[
         "needs the in_tests rule shown above it; `in_tests_excludes_tests_and_test_and_misses_every_other_name` runs the program",
     ),
     (
+        "?- innermost_at(\"src/store.rs\", 23, S), calls(C, S), in_tests(C), def(C, F, _, N).",
+        "needs the in_tests rule shown above it; `about_test_is_blind_to_in_file_tests_and_in_tests_widens_it` runs the program",
+    ),
+    (
         "?- NAME(A, B, Vars...)",
         "a template in the history of the removed `rules` verb",
     ),
@@ -313,6 +317,38 @@ fn in_tests_excludes_tests_and_test_and_misses_every_other_name() {
         "`vocabulary` is the documented miss; if it is now excluded the cookbook is stale: {kept:?}"
     );
     assert!(kept.iter().any(|n| n == "dead"), "{kept:?}");
+}
+
+/// #121: `about(S, "test")` is path-only, so a symbol called only from an
+/// in-file `mod tests` has no test row, and the cookbook's `in_tests` finds it.
+#[test]
+fn about_test_is_blind_to_in_file_tests_and_in_tests_widens_it() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("lib.rs"),
+        "fn covered() {}\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() { super::covered(); }\n}\n",
+    )
+    .expect("write");
+    let index = Command::new(env!("CARGO_BIN_EXE_codeintel"))
+        .args(["index", "."])
+        .current_dir(dir.path())
+        .env("CODEINTEL_INDEX_DIR", dir.path().join(".codeintel"))
+        .output()
+        .expect("the binary runs");
+    assert!(index.status.success());
+
+    let floor = names(
+        dir.path(),
+        "?- def(S, _, _, \"covered\"), about(S, \"test\", F, N, L).",
+    );
+    assert!(floor.is_empty(), "about must be blind here: {floor:?}");
+    let widened = names(
+        dir.path(),
+        &format!(
+            "{IN_TESTS}?- def(S, _, _, \"covered\"), calls(C, S), in_tests(C), def(C, F, _, N)."
+        ),
+    );
+    assert_eq!(widened, ["covered"], "{widened:?}");
 }
 
 // ── determinism (#99) ───────────────────────────────────────────────────────
