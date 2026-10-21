@@ -1056,7 +1056,10 @@ fn the_calls_closures_say_they_are_blind_to_trait_dispatch() {
     }
     let about = doc("about");
     assert!(about.contains("miss trait calls"), "{about}");
-    assert!(about.contains("path-only") && about.contains("not in-file"), "{about}");
+    assert!(
+        about.contains("path-only") && about.contains("not in-file"),
+        "{about}"
+    );
 }
 
 /// Every rule `schema` advertises is exercised by some test in this file, or is

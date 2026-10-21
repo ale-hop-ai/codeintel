@@ -344,7 +344,9 @@ fn about_test_is_blind_to_in_file_tests_and_in_tests_widens_it() {
     assert!(floor.is_empty(), "about must be blind here: {floor:?}");
     let widened = names(
         dir.path(),
-        &format!("{IN_TESTS}?- def(S, _, _, \"covered\"), calls(C, S), in_tests(C), def(C, F, _, N)."),
+        &format!(
+            "{IN_TESTS}?- def(S, _, _, \"covered\"), calls(C, S), in_tests(C), def(C, F, _, N)."
+        ),
     );
     assert_eq!(widened, ["covered"], "{widened:?}");
 }
