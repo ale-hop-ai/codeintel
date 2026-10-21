@@ -262,6 +262,59 @@ fn tool() -> serde_json::Value {
 /// codebase, which is the one failure mode invariant 6 exists to prevent.
 const ARGUMENTS: [&str; 4] = ["query", "schema", "limit", "raw"];
 
+/// The arguments of one call, each read as the type `inputSchema` declares.
+struct Args<'a> {
+    program: Option<&'a str>,
+    wants_schema: bool,
+    limit: usize,
+    raw: bool,
+}
+
+/// The rows a call returns when it gives no `limit`.
+const DEFAULT_LIMIT: usize = 200;
+
+impl<'a> Args<'a> {
+    /// An absent argument is its default. A present one that is not the declared
+    /// type is an error naming it: a default is what *omitting* an argument
+    /// means, and a value that cannot be read is not an omission
+    /// (`specs/05-surface.md` § MCP).
+    fn read(arguments: &'a serde_json::Value) -> Result<Self, String> {
+        let wrong = |name: &str, sent: &serde_json::Value, accepted: &str| {
+            format!("`{name}` must be {accepted}; got {sent}")
+        };
+        if !arguments.is_null() && !arguments.is_object() {
+            return Err(wrong("arguments", arguments, "an object"));
+        }
+        let get = |name: &str| arguments.get(name);
+        let program = match get("query") {
+            None => None,
+            Some(v) => Some(
+                v.as_str()
+                    .ok_or_else(|| wrong("query", v, "a string (a Datalog program)"))?,
+            ),
+        };
+        let flag = |name: &str| match get(name) {
+            None => Ok(false),
+            Some(v) => v
+                .as_bool()
+                .ok_or_else(|| wrong(name, v, "a boolean (true or false)")),
+        };
+        let limit = match get("limit") {
+            None => DEFAULT_LIMIT,
+            Some(v) => v
+                .as_u64()
+                .and_then(|n| usize::try_from(n).ok())
+                .ok_or_else(|| wrong("limit", v, "a non-negative integer"))?,
+        };
+        Ok(Self {
+            program,
+            wants_schema: flag("schema")?,
+            limit,
+            raw: flag("raw")?,
+        })
+    }
+}
+
 /// Run one `code_query` call.
 ///
 /// `Err` is for a call that is malformed as a *call* — no arguments, both modes
@@ -311,11 +364,12 @@ fn call(
             ),
         ));
     }
-    let program = arguments.get("query").and_then(serde_json::Value::as_str);
-    let wants_schema = arguments
-        .get("schema")
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false);
+    let Args {
+        program,
+        wants_schema,
+        limit,
+        raw,
+    } = Args::read(arguments).map_err(|m| (INVALID_PARAMS, m))?;
 
     match (program, wants_schema) {
         (Some(_), true) => {
@@ -340,18 +394,11 @@ fn call(
     }
 
     let options = Options {
-        limit: arguments
-            .get("limit")
-            .and_then(serde_json::Value::as_u64)
-            .and_then(|n| usize::try_from(n).ok())
-            .unwrap_or(200),
+        limit,
         // An agent editing files is the assumed case, not the exception, so the
         // refresh is not exposed as a flag here (`specs/05-surface.md`).
         no_refresh: false,
-        raw: arguments
-            .get("raw")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false),
+        raw,
         // Not exposed: a rule file is a path on the server's disk, and an
         // agent choosing one over the wire is a capability this tool does not
         // need. `codeintel query --rules` is where that lives.
@@ -401,19 +448,21 @@ fn schema(
     // delivered, and it is the call a session makes before indexing anything
     // (`specs/05-surface.md` § `schema`).
     let body = schema.to_string();
+    let (status, hint) = wire::schema_status(&census, root, index_dir, &refreshed);
     if structured {
         // The catalog text is the catalog. `codeintel schema --format json`
         // restates it as rules, relations and counts for a parser, which no
         // consumer of this tool is (`specs/05-surface.md` § The consumer).
-        let (status, hint) = wire::schema_status(&census, root, index_dir, &refreshed);
         return Ok(serde_json::json!({
             "content": [],
             "structuredContent": { "status": status.as_str(), "hint": hint, "text": body },
             "isError": false,
         }));
     }
+    let mut text = body;
+    wire::verdict(&mut text, status, None, hint.as_deref());
     Ok(serde_json::json!({
-        "content": [{ "type": "text", "text": body }],
+        "content": [{ "type": "text", "text": text }],
         "isError": false,
     }))
 }
