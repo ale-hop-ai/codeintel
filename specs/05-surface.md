@@ -6,15 +6,15 @@ binding: yes
 # 05 — Surface
 
 The surface budget from [00-overview.md](00-overview.md) is binding: **5 CLI
-verbs, 1 MCP tool, <= 16 base relations, and `schema` output <= 10,000
+verbs, 1 MCP tool, <= 16 base relations, and `schema` output <= 6,000
 characters with the rule list complete.** Growth requires deletion.
 
 There is **no cap on the rule count**. There was, twice, and both numbers were
 set rather than derived; 00-overview.md § Surface budget records why they were
 dropped. Rules are the growth path the design wants — a new structural question
 is meant to become a rule, not a verb or a Rust helper — so the thing to bound
-is what they cost an agent, which is `schema` bytes. `tests/surface.rs` asserts
-all four.
+is what they cost an agent, which is `schema` bytes. `crates/codeintel/tests/surface.rs` asserts
+three of them and the verb count is asserted in `crates/codeintel/src/main.rs`.
 
 ## Status taxonomy
 
@@ -100,7 +100,8 @@ their string forms are different atoms ([01-facts.md](01-facts.md) § Integers),
 so `codeintel rules innermost_at src/store.rs 142` bound the *string* `"142"`,
 matched nothing, and returned `status: ok` with zero rows. Broken for every rule
 taking a line number, including the headline one, and lying while doing it. The
-`*_by_name` rules it needed stay in `stdlib.dl`; they are useful on their own.
+`*_by_name` rules it needed are gone too (`rules/stdlib.dl:236`): each was one
+join an agent writes itself.
 
 `--format tsv` is gone: text is already TSV-ish and there were three formats for
 two consumers.
@@ -580,7 +581,7 @@ no index for /repo. run: cd /repo && codeintel index . && rust-analyzer scip . &
   coverage` line, not the `&&`. § Indexer evidence in
   [02-extraction.md](02-extraction.md) records which commands have been run.
 - When discovery found indexes that were not adopted, the hint names them
-  first: `no index for /repo; found one at /repo/daemon`. The found path is the
+  first: `no index for /repo; found an index at /repo/daemon` (`found indexes at a, b` for several). The found path is the
   **root**, not its store directory — that is what the caller passes to
   `--path`, and under [04-storage.md](04-storage.md) § Location the store
   directory is not somewhere the caller ever types.
@@ -630,7 +631,7 @@ that gates copy length. Estimates of this text span **~1,400 tokens** at four
 characters per token — prose-like, and what an earlier draft of this paragraph
 claimed — to **~1,750** under a BPE-shaped count that charges per punctuation
 mark and per identifier fragment, which is what dense tabular output actually
-looks like. Today: **5,256 characters, 41 rules** on this repository, and the
+looks like. Today: **5,695 characters, 42 rules** on this repository, and the
 honest statement is that `schema` is *at* its budget rather than inside it.
 
 That matters because it is now the *only* constraint the standard library
@@ -641,7 +642,7 @@ a worst-case census rather than a fixture tree** ([00-overview.md](00-overview.m
 § Surface budget, #42). `schema` embeds live per-kind and per-language counts,
 so a ceiling measured against the smallest possible index binds on nothing; the
 worst case is every relation, kind, role and shipped language at seven-digit
-counts, and it renders 5,490. If the assertion fires, the standard library is
+counts, and it renders 5,919. If the assertion fires, the standard library is
 too big — cut rules, not the catalogue.
 
 Two things pay for it, and only one is allowed to. Fixed-width padding is free
@@ -671,8 +672,9 @@ VALUES   closed sets, with counts from THIS index. A kind at 0 is a kind you
   Kind   function 4,201  class 812  module 96  interface 41
          method 0  struct 0  enum 0  trait 0  constant 0  field 0
          constructor 0  variable 0  macro 0  typealias 0  type 0  unknown 1,340
-  Role   def 5,150  read 0  write 0  import 402  test 0
-  Prov   name 18,904  exact 0
+  Role   read 0  write 0  import 402  test 0  generated 0  forward 0  unknown 5,150
+  Prov   exact 0 (scip_ref rows)  name 18,904 (name_ref rows)
+  Lang   go 7 files  python 11 files  rust 102 files
 `Role` is counted over `scip_ref` only, and the line says so: `ref` also
 carries `"read"` on every name-tier row (`rules/stdlib.dl`), which a count of
 base relations cannot see, so `read 0` beside a `ref` full of `read` rows was
@@ -998,8 +1000,8 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
 
 - **`hint` is non-null whenever `status != "ok"` OR the result is empty.** On an
   empty result it names the first body literal that matched nothing:
-  `"def/4 with Kind=\"method\" matched 0 rows; this index contains 0 method
-  definitions"`. As originally specified, `hint` was guaranteed null in exactly
+  `` `def(S,F,"class",N)` matched 0 rows; "class" has 0 rows in this index. the
+  column holds: module 19 type 1 interface 0 ... ``. As originally specified, `hint` was guaranteed null in exactly
   the case the taxonomy exists to disambiguate — a valid query returning zero
   rows, which is indistinguishable from a typo, a wrong `Kind`, a path that is
   not indexed, and a missing SCIP index. The engine already evaluates
@@ -1106,8 +1108,12 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
 - On `invalid-query`, `hint` contains the corrected shape where it can be
   inferred — an arity mismatch reports the expected arity. An agent should be
   able to self-correct in one retry.
-- Text format wins by default. It is ~4× denser than JSON for tabular results
-  and every consumer is a language model.
+- Text format wins by default. JSON costs 1.2× to 2.6× the bytes of the text for
+  the same rows at 8 to 202 rows, and more for a smaller answer, whose fixed
+  envelope dominates (`tests/fixtures/cost/expected.tsv`: 202 rows 7,539 text vs
+  9,020 JSON; 35 rows 733 vs 1,202). It was ~4× while JSON carried each row in
+  two notations (§ `query`, one notation per answer). Every consumer is a
+  language model.
 
 ### The consumer
 
@@ -1131,7 +1137,7 @@ Three rules follow, and they supersede the earlier drafts named at each site:
    answer.
 3. **The schema is a budget, not an inventory.** It is read once per session
    before any question is asked, so its bytes are charged to every session
-   including the ones that ask one question. It is currently 18,304 bytes.
+   including the ones that ask one question. It is currently 5,695 bytes on this repository.
 
 **These are decisions, not measurements.** The magnitude each one recovers is
 the subject of a standing hypothesis in
@@ -1152,7 +1158,7 @@ the router's attention, and each new question is tempted to become tool N+1.
 One tool plus a query language means new questions cost zero surface.
 
 The cost is real and should be stated: the agent must learn Datalog. That is
-what `schema: true` is for, and the ≥ 8/10 first-attempt success criterion in
+what `schema: true` is for, and the ≥ 24-of-30 first-attempt success criterion in
 [00-overview.md](00-overview.md) is the test of whether that cost was paid down.
 
 ---

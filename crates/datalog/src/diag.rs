@@ -15,7 +15,7 @@ pub enum Status {
     Unstratified,
     /// `max_time_ms` fired.
     Timeout,
-    /// `max_derived_tuples` or `max_regex_steps` fired.
+    /// `max_derived_tuples` fired.
     BudgetExceeded,
 }
 

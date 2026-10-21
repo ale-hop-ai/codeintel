@@ -1,4 +1,4 @@
-//! The writer lock: `.codeintel/lock`, advisory, exclusive, non-blocking.
+//! The writer lock: `<index>/lock`, advisory, exclusive, non-blocking.
 //!
 //! One writer, many readers (`specs/04-storage.md` § Concurrency). Two
 //! concurrent writers are undefined behaviour, so a second one fails rather
@@ -16,7 +16,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{ErrorKind, Read, Result, Seek, SeekFrom, Write};
 use std::path::Path;
 
-/// The lock file name, inside `.codeintel/`.
+/// The lock file name, inside the index directory.
 pub const LOCK: &str = "lock";
 
 /// An openable lock. Hold the [`Held`] it hands out for as long as you write.

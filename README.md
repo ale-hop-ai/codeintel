@@ -71,6 +71,10 @@ mkdir -p ~/.local/bin
 install -m 0755 target/release/codeintel ~/.local/bin/
 ```
 
+Unix only: Windows is out of scope for v1 ([specs/04-storage.md](specs/04-storage.md)
+§ Concurrency). Keep the index directory out of file sync (Dropbox, iCloud) and
+off network shares — a torn or short read there is a `corrupt` index.
+
 To serve it to an agent, point the agent's MCP config at `codeintel mcp
 --path /your/repo`. Registering it is the agent's configuration, not this
 repository's.
@@ -189,7 +193,7 @@ fresh agent each time.
 
 The second row is also the no-SCIP number: 45/45 with tier A alone. The first
 was withdrawn on 2026-09-13. Schema 2 deleted two rules that recorded answers
-call, and `tests/eval_rot.rs`, which now recomputes set A on every commit,
+call, and `crates/codeintel/tests/eval_rot.rs`, which now recomputes set A on every commit,
 caught it.
 
 Every failure so far has been a *signature reading as something it is not*, and

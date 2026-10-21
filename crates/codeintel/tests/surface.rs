@@ -101,7 +101,7 @@ fn stdout(root: &Path, args: &[&str]) -> String {
 /// ceiling that only binds on the smallest possible input is not a ceiling. The
 /// loose 10,000 that replaced it caught a doubling and nothing subtler.
 ///
-/// 6,000 against the worst case is a ceiling with roughly 10% of headroom over
+/// 6,000 against the worst case is a ceiling with little headroom over
 /// a census no real index exceeds, and it binds on every index. A change that
 /// pushes past it is a change that has to argue for itself: the rule list must
 /// stay complete, so the copy is what gives — or the standard library is too

@@ -82,7 +82,8 @@ is therefore inert until an indexer sets the bit; `is_test` is path-only today.
 The vocabulary is the SCIP protocol's, not a
 promise about any indexer; `codeintel schema`'s per-role counts say what this
 index holds. A non-`unknown` share is not a measure of information: Go reaches
-1.0 with none (`docs/50-self-improvement.md` § 2, `role_known`).
+1.0 with none: on `tests/fixtures/go/` every `scip_ref` is `read`
+(`docs/50-self-improvement.md` § 2 defines `role_known`).
 
 **`Prov`** — resolution provenance. Exactly two values, forever:
 ```
@@ -1132,8 +1133,10 @@ contaminated rules above do not: `calls(From, S)`, `dead_export(S)`,
 `entrypoint(S)`, `depends(F, G)` and `uses_package(F, P)` carry **no `Prov` in
 their tuples**, so a wrong row from any of them could not say it was a guess,
 and the only defence was knowing to ask the `_exact` twin. Measured on the
-first scoreboard, calibration (`docs/50-self-improvement.md` § 2) was 0.50 on
-fd and 0.4944 on tokio, and every row it counted as flagged was a `ref` row.
+first scoreboard, calibration was 0.50 on fd and 0.4944 on tokio, and every row
+it counted as flagged was a `ref` row. That metric was retired on 2026-10-20 as
+tautological once `tier/4` shipped (`docs/50-self-improvement.md` § 2,
+Calibration), so these two figures cannot be re-measured.
 
 `tier/4` closes it, as **one added relation and no changed head**. It reuses
 `about`'s heterogeneous-rows idiom: a discriminator column, then the row.

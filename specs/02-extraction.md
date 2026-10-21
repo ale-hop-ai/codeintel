@@ -437,9 +437,10 @@ counted and named with the other skipped documents in the `index` summary
 
 **The walk runs on four threads, and that is why its outputs are ordered.**
 Traversal and ignore-matching are the dominant cost of a warm call —
-[plan.md](../docs/plan.md) § #28 measured the walk at 161 of the 168 ms
-`refresh` spends on a ~831k-LOC tree, against a per-file stale check of 2.8 ms —
-and they parallelize without touching what the walk decides. Each thread applies
+[plan.md](../docs/plan.md) § #28 measured the walk as the dominant phase of
+`refresh` on a ~831k-LOC tree, against a per-file stale check of a few
+milliseconds (that section withdraws its own magnitudes as not quotable, so none
+is repeated here) — and they parallelize without touching what the walk decides. Each thread applies
 the same per-entry policy and accumulates privately; the shares merge once per
 thread, not once per file.
 
@@ -629,7 +630,7 @@ From `scip.proto` (field names verbatim):
 | `SymbolInformation.documentation[]` | `def_doc` (if tier A did not supply one), **minus every element that is wholly one fenced code block** — see § Hover blocks are not doc comments |
 | `SymbolInformation.signature_documentation.text` | `def_sig` (if tier A did not supply one) |
 | `Occurrence` without `Definition` role | `scip_ref(S, F, L, C, From, Role)` |
-| `symbol_roles` bits | `Role`: `WriteAccess`→`write`, `ReadAccess`→`read`, `Import`→`import`, `Test`→`test`, `Generated`→`generated`, `ForwardDefinition`→`forward`, `Definition`→`def`, empty bitset (`UnspecifiedSymbolRole`)→`unknown` |
+| `symbol_roles` bits | `Role`: `WriteAccess`→`write`, `ReadAccess`→`read`, `Import`→`import`, `Test`→`test`, `Generated`→`generated`, `ForwardDefinition`→`forward`, empty bitset (`UnspecifiedSymbolRole`)→`unknown`. `Definition` is not a `Role`: that occurrence is a definition site (the row above) and never reaches `scip_ref` (#44) |
 | `Relationship.is_implementation` | `scip_impl(S, T)` — `implements(S, T, "exact")` is the rule over it |
 | `Relationship.is_type_definition` | `has_type(S, T, "exact")` |
 | symbol string names a package **and no document defines it** | `extern(S, Manager, Pkg, Version)` |
@@ -1043,10 +1044,12 @@ hand-written golden fact file.
    a looser join — it is either a second `parent`-shaped relation for module
    containment or an extractor that stops treating `mod x;` as a definition.
    Both are out of scope here and neither is urgent. Measured on
-   `tests/fixtures/rust/`: 33/33 non-module definitions anchor, 0/9 modules do.
+   `tests/fixtures/rust/`: 35/35 non-module definitions anchor, and 1 of 10
+   modules does — the inline `mod detail { }` in `src/store.rs`; the other nine
+   are `mod x;` declarations.
 4. **Tier-A precision.** On a fixture with both tiers, **no** derived `"name"`
    `ref` may sit at a position an `"exact"` `ref` covers. Zero by construction,
-   not zero by allowlist: the `name` rules carry `!scip_ref(...)`
+   not zero by allowlist: the `name` rules carry `!scip_claim(...)`
    ([01-facts.md](01-facts.md) § Tier precedence), so tier A cannot resolve a
    name at a position tier B already answered.
 
