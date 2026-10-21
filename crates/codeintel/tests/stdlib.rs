@@ -941,7 +941,7 @@ fn implements_is_a_floor_and_says_so() {
         .lines()
         .find(|l| l.starts_with("%% implements("))
         .expect("stdlib.dl documents implements/3");
-    for must in ["FLOOR", "Display", "never methods"] {
+    for must in ["FLOOR", "std traits/methods"] {
         assert!(gloss.contains(must), "gloss lacks {must:?}: {gloss}");
     }
 }

@@ -21,7 +21,7 @@
 % itself (`visibility`); whether that makes it visible outside the crate is a
 % question about its ancestors, which is a join and not a token.
 
-%% exported(S)  S is visible outside its crate: public, inherited from parent, or in name_export.
+%% exported(S)  visible outside its crate: public, inherited via parent, or name_export.
 exported(S) :- visibility(S, "public").
 
 % An enum variant, a trait item and a trait-impl method have nowhere to write
@@ -58,7 +58,7 @@ exported(S) :- name_export(F, N), def(S, F, _, N).
 % final identifier, and no rule can compare them -- `match`/`suffix` take
 % literals only, so the join is not expressible, and a position-based
 % substitute (the one `extern` type ref on the impl line) is a guess.
-%% implements(S, T, Prov)  FLOOR: type -> trait declared in THIS index, by name. Never std/dependency traits (Display, Debug), never methods. 0 rows is not "none".
+%% implements(S, T, Prov)  FLOOR: local traits by name; no std traits/methods.
 implements(S, T, "exact") :- scip_impl(S, T).
 
 % Tier A resolves both written names with the policy `ref` uses, reusing
@@ -323,7 +323,7 @@ is_test(F) :- scip_ref(_, F, _, _, _, "test").
 % Heterogeneous rows sharing a discriminator column. One query instead of six,
 % and the definition of "orientation" stays editable.
 
-%% about(S, Rel, A, B, Line)  all of S in one trip. A,B,Line = file, name, line of the RELATED symbol (sig/doc: A = text). Rel = sig|doc|defined|parent|caller|
+%% about(S, Rel, A, B, Line)  all of S at once. A,B,Line = file, name, line of the RELATED symbol (sig/doc: A = text). Rel = sig|doc|defined|parent|caller|
 %%   callee|implements|implementor|test|extern
 about(S, "sig",         Sig, "", 0) :- def_sig(S, Sig).
 about(S, "doc",         Doc, "", 0) :- def_doc(S, Doc).
