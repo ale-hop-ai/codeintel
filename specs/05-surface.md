@@ -682,8 +682,8 @@ RULES
   ref(S,F,L,C,From,Role,Prov)    resolved occurrence, either tier
   calls(Caller, Callee)          callable reference, either provenance
   calls_exact(Caller, Callee)    SCIP-resolved only
-  impact_of(S, Caller)           transitive callers of S -- SEED THE 1st ARG
-  reach_of(S, Callee)            transitive callees of S -- SEED THE 1st ARG
+  impact_of(S, Caller)           transitive callers of S -- SEED THE 1st ARG; an impl misses trait callers
+  reach_of(S, Callee)            transitive callees of S -- SEED THE 1st ARG; a trait method has no body
   is_test(F)                     test file, by path or SCIP role
   ...
 BUILTINS = != < <= > >= + - * / between/3 match/2 prefix/2 suffix/2 contains/2

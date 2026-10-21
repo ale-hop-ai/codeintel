@@ -251,6 +251,16 @@ them.
   it. The one filter the schema supports for the first class is free functions
   only, which a trait cannot dispatch to:
   `?- entrypoint_exact(S), parent(S, P), def(P, _, "module", _), def(S, F, _, N).`
+- `impact_of*`, `reach_of*`, `reaches*`, `recursive*` and `about`'s `caller`,
+  `callee` and `test` are **blind to trait dispatch**, and answer `ok` (#116). A
+  call through a trait names the trait's method, so the implementing method has
+  no callers: on this repository `impact_of_exact` of `Interning::intern` is 0
+  rows and of the trait's `Symbols::intern` 233. `_exact` does not fix it (no
+  `calls` closure reads `scip_impl` or `implements`). Before concluding that
+  nothing depends on a method, ask what trait it implements and seed that method
+  too: `?- def(T, _, "trait", _), parent(M, T), def(M, _, "method", "intern"), impact_of_exact(M, C).`
+  A `reach_of` from a trait method is empty because it has no body; seed the
+  impl. `recursive*` cannot see a cycle through a trait: a floor, never wrong.
 
 ### Rust's in-file `#[cfg(test)]` modules: a naming guess, stated as one
 

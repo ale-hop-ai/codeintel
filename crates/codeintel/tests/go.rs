@@ -307,6 +307,35 @@ fn entrypoint_exact_ignores_scip_impl_even_when_the_indexer_fills_it() {
     );
 }
 
+/// #116: the same holds for the transitive closures. With scip-go's
+/// `scip_impl` rows present, `impact_of_exact` and `reach_of_exact` still do not
+/// depend on `scip_impl` or `implements`, so no indexer can teach them that an
+/// implementing method is reached through its interface.
+#[test]
+fn the_exact_closures_never_depend_on_scip_impl() {
+    let dir = tree();
+    index(dir.path());
+    let (impls, _) = query(dir.path(), "?- scip_impl(S, T).");
+    assert!(!impls.is_empty(), "scip-go writes is_implementation rows");
+
+    for rule in ["impact_of_exact", "reach_of_exact", "calls_exact"] {
+        let goal = format!("?- {rule}(A, B).");
+        let out = run(dir.path(), &["query", &goal, "--format", "json"]);
+        let body: serde_json::Value = stdout_json(&out);
+        let depends: Vec<&str> = body["stats"]["depends"]
+            .as_array()
+            .expect("depends")
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .collect();
+        assert!(!depends.is_empty(), "{rule} reports no closure");
+        assert!(
+            !depends.contains(&"scip_impl") && !depends.contains(&"implements"),
+            "{rule}: {depends:?}"
+        );
+    }
+}
+
 #[test]
 fn a_method_is_reachable_through_its_type() {
     // `within/2` recurses through `parent`, so a method parented to its file

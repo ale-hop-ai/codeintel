@@ -1057,6 +1057,42 @@ The caveat rides on the rule's schema line and here. A hint that fired on
 `scip_impl = 0` was rejected: Go populates it and the false positives remain, so
 the detector would tell the reader that a better indexer fixes it.
 
+**What the `calls` closures see, exactly (#116).** A call through a trait names
+the *trait's* method; the implementing method is never referenced, so no
+`calls` edge reaches it. Every rule derived from `calls` inherits that:
+`impact_of*`, `reach_of*`, `reaches*`, `recursive*`, and `about`'s `caller`,
+`callee` and `test` rows. Their dependency closure is `def`, `extern`,
+`name_export`, `name_ref`, `parent`, `scip_ref`, `visibility` (`resolved` for
+the `_exact` forms): **`scip_impl` and `implements` are in none of them**, so
+a better indexer does not change the answer (the Go fixture, where `scip-go`
+fills `scip_impl`, pins it). Measured on this repository at 03b1ad8 with fresh
+SCIP (`scip coverage: 91 of 91`, `anchored: 2325/2819`):
+
+| Query | Rows |
+|---|---|
+| `impact_of_exact` of `Interning::intern` (the impl, `load.rs:91`) | 0 |
+| `impact_of_exact` of `Symbols::intern` (the trait method) | 233 |
+| `reach_of_exact` of the trait method | 0 (no body) |
+| `recursive_exact` | 26, all genuine direct recursion: a floor, not wrong |
+
+The answer is `ok` in every case: nothing the index lacks decided it, so no
+status can say so. The caveat rides on the schema lines of `impact_of*`,
+`reach_of*` and `about`, and in the cookbook. The caller's workaround is to
+seed both ends: the impl for `reach_of`, the trait method for `impact_of`.
+
+*Not done, and what it would cost.* An `impl_of(Method, TraitMethod)` rule
+(`implements` + `parent`, joined by name) is one clause and needs no new fact:
+#6 is closed, tier A already emits type-level `implements(.., "name")`, so #6 is
+not its blocker. Measured: 13 rows, none ambiguous, all five `Symbols::intern`
+impls among them. The costs are coverage (42 `name_impl` rows, 7 `implements`,
+because the trait must be a local `def`; 35 impls are of external traits and stay
+blind), grade (`scip_impl` is 0 for rust-analyzer, so every row is `name` and a
+closure seeded through it would blend provenance, which invariant 2 forbids, so
+it needs a separate head), identity (`parent` of an impl method is the type, not
+the impl block, so two traits with one method name on one type are ambiguous) and
+schema room (5,993 of 6,000 after the glosses). A new extractor fact is a
+relation, and the budget is 16 of 16. Both are owner decisions.
+
 ### Row provenance — `tier/4`
 
 The promise is that every answer says which tier produced it. `ref/7`,
