@@ -496,6 +496,30 @@ splitting a string, which no rule could do anyway.
 An **inherent** `impl Type` block emits no row. It implements nothing, and
 inventing a trait name for it would be the guess invariant 1 forbids.
 
+**What `implements` sees, exactly (#120).** Its dependency closure is
+`scip_impl`, `name_impl`, `def`, `parent`, `visibility`, `name_export`, and
+`implements` is a **floor**, not a census:
+
+| Class | Effect on the answer |
+|---|---|
+| `impl Trait for T`, trait declared in this index | row, `name` (or `exact` where `scip_impl` has rows: Go) |
+| `impl Display for T`, trait from `std` or a dependency | **no row**: `trait_sym` needs a local `def`, and an external trait has none |
+| Method-level override (`overrides`) on Rust | never: `scip_impl` is the only source and rust-analyzer leaves it empty |
+| Trait name ambiguous or not exported repo-wide | no row (`impl_sym`) |
+
+On this repository: 42 `name_impl` rows, 7 `implements` rows, 35 dropped, every
+one an external trait (`Display` 12, `Debug` 5, `Error` 3, ...). Status is `ok`
+because nothing the index lacks decided it; the caveat rides on the rule's
+schema line and here.
+
+Not widened from `extern`, measured. `extern` holds the SCIP *symbol string*
+(`... core fmt/Display#`) and `name_impl` a final identifier (`"Display"`); the
+only join is a suffix test with a variable operand, and `match`, `contains` and
+`suffix` accept literals only. The substitute needing no names — "the one
+`extern` type `ref` on the impl line" — resolves 28 of 35 lines to a single
+candidate and is still a position guess (a generic bound or a second extern type
+on the line breaks it, 4 lines have two), which invariant 1 forbids.
+
 ### `has_type(S, T, Prov)` — DEFERRED, not in v1
 
 The type of `S` is `T`, from SCIP `Relationship.is_type_definition`. Cut from
