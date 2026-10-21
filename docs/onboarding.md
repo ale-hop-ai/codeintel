@@ -54,7 +54,7 @@ but `./index.scip` is still the default input and nothing moves indexer output
 into the store (that waits on `--run-indexers`, §4.2). F4 is decided, not
 built: §7 D2 makes `--run-indexers` opt-in, and today the command is only
 printed. F5 and F6 still hold. F7 through F9 are outside this pass and are
-unchecked. The §2 table cites the lines read on 2026-10-20, re-pointed on 2026-10-21 (#120) where `query.rs` and the README had moved under them; the
+unchecked. The §2 table cites the lines read on 2026-10-20, re-pointed on 2026-10-21 (#126) where `query.rs` and the README had moved under them; the
 paragraphs below it are left as written because they are the evidence the
 decisions were made against.
 
