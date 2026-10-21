@@ -266,6 +266,16 @@ calls_exact(From, S) :- calls_at(From, S, _, _, "exact").
 %     trait: a floor, never wrong (`recursive_exact` 26 rows, all genuine).
 %   * about(S, "caller"|"callee"|"test", ...) is `calls`, so the same.
 %
+% `about(S, "test", ...)` is a FLOOR for a second reason (#121): it joins
+% `is_test(F)`, a path rule, so a call from an in-file `#[cfg(test)] mod tests`
+% is not a test row. Measured at 580c613 with fresh SCIP (91/91, anchored
+% 2330/2824): 154 symbols are called from a `tests`/`test` module outside a
+% test file; `about` reports a test for 30 and none for 124, `status: ok`. The
+% 154 is itself the naming guess of docs/cookbook.md (a module named anything
+% else is not counted), so the true gap is at least that. The exact fix is a
+% base relation Rust alone would use (#111): not taken. The widening is a
+% caller-side filter, `calls(C, S), in_tests(C)`, in the cookbook.
+%
 % What a fix would cost (#116 option B, decided by nobody yet). An
 % `impl_of(Method, TraitMethod)` rule over `implements` + `parent`, joined by
 % name, is ONE clause and needs nothing new: #6 closed with tier A emitting
@@ -360,8 +370,8 @@ is_test(F) :- scip_ref(_, F, _, _, _, "test").
 % Heterogeneous rows sharing a discriminator column. One query instead of six,
 % and the definition of "orientation" stays editable.
 
-%% about(S, Rel, A, B, Line)  all of S. A,B,Line = file, name, line of the RELATED symbol (sig/doc: A=text). Rel = sig|doc|defined|parent|caller|
-%%   callee|implements|implementor|test|extern. caller|callee|test miss trait calls.
+%% about(S, Rel, A, B, Line)  A,B,Line=RELATED file,name,line (sig/doc: A=text). Rel: sig|doc|defined|parent|caller|
+%%   callee|implements|implementor|test|extern. caller|callee|test miss trait calls; test: path-only, not in-file.
 about(S, "sig",         Sig, "", 0) :- def_sig(S, Sig).
 about(S, "doc",         Doc, "", 0) :- def_doc(S, Doc).
 about(S, "defined",     F,   N,  L) :- def(S, F, _, N), at(S, F, L).

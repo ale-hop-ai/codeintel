@@ -285,6 +285,23 @@ not excluded, so the composed answer is **narrower than the truth, in the
 direction that lists test code as dead**, the direction that gets code deleted.
 It is a filter, not a proof: read the rows.
 
+**`about(S, "test", ...)` has the same hole, and is a floor** (#121). It joins
+`is_test(F)`, so a call from an in-file `mod tests` is not a test row, and the
+answer is `ok`. Measured on this repository (2026-10-21, fresh SCIP, anchored
+2330/2824): 154 symbols are called from a `tests`/`test` module outside a test
+file; `about` names a test for 30 and none for **124**. An empty `test` row is
+not "uncovered" in Rust. Excluded: any call from an in-file test module; calls
+through a trait (#116); a module outside the two names (the 154 is already
+that guess, so the gap is at least that). Widen it with the same guess, stated
+as one:
+
+```
+?- innermost_at("src/store.rs", 23, S), calls(C, S), in_tests(C), def(C, F, _, N).
+```
+
+Rows are callers named by their module's name, not by an attribute. No
+percentage is offered: a count of tests is not coverage.
+
 Why the guess is the only thing available: `#[cfg(test)]` leaves nothing in
 any fact. `attribute_kinds` puts the attribute in `def_span`'s byte range and
 out of `def_sig`, and a rule cannot read source (invariant 3b). Nothing in the
