@@ -78,7 +78,7 @@ implements(S, T, "name") :-
     impl_sym(F, TypeN, S), impl_sym(F, TraitN, T),
     trait_sym(T), S != T, !scip_impl(S, T).
 
-%% trait_sym(S)  a definition the trait side of an `impl` can name.
+%% trait_sym(S)  a def the trait side of an `impl` can name.
 % A relation rather than three copies of the rule above. `class` is here for
 % Python, whose protocols and ABCs are classes; omitting it would silently
 % refuse every Python row the day a `@trait` capture lands for it. Only Rust
@@ -114,7 +114,7 @@ impl_sym(F, N, S) :- name_impl(F, _, N, _),
 % it". So the question both tiers ask is not "is there a row here" but "does
 % the row name a symbol anything knows about".
 %
-%% scip_claim(F, Line, Col)  tier B resolved the occurrence at this position.
+%% scip_claim(F, Line, Col)  tier B resolved this position.
 % Two clauses because an index knows a symbol two ways, and BOTH are claims: it
 % has a `def` here, or it names a third-party package and carries an `extern`
 % row. `def` alone un-suppresses tier A at every reference into a dependency,
@@ -200,7 +200,7 @@ callable("constructor").
 callable("macro").
 
 % === calls: a reference to a callable, attributed to its enclosing def ==
-%% calls_at(From, S, F, Line, Prov)  one call site, with its line and provenance.
+%% calls_at(From, S, F, Line, Prov)  one call site, with line and Prov.
 % There is no `Role != "def"` test here any more. `scip_ref` never carries a
 % `def` row — a definition occurrence is routed to `def`/`at` — so the test
 % filtered nothing, and `def` is no longer in the `Role` vocabulary at all
@@ -225,7 +225,7 @@ calls_at(From, S, F, L, Prov) :-
 
 %% calls(From, S)  From calls S.
 calls(From, S) :- calls_at(From, S, _, _, _).
-%% calls_exact(From, S)  From calls S, SCIP-resolved only.
+%% calls_exact(From, S)  From calls S, SCIP only.
 calls_exact(From, S) :- calls_at(From, S, _, _, "exact").
 
 % `callers`/`callees` were here until schema 2. Both were `calls/2` verbatim
@@ -240,19 +240,56 @@ calls_exact(From, S) :- calls_at(From, S, _, _, "exact").
 % === transitive closure, SEEDED ========================================
 % Always prefer these.
 
-%% impact_of(Seed, Caller)  transitive callers. SEED THE 1st ARG.
+% What every closure below can and cannot see (#116). A call through a trait
+% names the TRAIT's method and leaves the implementing method unreferenced, so
+% a `calls` edge never reaches the impl. `calls_at` reads `ref` and `def`; the
+% dependency closure of every rule in this file that derives from `calls` is
+% `def`, `extern`, `name_export`, `name_ref`, `parent`, `scip_ref`,
+% `visibility` (`resolved` too for the `_exact` forms). `scip_impl` and
+% `implements` are in none of them, so a perfect indexer would not change it --
+% and the answer is `ok`, because nothing the index lacks decided it.
+%   * impact_of(impl method)        is a floor: callers through the trait are
+%     missing. impact_of(trait method) has them, so seed BOTH. Measured: the
+%     `Symbols::intern` impl in load.rs has 0 callers and the trait method 233.
+%   * reach_of(trait method)        is 0 -- no body. Seed the impl.
+%   * reaches*/recursive*           cannot close a cycle that passes through a
+%     trait: a floor, never wrong (`recursive_exact` 26 rows, all genuine).
+%   * about(S, "caller"|"callee"|"test", ...) is `calls`, so the same.
+%
+% What a fix would cost (#116 option B, decided by nobody yet). An
+% `impl_of(Method, TraitMethod)` rule over `implements` + `parent`, joined by
+% name, is ONE clause and needs nothing new: #6 closed with tier A emitting
+% `implements(.., "name")` from `name_impl`, type-level, so #6 is not the
+% blocker. Measured at 03b1ad8 with fresh SCIP (91/91 documents, anchored
+% 2325/2819): the clause yields 13 rows, none ambiguous, among them all five
+% `Symbols::intern` impls. Its real costs:
+%   * coverage: 42 `name_impl` rows but 7 `implements` rows, because the trait
+%     must be a local `def`; the other 35 impls are std/extern traits (`Display`,
+%     `From`, `Iterator`) with no def to seed, so those stay blind;
+%   * grade: `scip_impl` is 0 under rust-analyzer, so every row is `name`. An
+%     `impact_of_exact` seeded through it would be an exact closure over a
+%     text-matched hop, which is the blending invariant 2 forbids -- it would
+%     need its own provenance column, i.e. an `impact_of_via_impl` twin;
+%   * identity: `parent` of an impl method is the TYPE, not the impl block, so
+%     one type implementing two traits with a same-named method is ambiguous;
+%     none on this repository, found nowhere by measurement either way;
+%   * budget: the schema is 5,993 of 6,000 on the worst-case census, so a new
+%     head cannot land without removing copy elsewhere.
+% Option C (a new extractor fact) is a relation: the budget is 16 of 16.
+
+%% impact_of(Seed, Caller)  transitive callers. SEED THE 1st ARG. An impl misses callers via its trait: seed both.
 impact_of(Seed, C) :- calls(C, Seed).                     % who calls Seed
 impact_of(Seed, C) :- impact_of(Seed, B), calls(C, B).    % ...transitively
 
-%% reach_of(Seed, Callee)  transitive callees. SEED THE 1st ARG.
+%% reach_of(Seed, Callee)  transitive callees. SEED THE 1st ARG. A trait method has no body: seed its impl.
 reach_of(Seed, C) :- calls(Seed, C).                      % what Seed calls
 reach_of(Seed, C) :- reach_of(Seed, B), calls(B, C).
 
-%% impact_of_exact(Seed, Caller)  impact_of, SCIP-resolved only. SEED THE 1st ARG.
+%% impact_of_exact(Seed, Caller)  impact_of, SCIP only. SEED THE 1st ARG. Same trait gap.
 impact_of_exact(Seed, C) :- calls_exact(C, Seed).
 impact_of_exact(Seed, C) :- impact_of_exact(Seed, B), calls_exact(C, B).
 
-%% reach_of_exact(Seed, Callee)  reach_of, SCIP-resolved only. SEED THE 1st ARG.
+%% reach_of_exact(Seed, Callee)  reach_of, SCIP only. SEED THE 1st ARG. Same trait gap.
 reach_of_exact(Seed, C) :- calls_exact(Seed, C).
 reach_of_exact(Seed, C) :- reach_of_exact(Seed, B), calls_exact(B, C).
 
@@ -272,10 +309,10 @@ recursive(S) :- reaches(S, S).
 % `parse_args` (#53). The closure is where the damage compounds: one invented
 % edge is one wrong row in `calls`, but any invented edge anywhere on a path
 % invents the whole path. These are the forms that can be believed.
-%% reaches_exact(A, B)  reaches, SCIP-resolved only. UNSEEDED. Expensive.
+%% reaches_exact(A, B)  reaches, SCIP only. UNSEEDED. Expensive.
 reaches_exact(A, B) :- calls_exact(A, B).
 reaches_exact(A, C) :- reaches_exact(A, B), calls_exact(B, C).
-%% recursive_exact(S)  recursive, SCIP-resolved only. UNSEEDED.
+%% recursive_exact(S)  recursive, SCIP only. UNSEEDED.
 recursive_exact(S) :- reaches_exact(S, S).
 
 % === location helpers ==================================================
@@ -314,7 +351,7 @@ is_test(F) :- scip_ref(_, F, _, _, _, "test").
 % and the definition of "orientation" stays editable.
 
 %% about(S, Rel, A, B, Line)  all of S in one trip. A,B,Line = file, name, line of the RELATED symbol (sig/doc: A = text). Rel = sig|doc|defined|parent|caller|
-%%   callee|implements|implementor|test|extern
+%%   callee|implements|implementor|test|extern. caller|callee|test miss trait calls.
 about(S, "sig",         Sig, "", 0) :- def_sig(S, Sig).
 about(S, "doc",         Doc, "", 0) :- def_doc(S, Doc).
 about(S, "defined",     F,   N,  L) :- def(S, F, _, N), at(S, F, L).
@@ -345,10 +382,10 @@ dead_export(S) :- exported(S), def(S, F, _, _), !ref_outside(S, F).
 %% ref_outside(S, F)  helper for dead_export.
 ref_outside(S, F) :- def(S, F, _, _), ref(S, G, _, _, _, _, _), G != F.
 
-%% entrypoint(S)  a callable nothing calls. See tier; NOT dead code, see entrypoint_exact.
+%% entrypoint(S)  a callable nothing calls. See tier. NOT dead code.
 entrypoint(S) :- def(S, _, K, _), callable(K), !calls(_, S).
 
-%% def_lines(S, Lines)  lines S spans, first and last counted. Pick a threshold.
+%% def_lines(S, Lines)  lines S spans, ends counted. Pick a threshold.
 % B - A is the gap between the first and last line, one less than the count.
 % A definition on lines 29..38 spans 10 lines and this reported 9, so the
 % documented `N > 50` silently excluded every 51-line definition and
@@ -380,7 +417,7 @@ documented_file(D) :- mod_file(D, M), def_doc(M, _).
 % `"\"fmt\""` in Go, `"../db/conn"` in TypeScript. Rewriting either side into
 % the other is the guess 02-extraction.md forbids. Ask `import` instead.
 %% uses_package(F, P)  F uses package P as the INDEXER names it -- `@types/x`,
-%%   not `x`. Imports: ask `import`. #58
+%%   not `x`. Imports: ask `import`.
 uses_package(F, P) :- ref(S, F, _, _, _, _, _), extern(S, _, P, _).
 
 % === the precise forms =================================================
@@ -393,7 +430,7 @@ uses_package(F, P) :- ref(S, F, _, _, _, _, _), extern(S, _, P, _).
 %% dead_export_exact(S)  dead_export, SCIP refs only. Variants, trait-impl members cannot be narrowed: !visibility(S, "inherited").
 dead_export_exact(S) :- exported(S), resolved(S), def(S, F, _, _),
                         !ref_outside_exact(S, F).
-%% ref_outside_exact(S, F)  ref_outside, SCIP-resolved refs only.
+%% ref_outside_exact(S, F)  ref_outside, SCIP refs only.
 ref_outside_exact(S, F) :- def(S, F, _, _), ref(S, G, _, _, _, _, "exact"), G != F.
 
 % What this can and cannot see (#111). A row is "no SCIP reference to S sits
@@ -412,12 +449,12 @@ ref_outside_exact(S, F) :- def(S, F, _, _), ref(S, G, _, _, _, _, "exact"), G !=
 % functions only -- drops the first class: a module-level function is not a
 % trait's. It is a filter the caller writes, not a rule: dropping every
 % member from the answer is a judgment about dead inherent methods.
-%% entrypoint_exact(S)  entrypoint, SCIP calls only. A candidate, not dead code: trait/interface impls and in-file tests list; unanchored defs never do.
+%% entrypoint_exact(S)  entrypoint, SCIP calls only. A candidate, not dead code: trait impls and in-file tests list; unanchored defs never do.
 entrypoint_exact(S) :- def(S, _, K, _), callable(K), resolved(S),
                        !calls_exact(_, S).
-%% depends_exact(F, G)  depends, SCIP-resolved refs only.
+%% depends_exact(F, G)  depends, SCIP refs only.
 depends_exact(F, G) :- ref(S, F, _, _, _, _, "exact"), def(S, G, _, _), F != G.
-%% uses_package_exact(F, P)  uses_package, SCIP-resolved only; P is the indexer's name. #58
+%% uses_package_exact(F, P)  uses_package, SCIP only; P is the indexer's name.
 uses_package_exact(F, P) :- ref(S, F, _, _, _, _, "exact"), extern(S, _, P, _).
 
 % === row provenance ====================================================

@@ -1034,6 +1034,27 @@ fn tier_tags_every_row_of_the_five_rules_without_adding_or_dropping_any() {
     assert_eq!(guessed, ["get src/store.rs:19\tget src/store.rs:19"]);
 }
 
+/// #116: every rule that closes over `calls` says, on its own schema line, that
+/// a call through a trait never reaches the implementing method. The answer is
+/// `ok` either way, so the line is the only place the caller meets it.
+#[test]
+fn the_calls_closures_say_they_are_blind_to_trait_dispatch() {
+    let advertised = codeintel::schema::rules(codeintel::STDLIB);
+    let doc = |name: &str| {
+        advertised
+            .iter()
+            .find(|r| r.head.starts_with(&format!("{name}(")))
+            .unwrap_or_else(|| panic!("{name} is not advertised"))
+            .doc
+            .clone()
+    };
+    for name in ["impact_of", "reach_of", "impact_of_exact", "reach_of_exact"] {
+        assert!(doc(name).contains("trait"), "{name}: {}", doc(name));
+    }
+    let about = doc("about");
+    assert!(about.contains("miss trait calls"), "{about}");
+}
+
 /// Every rule `schema` advertises is exercised by some test in this file, or is
 /// named above as uncovered. A rule nobody queries is a rule nobody has checked.
 #[test]
