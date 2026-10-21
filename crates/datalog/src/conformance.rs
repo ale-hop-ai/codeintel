@@ -103,6 +103,9 @@ span("g", 5, 9).
 span("h", 100, 260).
 width(S, W) :- span(S, A, B), W = B - A.
 long(S, W) :- width(S, W), W > 30.
+atleast(S) :- width(S, W), W >= 30.
+below(S) :- width(S, W), W < 30.
+upto(S) :- width(S, W), W <= 30.
 "#;
 
 #[test]
@@ -157,6 +160,51 @@ fn arithmetic() {
 fn comparison_filters_on_integers() {
     let rows = both(NUMBERS, "?- long(S, W).");
     assert_eq!(rows, vec!["\"h\" 160"]);
+}
+
+/// `f` is 30 wide, exactly the threshold: the one row where `>`, `>=`, `<` and
+/// `<=` all give different answers. `NUMBERS` once probed only `>`, and only
+/// away from the tie.
+#[test]
+fn comparison_boundaries_are_exact() {
+    assert_eq!(both(NUMBERS, "?- long(S, _)."), vec!["\"h\""]);
+    assert_eq!(both(NUMBERS, "?- atleast(S)."), vec!["\"f\"", "\"h\""]);
+    assert_eq!(both(NUMBERS, "?- below(S)."), vec!["\"g\""]);
+    assert_eq!(both(NUMBERS, "?- upto(S)."), vec!["\"f\"", "\"g\""]);
+}
+
+/// Every integer comparison against Rust's own, on every pair from a set that
+/// holds both sides of every tie. The differential cannot do this: `Solver`
+/// runs in both evaluators, so a wrong `compare` is wrong identically in each
+/// and they agree. This is the only test that reaches it from outside.
+#[test]
+fn integer_comparisons_agree_with_rust_on_every_pair() {
+    let values: [i64; 5] = [0, 1, 2, 7, 0x0FFF_FFFF];
+    let facts: String = values
+        .iter()
+        .flat_map(|a| values.iter().map(move |b| format!("pair({a}, {b}).\n")))
+        .collect();
+    let ops: [(&str, fn(i64, i64) -> bool); 6] = [
+        ("<", |a, b| a < b),
+        ("<=", |a, b| a <= b),
+        (">", |a, b| a > b),
+        (">=", |a, b| a >= b),
+        ("=", |a, b| a == b),
+        ("!=", |a, b| a != b),
+    ];
+    for (op, holds) in ops {
+        let got = both(&facts, &format!("?- pair(A, B), A {op} B."));
+        let mut want: Vec<String> = values
+            .iter()
+            .flat_map(|a| values.iter().map(move |b| (*a, *b)))
+            .filter(|(a, b)| holds(*a, *b))
+            .map(|(a, b)| format!("{a} {b}"))
+            .collect();
+        want.sort();
+        let mut got_sorted = got.clone();
+        got_sorted.sort();
+        assert_eq!(got_sorted, want, "`A {op} B` over every pair");
+    }
 }
 
 #[test]
