@@ -57,7 +57,7 @@ enum Command {
         #[arg(long)]
         rebuild: bool,
         /// Restrict to these languages. Repeatable.
-        #[arg(long = "lang")]
+        #[arg(long = "lang", value_parser = lang_names())]
         langs: Vec<String>,
         /// A SCIP index to ingest. Repeatable. Defaults to `./index.scip` if
         /// one is there.
@@ -189,6 +189,26 @@ fn outln(text: &str) -> Result<()> {
     out(&format!("{text}\n"))
 }
 
+/// The directory the caller named. A missing path and a file are both refused
+/// here, the same way for every verb, before any store is opened
+/// (`specs/05-surface.md` § `index`).
+fn root_of(path: &std::path::Path) -> Result<PathBuf> {
+    let root = path
+        .canonicalize()
+        .with_context(|| format!("{} does not exist", path.display()))?;
+    anyhow::ensure!(
+        root.is_dir(),
+        "{} is not a directory; a repository root is one",
+        path.display()
+    );
+    Ok(root)
+}
+
+/// The language names `--lang` accepts: the rows of the language table.
+fn lang_names() -> clap::builder::PossibleValuesParser {
+    clap::builder::PossibleValuesParser::new(extract::lang::LANGS.iter().map(|l| l.name))
+}
+
 fn run() -> Result<ExitCode> {
     match Cli::parse().command {
         Command::Index {
@@ -258,21 +278,15 @@ fn schema_cmd(
     index_dir: Option<&std::path::Path>,
     format: Format,
 ) -> Result<ExitCode> {
-    let root = path
-        .canonicalize()
-        .with_context(|| format!("{} does not exist", path.display()))?;
+    let root = root_of(path)?;
     let dir = facts::store::locate(&root, index_dir).context("locating the index")?;
     let mut store = match Store::open(&root, &dir, &extract::fingerprint()) {
         Ok(store) => store,
         Err(e) => return refusal(e, format),
     };
     // Refresh as `query` does: the counts are what `query` will see.
-    let refreshed = match query::refresh_store(&mut store, &root) {
-        Ok(refreshed) => refreshed,
-        Err(e) => return refusal(e, format),
-    };
-    let census = match Census::of(&store) {
-        Ok(census) => census,
+    let (census, refreshed) = match query::count(&mut store, &root) {
+        Ok(counted) => counted,
         Err(e) => return refusal(e, format),
     };
     let schema = Schema { census: &census };
@@ -301,9 +315,7 @@ fn status_cmd(
     index_dir: Option<&std::path::Path>,
     format: Format,
 ) -> Result<ExitCode> {
-    let root = path
-        .canonicalize()
-        .with_context(|| format!("{} does not exist", path.display()))?;
+    let root = root_of(path)?;
     let dir = facts::store::locate(&root, index_dir).context("locating the index")?;
     // `query`'s checks, in `query`'s order (`specs/05-surface.md` § `status`).
     let store = match Store::open(&root, &dir, &extract::fingerprint()) {
@@ -361,9 +373,7 @@ fn refusal(error: std::io::Error, format: Format) -> Result<ExitCode> {
 
 /// The one MCP tool, over JSON-RPC on stdin and stdout.
 fn mcp_cmd(path: &std::path::Path, index_dir: Option<&std::path::Path>) -> Result<ExitCode> {
-    let root = path
-        .canonicalize()
-        .with_context(|| format!("{} does not exist", path.display()))?;
+    let root = root_of(path)?;
     let stdin = std::io::stdin();
     codeintel::mcp::serve(&root, index_dir, stdin.lock(), std::io::stdout().lock())?;
     Ok(ExitCode::SUCCESS)
@@ -377,9 +387,7 @@ fn index_cmd(
     scip: Vec<PathBuf>,
     scip_roots: Vec<String>,
 ) -> Result<ExitCode> {
-    let root = path
-        .canonicalize()
-        .with_context(|| format!("{} does not exist", path.display()))?;
+    let root = root_of(path)?;
     // An input the caller named is a claim that it exists. `./index.scip` is
     // optional only because nobody named it. Checked before the lock and the
     // `--rebuild` discard, so a typo costs nothing.
@@ -643,7 +651,8 @@ fn query_cmd(
         program.to_string()
     };
 
-    let answer = query::run(path, &source, options)?;
+    let root = root_of(path)?;
+    let answer = query::run(&root, &source, options)?;
 
     match format {
         Format::Json => outln(&wire::json(&answer, options.raw).to_string())?,

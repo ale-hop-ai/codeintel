@@ -1285,6 +1285,97 @@ fn status_reports_another_schema_as_stale_without_counts() {
 }
 
 #[test]
+fn schema_agrees_with_query_and_status_about_another_schema() {
+    // #135: `schema` read `ok` and printed the counts of an index this build
+    // cannot read, while `query` and `status` said `stale` about the same one.
+    let dir = tree();
+    run(dir.path(), &["index", "."]);
+    let path = dir.path().join(".codeintel/manifest.json");
+    let mut json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).expect("reads")).expect("JSON");
+    json["schema_version"] = 999.into();
+    std::fs::write(&path, json.to_string()).expect("writes");
+
+    let out = run(dir.path(), &["schema", "--format", "json"]);
+    assert!(out.status.success(), "schema exits 0, as it always has");
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    assert_eq!(json["status"], "stale", "{json}");
+    assert!(
+        json["hint"]
+            .as_str()
+            .is_some_and(|h| h.contains("schema_version 999")),
+        "{json}"
+    );
+    let defs = json["relations"]
+        .as_array()
+        .expect("relations")
+        .iter()
+        .find(|r| r["name"] == "def")
+        .expect("def");
+    assert_eq!(defs["rows"], 0, "counts of an unreadable index: {defs}");
+
+    let text = run(dir.path(), &["schema"]);
+    let stderr = String::from_utf8_lossy(&text.stderr);
+    assert!(stderr.contains("status=stale"), "{stderr}");
+    assert!(stderr.contains("schema_version 999"), "{stderr}");
+}
+
+/// #141: a path the caller typed that names no directory is refused by every
+/// verb that takes one, before any store is opened or any index is written.
+#[test]
+fn a_path_that_is_not_a_directory_is_refused_by_every_verb() {
+    let dir = tree();
+    let file = "src/lib.rs";
+    assert!(dir.path().join(file).is_file(), "fixture has {file}");
+    let query = "?- def(S, _, _, _).";
+    let cases: [(&str, &[&str]); 8] = [
+        ("index file", &["index", file]),
+        ("index missing", &["index", "nosuchdir"]),
+        ("query file", &["query", query, "--path", file]),
+        ("query missing", &["query", query, "--path", "nosuchdir"]),
+        ("schema file", &["schema", "--path", file]),
+        ("schema missing", &["schema", "--path", "nosuchdir"]),
+        ("status file", &["status", file]),
+        ("status missing", &["status", "nosuchdir"]),
+    ];
+    for (what, args) in cases {
+        let out = run(dir.path(), args);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(out.status.code(), Some(2), "{what}: {stdout}{stderr}");
+        assert!(
+            stderr.contains(file) || stderr.contains("nosuchdir"),
+            "{what} must name the path: {stderr}"
+        );
+        assert!(
+            !stdout.contains("no-index") && !stderr.contains("no-index"),
+            "{what}: a path that does not exist is not `no-index`: {stdout}{stderr}"
+        );
+    }
+    assert!(!dir.path().join(".codeintel").exists(), "a refusal wrote");
+}
+
+#[test]
+fn a_language_that_names_no_grammar_is_refused_with_the_valid_names() {
+    let dir = tree();
+    let out = run(dir.path(), &["index", ".", "--lang", "klingon"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("klingon"), "{stderr}");
+    for lang in extract::lang::LANGS {
+        assert!(
+            stderr.contains(lang.name),
+            "{} missing: {stderr}",
+            lang.name
+        );
+    }
+    assert!(!dir.path().join(".codeintel").exists(), "a refusal wrote");
+
+    let ok = run(dir.path(), &["index", ".", "--lang", "rust"]);
+    assert!(ok.status.success(), "a real name still indexes");
+}
+
+#[test]
 fn status_reports_a_store_that_will_not_load_as_corrupt() {
     let dir = tree();
     run(dir.path(), &["index", "."]);

@@ -15,6 +15,7 @@ use datalog::atom::is_int;
 use datalog::{EmptyAt, Engine, Limits, Relation, Term};
 use facts::{Lock, Store};
 
+use crate::census::Census;
 use crate::discover::{self, Nearby};
 use crate::index::{self, Plan};
 use crate::overlay::{Literals, Overlay};
@@ -1431,19 +1432,37 @@ pub(crate) fn indexers(manifest: &facts::Manifest) -> Vec<&'static str> {
     out
 }
 
-/// Refresh `store` as `query` would, so a catalog counted from it describes the
-/// database `query` is about to answer from. No index, or one written for
-/// another schema, is left alone: `query` answers those before it refreshes.
+/// Count `store` as `schema` prints it, after refreshing as `query` would, so a
+/// catalog describes the database `query` is about to answer from.
+///
+/// No index is counted as none. One written for another schema is `stale` with
+/// the hint `query` gives, and is **not read**: its segments are a format this
+/// build does not speak, so its counts would be printed as this index's and
+/// mean nothing (#135).
 ///
 /// # Errors
 /// An I/O failure that is not a refusal; refusals are statuses.
-pub fn refresh_store(store: &mut Store, root: &Path) -> std::io::Result<(Status, Option<String>)> {
-    if !store.has_index() || stale_schema(store.manifest(), root).is_some() {
-        return Ok((Status::Ok, None));
+pub fn count(
+    store: &mut Store,
+    root: &Path,
+) -> std::io::Result<(Census, (Status, Option<String>))> {
+    if store.has_index()
+        && let Some(hint) = stale_schema(store.manifest(), root)
+    {
+        let census = Census {
+            indexed: true,
+            ..Census::default()
+        };
+        return Ok((census, (Status::Stale, Some(hint))));
     }
-    refresh(store, root, &Options::default())
-        .map(|(status, hint, _)| (status, hint))
-        .map_err(std::io::Error::other)
+    let refreshed = if store.has_index() {
+        refresh(store, root, &Options::default())
+            .map(|(status, hint, _)| (status, hint))
+            .map_err(std::io::Error::other)?
+    } else {
+        (Status::Ok, None)
+    };
+    Census::of(store).map(|census| (census, refreshed))
 }
 
 /// Bring the index up to date, within the refresh budget.

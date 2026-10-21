@@ -114,7 +114,18 @@ two consumers.
 Builds or updates the store. `--scip` may repeat; defaults to `./index.scip` if
 present. `--rebuild` discards and rewrites, including the dictionary. `--lang`
 restricts grammars: files of every other language are neither refreshed nor
-dropped, they are carried forward unchanged.
+dropped, they are carried forward unchanged. A `--lang` that names no grammar in
+the language table (`extract::lang::LANGS`) exits 2 and lists the valid names:
+`--lang rustt` would otherwise carry every file forward, index nothing and print
+a success (#141).
+
+**A `PATH` the caller typed is a claim that it is a directory.** `index`,
+`query --path`, `schema --path`, `status` and `mcp --path` all canonicalise it
+the same way and exit 2 naming it when it does not exist or is a file, before any
+store is opened. A file indexed as a root walks to nothing and leaves a zero-file
+index keyed on that file's path, `ok` forever; and `query --path <missing>` was
+`no-index` with a hint to `cd` into the directory that is not there, while
+`status` and `schema` refused the same path (#141).
 
 An input the caller names must exist and must be a SCIP index: `--scip nope.scip`
 with no such file, and a zero-byte file (what an indexer that died after creating
@@ -779,8 +790,12 @@ counts are what an agent uses to decide what is worth asking, so they must be
 the counts `query` will answer from. It refreshes the index first, within the
 same `max_refresh_ms`; a refresh that runs out of budget or cannot take the
 writer lock leaves the catalog counted from the index as it stands, with status
-`stale` and `query`'s hint. With no index, or one written for another schema,
-it does not refresh. `tests/surface.rs` asserts the counts equal what a query
+`stale` and `query`'s hint. With no index it does not refresh. An index written for
+another schema is `stale` with `query`'s hint and **its counts are not read**:
+they belong to a format this build does not speak, so the catalog carries zeros,
+as it does with no index, and `schema` agrees with `query` and `status` about
+the one index (#135). The exit code is unchanged: 0, as for every `schema`
+verdict but a store that will not load. `tests/surface.rs` asserts the counts equal what a query
 sees on a tree edited since indexing, and that a lock-blocked refresh reports
 `stale`. (Before this, `schema` reported `ok` over a tree with 45 files changed,
 `def` over 108 files while the next query saw 115.)
