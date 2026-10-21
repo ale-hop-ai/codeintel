@@ -241,6 +241,34 @@ fn an_empty_result_says_which_literal_matched_nothing() {
     );
 }
 
+/// A negated literal that empties the join is the one that *matched* (#124).
+/// "matched 0 rows" would send the agent at the literal that worked.
+#[test]
+fn a_negation_that_empties_the_join_is_not_said_to_have_matched_nothing() {
+    let dir = tree();
+    index(dir.path());
+
+    let (rows, stderr) = query(
+        dir.path(),
+        r#"?- def(S, _, "function", _), !def(S, _, _, _)."#,
+    );
+    assert!(rows.is_empty(), "{rows:?}");
+    assert!(!stderr.contains("matched 0 rows"), "{stderr}");
+    assert!(
+        stderr.contains("`!def(S, _, _, _)` excluded every row"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("`def` row(s)"), "{stderr}");
+    assert!(
+        stderr.contains("a `_` inside `!` means no such row anywhere"),
+        "{stderr}"
+    );
+
+    let (rows, stderr) = query(dir.path(), r"?- def(S, F, K, N), !def(S, F, K, N).");
+    assert!(rows.is_empty(), "{rows:?}");
+    assert!(stderr.contains("drop the `!`"), "{stderr}");
+}
+
 /// The emptiness hint reads the literal the engine parsed, not its text (#81).
 ///
 /// The host used to recover the arguments by splitting the literal's source on

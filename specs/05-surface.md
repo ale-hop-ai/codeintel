@@ -1004,6 +1004,19 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
   rows, which is indistinguishable from a typo, a wrong `Kind`, a path that is
   not indexed, and a missing SCIP index. The engine already evaluates
   literal-by-literal, so the first-zero literal is free.
+- **A negated literal is named as the one that excluded, not the one that
+  matched nothing (#124).** For `!p(..)` an empty join means `p` *had* matching
+  rows — matching is what removed every binding — so "matched 0 rows" says the
+  opposite of the truth and points the agent at the one literal that worked.
+  The hint keeps the `!` (the engine's literal text omits it), says the
+  negation `excluded every row`, reports the relation total for a base
+  relation, and, when the literal holds a `_`, says what a `_` inside `!`
+  means: no such row anywhere, so bind the variable first. Without a `_` it says
+  dropping the `!` shows what was excluded. It never claims a count of
+  *matching* rows: the engine does not report one, and the host does not
+  re-evaluate. Comparisons, assignments, `between` and the string tests keep
+  the `matched 0 rows` wording; whether it misleads there is tracked
+  separately on #124.
 - **When a condition and an empty result coincide, the hint carries both**, as
   `condition. also: emptiness`, and the **status stays the condition**. The two
   are different facts: the condition says what the index could not see, the
