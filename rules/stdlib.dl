@@ -417,8 +417,8 @@ undocumented_export(S) :- exported(S), !def_doc(S, _).
 % specifier, not a package name -- `"std::collections::HashMap"` in Rust,
 % `"\"fmt\""` in Go, `"../db/conn"` in TypeScript. Rewriting either side into
 % the other is the guess 02-extraction.md forbids. Ask `import` instead.
-%% uses_package(F, P)  F uses package P as the INDEXER names it -- `@types/x`,
-%%   not `x`. Imports: ask `import`.
+%% uses_package(F, P)  SCIP only; P is the INDEXER's name -- `@types/x`, not `x`.
+%%   Imports: ask `import`.
 uses_package(F, P) :- ref(S, F, _, _, _, _, _), extern(S, _, P, _).
 
 % === the precise forms =================================================

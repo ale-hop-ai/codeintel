@@ -846,6 +846,26 @@ fn extern_and_uses_package_see_the_standard_library() {
     assert!(!rows(r#"?- about(S, "extern", A, B, L)."#).is_empty());
 }
 
+/// #117: `uses_package` has no `name` tier, and that is EXPECTED. A `name` row
+/// needs a `ref` whose symbol is also in `extern`; `ref`'s name clauses bind
+/// the symbol from `def`, and ingest drops from `extern` every symbol a SCIP
+/// document defines (`Ingest::recount`). So `def` and `extern` never overlap.
+/// If either assertion fires, that extraction invariant broke and the
+/// `uses_package` / `uses_package_exact` pair is no longer identical by
+/// construction (`specs/01-facts.md` § `extern`).
+#[test]
+fn uses_package_has_no_name_tier_because_def_and_extern_never_overlap() {
+    let overlap = rows("?- def(S, _, _, _), extern(S, _, _, _).");
+    assert!(
+        overlap.is_empty(),
+        "a symbol is both defined and external: {overlap:?}"
+    );
+    let exact = rows(r#"?- tier("uses_package", A, B, "exact")."#);
+    assert!(!exact.is_empty(), "the exact tier is the whole answer here");
+    let name = rows(r#"?- tier("uses_package", A, B, "name")."#);
+    assert!(name.is_empty(), "uses_package grew a name tier: {name:?}");
+}
+
 // ---------------------------------------------------------------- visibility
 
 /// `exported` is derived, and the point of deriving it is that a definition

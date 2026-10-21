@@ -1396,6 +1396,11 @@ fn uses_package_advertises_whose_package_name_it_reports() {
          file declares (#58): {:?}",
         uses_package.doc
     );
+    assert!(
+        uses_package.doc.contains("SCIP only"),
+        "`uses_package` has no name tier and its doc must say so (#117): {:?}",
+        uses_package.doc
+    );
 }
 
 /// `schema` counts and `query` counts for one relation, on the same tree.
