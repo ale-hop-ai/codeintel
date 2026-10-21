@@ -415,6 +415,36 @@ sparse and unrepresentative call graph.** That is stated plainly here, in
 `status` output, and in the README, because a sparse call graph reporting
 `status: ok` is indistinguishable from code that has no callers.
 
+### A file that does not parse is partial, and says so
+
+tree-sitter is error-tolerant: a file with a syntax error still yields a tree,
+and the extractor emits facts from it. What the grammar recovered is real
+(invariant 1 holds) but **what it did not recover is not "absent from your
+code"**. Measured (#131), one broken declaration and a valid one after it:
+
+| language | error | valid declaration after it |
+|---|---|---|
+| Rust | four shapes (bad params, bad expr, unclosed struct, bad `if`) | kept, all four |
+| Go | `func B( {`, unclosed `struct`, `var x =` | **lost**, three of four shapes |
+| Python | `x = (1,`, `class K(:` + unclosed `[` | **lost**, two of three shapes |
+| TypeScript/TSX | `function b( {`, unclosed class method, unclosed `{` | **lost**, three of three |
+
+Whether the tail survives depends on the grammar and on where the error falls,
+so no language can be declared safe and the extractor does not try to guess.
+It reports the one thing the parser knows: the tree has an error.
+
+- When `root.has_error()`, the file's `syntax_error` is the 1-based line of the
+  first `ERROR` or `MISSING` node in document order. Otherwise it is absent.
+  This is read off a node's byte range, so invariant 1 holds; no row is added,
+  dropped or changed — facts are emitted exactly as before.
+- It is a **per-file manifest field, not a relation**
+  ([04-storage.md](04-storage.md) § Manifest). The relation budget is 16/16 and
+  this needs no query over it; a `parse_error` relation would be the way to let
+  a rule ask "is the file I am asking about whole" and is an owner decision
+  (#131 option B).
+- A file of the language that fails to parse at all (`Parser::parse` returns
+  `None`) is still an extraction error, unchanged.
+
 ### Budget
 
 Skip a file if: binary, > 2 MB, matched by `.gitignore`/`.ignore` (via the

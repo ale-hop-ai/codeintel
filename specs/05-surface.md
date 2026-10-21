@@ -207,6 +207,18 @@ percentage wrong wherever a symbol carries two kinds — and `def`'s row count i
 what a query reads. Having one number serve both is what this says it does not
 do.
 
+**Files that parsed with errors are listed, by file and line, over the whole
+store.** `syntax errors: 3 file(s) parsed with errors; definitions after the
+error may be missing: bad.go:3, bad.py:3, ...` (#131). tree-sitter recovers
+from a syntax error and the extractor keeps what it recovered, but on three of
+the four languages a valid declaration after the error can be swallowed
+([02-extraction.md](02-extraction.md) § A file that does not parse is partial),
+and every surface used to report that as success. This line is the one
+exception to "`index` counts the run it just did": an unchanged file that still
+does not parse is still partial, and a list that only named files re-extracted
+this run would go quiet on the second `index`. Capped at five names with the
+total always shown, like `scip skipped`. Absent when every file parsed.
+
 **There is no `ignored` count.** For the *walk*: the `ignore` crate does not
 report the entries its matchers drop, so the number costs a second full
 traversal with the matchers off — which on a repo with a populated `target/` is
@@ -784,6 +796,16 @@ count `index` prints is the run it just did, every count `status` prints is the
 whole store — so after an incremental reindex the two describe different sets
 of files. They never describe the same set two ways.
 
+`status` lists the files that parsed with errors the same way, with their first
+error line (`syntax errors:` in text, `syntax_errors` in JSON — an object from
+path to line, empty when none). It is read from the manifest's `syntax_error`
+([04-storage.md](04-storage.md) § Manifest), so it names every such file in
+the store. **It does not change the verdict**: `status` is `ok` over a store
+with a broken file, as it was. A status for "this answer may be missing rows
+because a file did not parse" would be a row in § Status taxonomy, which is an
+owner decision (#131); until it is made, `query` carries the fact in the hint
+(§ `query`).
+
 The verdict uses the checks `query` uses, in this order: `no-index` when there
 is nothing here; `stale` when the index was written for another
 `schema_version`; `corrupt` when the store will not load; `stale` when a file
@@ -1025,6 +1047,15 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
   rows, which is indistinguishable from a typo, a wrong `Kind`, a path that is
   not indexed, and a missing SCIP index. The engine already evaluates
   literal-by-literal, so the first-zero literal is free.
+- **An empty result over a store holding files that parsed with errors says so
+  (#131).** The hint gains `. also: N file(s) parsed with errors, so a
+  definition after the error may be missing: bad.go:3` — composed after the
+  empty-result line the way a degradation is, five names at most, the total
+  always shown. The status stays `ok`, and a non-empty answer carries nothing:
+  this is the one case where the missing row is the answer, and a hint on every
+  answer from a store with one broken file is noise. A `syntax-errors` status
+  would let a consumer branch on it without reading prose; that is a new row in
+  § Status taxonomy and an owner decision, not taken here.
 - **A negated literal is named as the one that excluded, not the one that
   matched nothing (#124).** For `!p(..)` an empty join means `p` *had* matching
   rows — matching is what removed every binding — so "matched 0 rows" says the
