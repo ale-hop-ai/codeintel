@@ -805,6 +805,44 @@ fn a_conformance_check_passes_clean_and_fails_dirty() {
     );
 }
 
+/// #134: a check whose index could not run the query must not exit 0. The tree
+/// holds `def` rows, so a real evaluation is non-empty (exit 1, the control);
+/// the same query against an index written by another schema never evaluates,
+/// and its zero rows are "could not tell", which is 2.
+#[test]
+fn expect_empty_does_not_pass_on_an_index_the_query_never_ran_against() {
+    let dir = tree();
+    index(dir.path());
+    let args = ["query", "?- def(S, F, K, N).", "--expect-empty"];
+
+    let control = run(dir.path(), &args);
+    assert_eq!(
+        control.status.code(),
+        Some(1),
+        "control: the query has rows. {}",
+        String::from_utf8_lossy(&control.stderr)
+    );
+
+    let path = dir.path().join(".codeintel/manifest.json");
+    let mut json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).expect("reads")).expect("JSON");
+    json["schema_version"] = 2.into();
+    std::fs::write(&path, json.to_string()).expect("writes");
+
+    let out = run(dir.path(), &args);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("status=stale"), "{stderr}");
+    assert_eq!(out.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("expect-empty"),
+        "the failure says why: {stderr}"
+    );
+
+    // Without the flag nothing moves: `stale` still exits 0 (#135 is that one).
+    let plain = run(dir.path(), &["query", "?- def(S, F, K, N)."]);
+    assert_eq!(plain.status.code(), Some(0));
+}
+
 #[test]
 fn rule_files_add_clauses_and_the_query_shadows_them() {
     // A predicate is the union of its clauses, so a `--rules` file defining

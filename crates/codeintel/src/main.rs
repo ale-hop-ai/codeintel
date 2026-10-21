@@ -658,6 +658,16 @@ fn query_cmd(
     if !answer.status.answered() {
         return Ok(ExitCode::from(2));
     }
+    // A schema-mismatched index answers `stale` with zero rows and no
+    // evaluation. For a check whose passing case is "no rows", that is "I could
+    // not tell you", not "none" (#134).
+    if expect_empty && !answer.evaluated {
+        eprintln!(
+            "expect-empty: the query never ran against this index, so \"no rows\" is not an answer; \
+             see the hint above"
+        );
+        return Ok(ExitCode::from(2));
+    }
     // A conformance check states the violation it looks for, so finding none is
     // the passing case. Exit 1 — distinct from the 2 that means the query never
     // ran, because "your code violates this" and "I could not tell you" are not
