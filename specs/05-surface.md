@@ -219,6 +219,15 @@ does not parse is still partial, and a list that only named files re-extracted
 this run would go quiet on the second `index`. Capped at five names with the
 total always shown, like `scip skipped`. Absent when every file parsed.
 
+**Files in a supported language that were not read are named, over the whole
+tree.** `not read: 3 file(s) were not read, so the answer may be in one:
+src/huge.rs (too large), src/bin.rs (not UTF-8), ...` (#130). The `skipped:`
+line above counts by reason; this one names the files, because a count cannot
+answer "is the file I am asking about in there". Too large is the file most
+likely to hold the thing asked about (a generated parser, a vendored bundle).
+Five names, the total always shown, absent when every such file was read.
+Source: the manifest's `skipped` ([04-storage.md](04-storage.md) § Manifest).
+
 **There is no `ignored` count.** For the *walk*: the `ignore` crate does not
 report the entries its matchers drop, so the number costs a second full
 traversal with the matchers off — which on a repo with a populated `target/` is
@@ -796,6 +805,16 @@ count `index` prints is the run it just did, every count `status` prints is the
 whole store — so after an incremental reindex the two describe different sets
 of files. They never describe the same set two ways.
 
+`status` lists the files that were not read the same way (`not read:` in text,
+`skipped` in JSON — an object from path to `{reason, mtime, size}`, empty when
+none; #130). A file recorded there **is not "changed since index"**: it was
+walked, read and refused, and `index` cannot clear a `stale` it caused. It is
+changed again, and `stale`, when its mtime or size moves. **It does not change
+the verdict**, for the reason below; `query` carries the fact in the hint.
+`indexed: 0 files` with `status: ok` is the zero-file index (#140), readable
+without prose as JSON `files: 0`; whether that earns a status is the owner's
+call, below.
+
 `status` lists the files that parsed with errors the same way, with their first
 error line (`syntax errors:` in text, `syntax_errors` in JSON — an object from
 path to line, empty when none). It is read from the manifest's `syntax_error`
@@ -1080,6 +1099,24 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
   answer from a store with one broken file is noise. A `syntax-errors` status
   would let a consumer branch on it without reading prose; that is a new row in
   § Status taxonomy and an owner decision, not taken here.
+- **The hint does not say "everything before it in the join matched" of the
+  first literal (#140).** Nothing precedes it, and next to a relation total of
+  0 the sentence read as the opposite of the diagnosis. The engine reports the
+  literal's evaluation position (`EmptyAt::position`); at `0` the sentence is
+  dropped.
+- **An empty result over a store that skipped files says so (#130, #140).** The
+  hint gains `. also: N file(s) were not read, so the answer may be in one:
+  src/huge.rs (too large), ...` — the files `index` refused (too large, not
+  UTF-8, unreadable), five names, the total shown. Over a store holding **no
+  files at all** it gains `. also: the index holds 0 files, so no query can
+  match; `codeintel status` lists the extensions no grammar covers`, which is
+  said whether or not the query reached SCIP, so a `no-scip` over nothing is not
+  left recommending an indexer for a tree no grammar reads. Status stays `ok` /
+  `no-scip`, as for syntax errors, and a non-empty answer carries nothing.
+  **A caller reading only JSON can tell on `status`** (`files: 0`,
+  `skipped`), not on `query`. A `no-files` / `partial` status would put it on
+  `query` too: a new row in § Status taxonomy and an owner decision, not taken
+  here (options on #130 and #140).
 - **A negated literal is named as the one that excluded, not the one that
   matched nothing (#124).** For `!p(..)` an empty join means `p` *had* matching
   rows — matching is what removed every binding — so "matched 0 rows" says the

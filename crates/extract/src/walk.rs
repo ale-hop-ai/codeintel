@@ -41,8 +41,8 @@ pub struct Candidate {
 /// `specs/05-surface.md` § `index` records the deviation.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Skips {
-    /// Over [`MAX_BYTES`].
-    pub too_large: usize,
+    /// Over [`MAX_BYTES`], in path order.
+    pub too_large: Vec<Oversize>,
     /// Extension with no registered grammar, counted per extension so the
     /// summary can say `88 unsupported (.scala)`.
     pub unsupported: BTreeMap<String, usize>,
@@ -50,11 +50,22 @@ pub struct Skips {
     pub unreadable: Vec<String>,
 }
 
+/// A file in a supported language over [`MAX_BYTES`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Oversize {
+    /// Repo-relative, `/`-separated.
+    pub path: String,
+    /// Length in bytes.
+    pub size: u64,
+    /// Mtime in seconds since the epoch.
+    pub mtime: u64,
+}
+
 impl Skips {
     /// How many files were skipped in total.
     #[must_use]
     pub fn total(&self) -> usize {
-        self.too_large + self.unsupported.values().sum::<usize>() + self.unreadable.len()
+        self.too_large.len() + self.unsupported.values().sum::<usize>() + self.unreadable.len()
     }
 }
 
@@ -152,7 +163,7 @@ enum Verdict {
     /// Reached, but no grammar handles this extension.
     Unsupported(String),
     /// Reached, but past [`MAX_BYTES`].
-    TooLarge,
+    TooLarge(Oversize),
     /// Reached, but its metadata would not read.
     Unreadable,
 }
@@ -177,7 +188,12 @@ fn classify(root: &Path, entry: &ignore::DirEntry) -> (Option<String>, Verdict) 
         return (Some(path), Verdict::Unreadable);
     };
     if meta.len() > MAX_BYTES {
-        return (Some(path), Verdict::TooLarge);
+        let big = Oversize {
+            path: path.clone(),
+            size: meta.len(),
+            mtime: mtime_of(&meta),
+        };
+        return (Some(path), Verdict::TooLarge(big));
     }
     let candidate = Candidate {
         abs: entry.path().to_path_buf(),
@@ -195,7 +211,7 @@ fn classify(root: &Path, entry: &ignore::DirEntry) -> (Option<String>, Verdict) 
 /// changes nothing, and the cheapest way to hold that is to not have an order
 /// that depends on the filesystem in the first place. That requirement is also
 /// what makes the walk safe to parallelize: every output is either sorted here
-/// (`files`, `skips.unreadable`) or order-independent by type (`visible` is a
+/// (`files`, `skips.unreadable`, `skips.too_large`) or order-independent by type (`visible` is a
 /// `BTreeSet`, `skips.unsupported` a `BTreeMap` of counts), so thread
 /// interleaving cannot reach the result.
 ///
@@ -219,6 +235,7 @@ pub fn walk(root: &Path) -> Walked {
     // Nondeterministic in arrival order, and reported to a human
     // (`specs/05-surface.md` § `index`). Sorted for the same reason `files` is.
     out.skips.unreadable.sort_unstable();
+    out.skips.too_large.sort_by(|a, b| a.path.cmp(&b.path));
     out
 }
 
@@ -264,7 +281,7 @@ impl ignore::ParallelVisitor for Visitor<'_> {
                 Verdict::Unsupported(ext) => {
                     *self.local.skips.unsupported.entry(ext).or_default() += 1;
                 }
-                Verdict::TooLarge => self.local.skips.too_large += 1,
+                Verdict::TooLarge(big) => self.local.skips.too_large.push(big),
                 Verdict::Unreadable => self.local.skips.unreadable.push(path),
                 Verdict::Ignore => {}
             }
@@ -281,7 +298,10 @@ impl Drop for Visitor<'_> {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         shared.files.append(&mut self.local.files);
         shared.visible.append(&mut self.local.visible);
-        shared.skips.too_large += self.local.skips.too_large;
+        shared
+            .skips
+            .too_large
+            .append(&mut self.local.skips.too_large);
         shared
             .skips
             .unreadable
@@ -382,7 +402,7 @@ mod tests {
         std::fs::write(dir.path().join("big.rs"), big).expect("write");
         let walked = walk(dir.path());
         assert!(walked.files.is_empty());
-        assert_eq!(walked.skips.too_large, 1);
+        assert_eq!(walked.skips.too_large.len(), 1);
         assert_eq!(walked.skips.total(), 1);
         assert!(
             walked.visible.contains("big.rs"),

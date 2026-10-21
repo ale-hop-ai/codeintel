@@ -264,6 +264,10 @@ deliberately deferred.
       "ambiguous": 0 }
   ],
   "scip_collisions": 0,
+  "skipped": {
+    "src/huge.rs": { "reason": "too-large", "mtime": 1757000000, "size": 2800020 },
+    "src/bin.rs":  { "reason": "not-utf8",  "mtime": 1757000000, "size": 22 }
+  },
   "files": {
     "src/store.rs": {
       "seg": "a3f1...bin", "mtime": 1757000000, "size": 4021,
@@ -287,6 +291,19 @@ other per-file fact (invariant 3b), so it is re-derived whenever the file is
 re-extracted and is carried with the entry. A manifest written before the field
 existed reads absent; the extractor fingerprint changes with the field, which
 forces the full re-extract that fills it.
+
+**`skipped` is the files the walk reached in a supported language and the
+indexer did not read, and absence means there were none.** `reason` is one of
+`too-large` (over the 2 MiB cap), `not-utf8` and `unreadable`; `mtime` and
+`size` are what the walk saw. A file with no grammar is not here — `status`
+counts those by extension (05-surface.md § `status`). It is a fact the indexer
+already holds, not an inference (invariant 1), and it is whole-tree, not
+per-run: every refresh re-derives it from the walk, carrying forward only the
+`not-utf8` and `unreadable` entries a `--lang` or deadline-stopped run did not
+re-decide. Its `mtime`+`size` are what let `status` tell an unchanged refused
+file (accounted for) from an edited one (a change). A manifest written before
+the field reads absent, and the next refresh fills it; no schema bump, as with
+`syntax_error`.
 
 `hash` is content, `mtime`+`size` is the fast path. A file is unchanged without
 hashing iff mtime and size both match **and its mtime is before `indexed_at`**;

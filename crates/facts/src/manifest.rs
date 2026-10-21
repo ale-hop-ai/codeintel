@@ -60,6 +60,47 @@ pub struct Manifest {
     pub scip_matched: Option<u64>,
     /// Indexed files, keyed by repo-relative path with `/` separators.
     pub files: BTreeMap<String, FileEntry>,
+    /// Files in a supported language the walk reached and the indexer did
+    /// not read, keyed like `files` and never in both. Absent in a manifest
+    /// written before the field existed, which the next refresh fills
+    /// (`specs/04-storage.md` § Manifest).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub skipped: BTreeMap<String, SkipEntry>,
+}
+
+/// Why a file in a supported language was not read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SkipReason {
+    /// Over the size cap the extractor will parse.
+    TooLarge,
+    /// Its bytes are not UTF-8.
+    NotUtf8,
+    /// It would not read.
+    Unreadable,
+}
+
+impl SkipReason {
+    /// The words `index`, `status` and the empty-query hint all use.
+    #[must_use]
+    pub fn words(self) -> &'static str {
+        match self {
+            Self::TooLarge => "too large",
+            Self::NotUtf8 => "not UTF-8",
+            Self::Unreadable => "unreadable",
+        }
+    }
+}
+
+/// One file the indexer saw and did not read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkipEntry {
+    /// Why.
+    pub reason: SkipReason,
+    /// Source mtime in seconds since the epoch, as the walk saw it.
+    pub mtime: u64,
+    /// Length in bytes, as the walk saw it.
+    pub size: u64,
 }
 
 /// One ingested SCIP index.
@@ -312,6 +353,7 @@ impl Manifest {
             scip_collisions: 0,
             scip_matched: None,
             files: BTreeMap::new(),
+            skipped: BTreeMap::new(),
         }
     }
 

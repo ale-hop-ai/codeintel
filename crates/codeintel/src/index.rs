@@ -100,6 +100,10 @@ pub struct Report {
     /// one, over the whole store and not only this run: an unchanged file that
     /// does not parse is still partial.
     pub syntax_errors: Vec<(String, u32)>,
+    /// Files in a supported language that were not read, over the whole tree
+    /// and not only this run: a file `index` skipped is still unread on the
+    /// second `index`, and it is still where the answer might be.
+    pub unread: BTreeMap<String, facts::SkipEntry>,
     /// Wall time.
     pub elapsed_ms: u128,
 }
@@ -149,6 +153,23 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
     report.skips = walked.skips;
     let visible = walked.visible;
 
+    let mut unread: BTreeMap<String, facts::SkipEntry> = report
+        .skips
+        .too_large
+        .iter()
+        .map(|big| {
+            (
+                big.path.clone(),
+                facts::SkipEntry {
+                    reason: facts::SkipReason::TooLarge,
+                    mtime: big.mtime,
+                    size: big.size,
+                },
+            )
+        })
+        .collect();
+    let mut decided: BTreeSet<String> = BTreeSet::new();
+
     let wanted: Vec<Candidate> = walked
         .files
         .into_iter()
@@ -176,6 +197,7 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
             report.stale.push(candidate.path);
             continue;
         }
+        decided.insert(candidate.path.clone());
         // Two halves, and the split is where the I/O stops being a decision
         // and starts being work: `pending` decides, `extract` does.
         let Some(pending) = pending(
@@ -185,6 +207,7 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
             before.indexed_at,
             &candidate,
             &mut report,
+            &mut unread,
         ) else {
             continue;
         };
@@ -245,6 +268,20 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
             .map(|(path, _)| path.clone())
             .collect();
     }
+
+    // A file this run did not re-decide keeps what the last run recorded: a
+    // deadline stopped it, or `--lang` left its language out. Too large is
+    // always re-derived from the walk, which no flag narrows.
+    for (path, entry) in &before.skipped {
+        if entry.reason != facts::SkipReason::TooLarge
+            && visible.contains(path)
+            && !decided.contains(path)
+        {
+            unread.entry(path.clone()).or_insert_with(|| entry.clone());
+        }
+    }
+    store.manifest_mut().skipped.clone_from(&unread);
+    report.unread = unread;
 
     record(store, plan, scip, fingerprint, started_at, &before, &report)?;
     report.syntax_errors = crate::query::syntax_errors(store.manifest())
@@ -754,7 +791,18 @@ fn pending(
     indexed_at: u64,
     candidate: &Candidate,
     report: &mut Report,
+    unread: &mut BTreeMap<String, facts::SkipEntry>,
 ) -> Option<Pending> {
+    let mut skip = |reason| {
+        unread.insert(
+            candidate.path.clone(),
+            facts::SkipEntry {
+                reason,
+                mtime: candidate.mtime,
+                size: candidate.size,
+            },
+        );
+    };
     let known = store.manifest().files.get(&candidate.path);
     if !plan.rebuild
         && !scip.invalidated
@@ -768,6 +816,7 @@ fn pending(
         // Vanished or unreadable between the walk and here. Report it
         // rather than dropping its facts on a transient error.
         report.skips.unreadable.push(candidate.path.clone());
+        skip(facts::SkipReason::Unreadable);
         return None;
     };
     let hash = facts::content_hash(&bytes);
@@ -789,6 +838,7 @@ fn pending(
     }
     let Ok(src) = String::from_utf8(bytes) else {
         report.binary += 1;
+        skip(facts::SkipReason::NotUtf8);
         return None;
     };
     let known_scip = known.and_then(|e| e.scip_hash.as_deref());
