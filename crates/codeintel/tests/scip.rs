@@ -1065,11 +1065,21 @@ fn a_go_index_from_a_subdirectory_reports_the_documents_it_carried() {
         "{body}"
     );
 
+    // #123: a caller reading JSON alone must see it, not the prose line.
+    let json = status_json(dir.path());
+    assert_eq!(json["scip"][0]["documents"], 8, "{json}");
+    assert_eq!(json["scip_matched"], 0, "{json}");
+
     // Declared, the root lands the documents it carried.
     let out = run(dir.path(), &["index", ".", "--scip-root", "svc"]);
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     assert!(out.status.success(), "{stderr}");
     assert!(!stderr.contains("0 of 8"), "{stderr}");
+    let landed = status_json(dir.path());
+    assert!(
+        landed["scip_matched"].as_u64().is_some_and(|n| n > 0),
+        "{landed}"
+    );
 }
 
 /// Two subtrees re-base every document equally well, so the evidence picks

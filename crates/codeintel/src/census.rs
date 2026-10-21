@@ -521,6 +521,7 @@ impl Report<'_> {
             "mtime": input.mtime,
             "size": input.size,
         })).collect::<Vec<_>>(),
+        "scip_matched": manifest.scip_matched,
         "scip_collisions": manifest.scip_collisions,
         "anchor_rate": census.anchor_rate(),
         "anchored": census.anchored,
