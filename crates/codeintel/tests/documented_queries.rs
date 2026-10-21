@@ -436,7 +436,10 @@ fn every_documented_store_rs_query_returns_rows_over_the_fixture_that_has_the_fi
             ));
         }
     }
-    assert!(ran >= 6, "found {ran} store.rs goals; the docs changed shape");
+    assert!(
+        ran >= 6,
+        "found {ran} store.rs goals; the docs changed shape"
+    );
     assert!(
         empty.is_empty(),
         "documented src/store.rs queries that return nothing over the fixture:\n{}",
