@@ -961,6 +961,24 @@ fn empty_hint(
     let text = &at.text;
     let name = relation_of(&at.literal).unwrap_or_default();
     let held = relations.get(name).map_or(0, Relation::len);
+    if let Literal::Neg(pred) = &at.literal {
+        // Matching is what emptied the join, so "matched 0 rows" would say the
+        // opposite of the truth (#124).
+        let total = if facts::schema::by_name(name).is_some() {
+            format!(" (the index holds {held} `{name}` row(s))")
+        } else {
+            String::new()
+        };
+        let next = if pred.args.contains(&Term::Wildcard) {
+            "a `_` inside `!` means no such row anywhere; bind the variable first"
+        } else {
+            "drop the `!` to see the rows it excluded"
+        };
+        return format!(
+            "`!{text}` excluded every row: each binding that reached it has a \
+             matching `{name}` row{total}. {next}"
+        );
+    }
     if facts::schema::by_name(name).is_some() {
         // A constant in a typed column is the agent's most likely error, and
         // the relation total says nothing about it
