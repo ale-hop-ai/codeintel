@@ -558,6 +558,31 @@ stripping it in a rule is no better, because `Module` is a per-language
 specifier and not a package name in the first place — `"std::collections::HashMap"`
 in Rust, `"\"fmt\""` in Go, `"../db/conn"` in TypeScript.
 
+**`def` and `extern` never overlap (#117).** No symbol is both defined and
+external, on any index the indexer writes:
+
+1. `extern` is "not defined by any SCIP document, over the whole merge":
+   `Ingest::recount` retains only the symbols no document defines
+   (`crates/extract/src/scip.rs:288`), and runs again after every merge of
+   inputs (`crates/codeintel/src/index.rs:690`). The set it subtracts holds
+   every defined symbol, collisions included.
+2. A `def` symbol is either SCIP-defined, so in that set and not `extern`, or
+   a tier-A `local <path> ...` string, which names no package and is never an
+   `extern` candidate (`package_of`, `crates/extract/src/scip.rs:486`).
+
+Consequence: `ref`'s `name` clauses bind `S` from `def`, so no `ref(.., "name")`
+row can join `extern`, and `uses_package` has **no `name` tier**. It equals
+`uses_package_exact` on every index, and `tier("uses_package", _, _, "name")` is
+zero rows by construction, not by accident of an index. The `_exact` twin stays
+for the uniformity of the roster (§ Tier precedence), not because the pair can
+differ.
+
+The proof is an extraction invariant, not a property of the rule: the rule
+alone does not forbid a `name` row, and `stats.depends` cannot show it (its
+closure includes `name_ref` and always will). A hand-built fact set can violate
+it; the indexer cannot. `uses_package_has_no_name_tier_because_def_and_extern_never_overlap`
+(`crates/codeintel/tests/stdlib.rs`) fails if it ever does.
+
 ### `name_export(F, Name)`
 File `F` exports its local `Name` from a clause that is not the declaration:
 TypeScript's `export { x }`, `export { f as g }`, `export default f` and
@@ -970,7 +995,8 @@ undocumented_export(S) :- exported(S), !def_doc(S, _).
 uses_package(F, P) :- ref(S, F, _, _, _, _, _), extern(S, _, P, _).
 ```
 
-`uses_package`'s `P` is `extern`'s `Pkg` and inherits its reading exactly
+`uses_package` is exact-only (§ `extern`, "`def` and `extern` never
+overlap"). Its `P` is `extern`'s `Pkg` and inherits its reading exactly
 (§ `extern`): the package the *indexer* attributed the symbol to, not the
 specifier the source wrote. `?- uses_package(F, "react").` answers zero rows on
 a TypeScript repository whose every file imports `react`, because the symbols
