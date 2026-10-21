@@ -269,10 +269,24 @@ deliberately deferred.
       "seg": "a3f1...bin", "mtime": 1757000000, "size": 4021,
       "hash": "blake3:9c2e...", "lang": "rust", "tiers": ["ts", "scip"],
       "scip_hash": "blake3:9c2e..."
+    },
+    "src/broken.go": {
+      "seg": "b41c...bin", "mtime": 1757000000, "size": 118,
+      "hash": "blake3:51aa...", "lang": "go", "tiers": ["ts"],
+      "scip_hash": null, "syntax_error": 3
     }
   }
 }
 ```
+
+**`syntax_error` is the line of the first parse error, and its absence means the
+file parsed whole.** It is the 1-based line of the first `ERROR` or `MISSING`
+node tree-sitter produced ([02-extraction.md](02-extraction.md) § A file that
+does not parse is partial). It is a function of the file's own bytes like every
+other per-file fact (invariant 3b), so it is re-derived whenever the file is
+re-extracted and is carried with the entry. A manifest written before the field
+existed reads absent; the extractor fingerprint changes with the field, which
+forces the full re-extract that fills it.
 
 `hash` is content, `mtime`+`size` is the fast path. A file is unchanged without
 hashing iff mtime and size both match **and its mtime is before `indexed_at`**;

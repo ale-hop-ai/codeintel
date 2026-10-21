@@ -486,6 +486,14 @@ fn index_cmd(
         // single most confusing failure this tool can have.
         eprintln!("  skipped: {}", skipped.join(", "));
     }
+    let errors: Vec<(&str, u32)> = report
+        .syntax_errors
+        .iter()
+        .map(|(path, line)| (path.as_str(), *line))
+        .collect();
+    if let Some(note) = query::syntax_error_note(&errors) {
+        eprintln!("  syntax errors: {note}");
+    }
     report_scip(&report);
     Ok(ExitCode::SUCCESS)
 }

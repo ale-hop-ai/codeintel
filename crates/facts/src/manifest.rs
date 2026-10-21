@@ -139,6 +139,12 @@ pub struct FileEntry {
     /// (`specs/04-storage.md` § Manifest).
     #[serde(default)]
     pub scip_hash: Option<String>,
+    /// The 1-based line of the first `ERROR` or `MISSING` node the parser
+    /// produced, absent when the file parsed whole. The facts are real and
+    /// possibly incomplete (`specs/02-extraction.md` § A file that does not
+    /// parse is partial).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub syntax_error: Option<u32>,
 }
 
 impl FileEntry {
@@ -197,6 +203,8 @@ pub struct NewEntry {
     pub tiers: Vec<String>,
     /// As [`FileEntry::scip_hash`].
     pub scip_hash: Option<String>,
+    /// As [`FileEntry::syntax_error`].
+    pub syntax_error: Option<u32>,
 }
 
 impl NewEntry {
@@ -209,6 +217,7 @@ impl NewEntry {
             lang,
             tiers,
             scip_hash,
+            syntax_error,
         } = self;
         FileEntry {
             seg,
@@ -218,6 +227,7 @@ impl NewEntry {
             lang,
             tiers,
             scip_hash,
+            syntax_error,
         }
     }
 }
@@ -411,6 +421,7 @@ mod tests {
                 lang: "rust".to_string(),
                 tiers: vec!["ts".to_string()],
                 scip_hash: Some("blake3:9c2e".to_string()),
+                syntax_error: None,
             },
         );
         let dir = tempfile::tempdir().expect("tempdir");
@@ -434,6 +445,7 @@ mod tests {
             hash: String::new(),
             lang: "rust".to_string(),
             scip_hash: None,
+            syntax_error: None,
             tiers: Vec::new(),
         };
         assert!(entry.looks_unchanged(10, 20));
@@ -450,6 +462,7 @@ mod tests {
             hash: String::new(),
             lang: "rust".to_string(),
             scip_hash: None,
+            syntax_error: None,
             tiers: Vec::new(),
         };
         assert!(entry.is_clean(10, 20, 11));
@@ -471,6 +484,7 @@ mod tests {
             lang: "rust".to_string(),
             tiers: vec!["ts".to_string()],
             scip_hash: Some("blake3:aa".to_string()),
+            syntax_error: None,
         };
         assert!(!entry.scip_stale(5), "newer than SCIP but the same bytes");
         entry.hash = "blake3:bb".to_string();
@@ -527,6 +541,7 @@ mod tests {
                 lang: "rust".to_string(),
                 tiers: vec!["ts".to_string()],
                 scip_hash: None,
+                syntax_error: None,
             },
         );
         manifest.save(dir.path()).expect("saves");

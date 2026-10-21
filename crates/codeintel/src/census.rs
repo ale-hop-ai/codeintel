@@ -368,6 +368,11 @@ impl fmt::Display for Report<'_> {
             writeln!(f, "unsupported: {}", named.join(", "))?;
         }
 
+        if let Some(note) = crate::query::syntax_error_note(&crate::query::syntax_errors(manifest))
+        {
+            writeln!(f, "syntax errors: {note}")?;
+        }
+
         if census.changed.is_empty() {
             f.write_str("changed since index: none\n")?;
         } else {
@@ -510,6 +515,9 @@ impl Report<'_> {
         }).collect::<serde_json::Map<_, _>>(),
         "unsupported": census.unsupported,
         "changed": census.changed,
+        "syntax_errors": crate::query::syntax_errors(manifest)
+            .into_iter()
+            .collect::<BTreeMap<_, _>>(),
         "relations": census.relations,
         "kinds": census.kinds,
         "roles": census.roles,
