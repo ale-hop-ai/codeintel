@@ -33,6 +33,14 @@ use codeintel::wire;
 
 const DOCS: &[&str] = &["docs/cookbook.md", "README.md", "specs/05-surface.md"];
 
+/// Documents whose goals are run once and checked, but not run [`RUNS`] times:
+/// the determinism corpus is already ~90 s of the gate on a loaded host.
+const RUN_ONCE_DOCS: &[&str] = &[
+    "specs/01-facts.md",
+    "specs/02-extraction.md",
+    "specs/03-datalog.md",
+];
+
 /// Spans the extractor finds that are not queries, with the reason. Each must
 /// still be found, so a deleted example does not leave a dead entry behind.
 const NOT_RUNNABLE: &[(&str, &str)] = &[
@@ -47,6 +55,26 @@ const NOT_RUNNABLE: &[(&str, &str)] = &[
     (
         "?- innermost_at(\"src/store.rs\", 23, S), calls(C, S), in_tests(C), def(C, F, _, N).",
         "needs the in_tests rule shown above it; `about_test_is_blind_to_in_file_tests_and_in_tests_widens_it` runs the program",
+    ),
+    (
+        "?- def(S, _, _, N), impact_of(S, C).",
+        "specs/01-facts.md:721 names it as the shape that falls back to all-pairs reachability: 2.0 s in release over this repository, past the 5 s max_time_ms in the debug test profile",
+    ),
+    (
+        "?- innermost_at(F, L, S), impact_of(S, C).",
+        "specs/03-datalog.md:317 shows the unseeded shape on purpose: 1.6 s in release over this repository, past the 5 s max_time_ms in the debug test profile",
+    ),
+    (
+        "?- hot(S, N), def(S, F, _, Name), at(S, F, L).",
+        "needs the hot rule shown above it in specs/03-datalog.md",
+    ),
+    (
+        "?- nosuchrelation(X).",
+        "the example of an invalid-query: specs/03-datalog.md says it must not answer ok",
+    ),
+    (
+        r#"?-" body "." body := literal ("," literal)* literal := atom | "!" atom | comparison | assignment atom := ident "(" term ("," term)* ")" comparison := term op term op := = | != | < | <= | > | >= assignment := var "=" expr expr := term | term arith term | aggregate arith := + | - | * | / aggregate := "count" "{" term ":" body "}" generator := "between" "(" term "," term "," var ")" term := var | string | int | "_" var := upper (alnum | "_")* string := '"' ..."#,
+        "the EBNF block of specs/03-datalog.md, which opens with a quoted ?-",
     ),
     (
         "?- NAME(A, B, Vars...)",
@@ -160,16 +188,25 @@ fn goals(text: &str) -> Vec<(usize, String)> {
     found
 }
 
-/// goal -> where it appears, over every document.
-fn documented() -> BTreeMap<String, Vec<String>> {
+/// goal -> where it appears, over `docs`.
+fn documented_in(docs: &[&str]) -> BTreeMap<String, Vec<String>> {
     let mut all: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for doc in DOCS {
+    for doc in docs {
         let text = std::fs::read_to_string(root().join(doc)).expect("a document");
         for (line, goal) in goals(&text) {
             all.entry(goal).or_default().push(format!("{doc}:{line}"));
         }
     }
     all
+}
+
+fn documented() -> BTreeMap<String, Vec<String>> {
+    documented_in(DOCS)
+}
+
+/// Every document a goal is run from, determinism corpus and run-once alike.
+fn documented_everywhere() -> BTreeMap<String, Vec<String>> {
+    documented_in(&[DOCS, RUN_ONCE_DOCS].concat())
 }
 
 #[test]
@@ -190,7 +227,7 @@ fn the_extractor_reads_the_shapes_the_docs_use() {
 
 #[test]
 fn every_documented_query_runs_against_this_repository() {
-    let documented = documented();
+    let documented = documented_everywhere();
     assert!(
         documented.len() >= 40,
         "extracted {} distinct goals; the docs changed shape or the extractor broke",
@@ -349,6 +386,62 @@ fn about_test_is_blind_to_in_file_tests_and_in_tests_widens_it() {
         ),
     );
     assert_eq!(widened, ["covered"], "{widened:?}");
+}
+
+/// A goal that names `src/store.rs` addresses the rust fixture, the only tree
+/// with that file. Over this repository it is `ok` with zero rows, which the
+/// run-against-this-repository test passes whatever the example says, so the
+/// examples that teach the headline query were never shown to return anything.
+///
+/// Excluded: line 142, which the docs use as "somewhere in the middle of a
+/// file" and the 50-line fixture does not have. Those are shape examples.
+#[test]
+fn every_documented_store_rs_query_returns_rows_over_the_fixture_that_has_the_file() {
+    let fixture = root().join("tests/fixtures/rust");
+    let index = tempfile::tempdir().expect("tempdir");
+    let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
+        .args(["index", ".", "--scip", "index.scip"])
+        .current_dir(&fixture)
+        .env("CODEINTEL_INDEX_DIR", index.path())
+        .output()
+        .expect("the binary runs");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let mut empty = Vec::new();
+    let mut ran = 0;
+    for (goal, places) in &documented_everywhere() {
+        let skipped = NOT_RUNNABLE.iter().any(|(skip, _)| skip == goal);
+        if skipped || !goal.contains("src/store.rs") || goal.contains(", 142,") {
+            continue;
+        }
+        ran += 1;
+        let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
+            .args(["query", "--format", "json", "--no-refresh", goal])
+            .current_dir(&fixture)
+            .env("CODEINTEL_INDEX_DIR", index.path())
+            .output()
+            .expect("the binary runs");
+        let response = stdout_json(&out);
+        let rows = response["rows"].as_array().map_or(0, Vec::len);
+        if response["status"] != "ok" || rows == 0 {
+            empty.push(format!(
+                "{} — {goal}\n    status {}, {rows} row(s): {}",
+                places.join(", "),
+                response["status"],
+                response["hint"].as_str().unwrap_or("")
+            ));
+        }
+    }
+    assert!(ran >= 6, "found {ran} store.rs goals; the docs changed shape");
+    assert!(
+        empty.is_empty(),
+        "documented src/store.rs queries that return nothing over the fixture:\n{}",
+        empty.join("\n")
+    );
 }
 
 // ── determinism (#99) ───────────────────────────────────────────────────────

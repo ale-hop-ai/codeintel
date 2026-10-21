@@ -83,7 +83,7 @@ You have a location and need a symbol. This is how anything gets *into* the
 graph.
 
 ```dl
-?- innermost_at("src/store.rs", 23, S).          % from a stack trace, a diff
+?- innermost_at("src/storex.rs", 23, S).          % from a stack trace, a diff
 ?- def(S, F, _, N), contains(N, "auth").         % from a word
 ?- about(S, Rel, A, B, L).                       % everything about S, one trip
 ```
@@ -133,7 +133,7 @@ retrieval are a different product — `NodeKNN` takes a query vector.
 
 Several of those are one-liners here anyway, which is worth saying because it
 makes the table shorter rather than longer: `SymbolEditSpansByName` is
-`?- def(S, _, _, "get"), def_span(S, L1, C1, L2, C2).`, `GraphAllNodes` is
+`?- def(S, _, _, "get"), def_span(S, L1, L2, B1, B2).`, `GraphAllNodes` is
 `?- def(S, F, K, N).`, and `GraphStats` is `codeintel status`.
 
 The 17 that *are* questions:
@@ -324,7 +324,7 @@ and the gap is not a provenance tier, so no `_exact` form closes it.
 On TypeScript it bites hardest. `import merge from 'lodash.merge'` gives:
 
 ```
-?- import(F, "lodash.merge", A).        the row, with A = "merge"
+?- import(F, "lodash.merge", A).        the row, with A = "" (a default import binds a member, not the module)
 ?- uses_package(F, "lodash.merge").     0 rows
 ?- uses_package(F, "@types/lodash.merge").  the row
 ```

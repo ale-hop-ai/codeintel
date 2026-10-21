@@ -1194,8 +1194,9 @@ Four properties, each load-bearing:
 % Which third-party packages does the API layer touch?
 ?- uses_package(F, P), match(F, "^src/api/").
 
-% Methods on Store, with signatures, ordered by line.
-?- parent(M, "local src/store.rs Store#"), def(M, _, "method", N), def_sig(M, Sig).
+% Methods on Store, with signatures. (Match the type by name and file: a
+% `local ...` SymId is the tier-A identity, which a SCIP index replaces.)
+?- def(P, "src/store.rs", _, "Store"), parent(M, P), def(M, _, "method", N), def_sig(M, Sig).
 
 % Functions over 80 lines with no doc comment. The threshold is yours: that is
 % what `def_lines` is for.
@@ -1204,7 +1205,8 @@ Four properties, each load-bearing:
 % Everything implementing a trait, and where.
 ?- implements(S, T, _), def(T, _, "trait", "Handler"), def(S, F, _, N), at(S, F, L).
 
-% Count callers per function, top 20.
+% Callers per function, as a count. There is no top-N: rows come back in
+% rendered-text order, and ranking them is a score (invariant 4).
 ?- def(S, _, "function", N), C = count{ X : calls(X, S) }, C > 0.
 ```
 

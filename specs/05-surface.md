@@ -144,11 +144,11 @@ affordable where the walk's is not: the documents are an enumerated set, already
 in memory, and testing each against the walked paths costs no extra traversal.
 
 **SCIP coverage is a match count, not a document count.** The summary prints
-`N of M documents matched an indexed file`, and when that number is zero with
+`N of M document(s) matched an indexed file`, and when that number is zero with
 `M > 0` it is a reported degradation, not a `0.0%` anchor rate the reader has to
-diagnose: `0 of 2523 SCIP documents matched an indexed file`, the first few
+diagnose: `scip coverage: 0 of 2523 document(s) matched an indexed file`, the first few
 unmatched paths, and — when exactly one prefix re-bases every one of them onto
-an indexed file — `paths look relative to a subdirectory; re-run with
+an indexed file — `paths look relative to a subdirectory; re-run with: codeintel index .
 --scip-root daemon`. When no single prefix does, or more than one does, it says
 that instead and suggests nothing. Detection never re-bases on its own
 ([02-extraction.md](02-extraction.md) § Detection suggests; it never re-bases).
@@ -631,7 +631,7 @@ that gates copy length. Estimates of this text span **~1,400 tokens** at four
 characters per token — prose-like, and what an earlier draft of this paragraph
 claimed — to **~1,750** under a BPE-shaped count that charges per punctuation
 mark and per identifier fragment, which is what dense tabular output actually
-looks like. Today: **5,695 characters, 42 rules** on this repository, and the
+looks like. Measured 2026-10-21: **5,776 characters, 42 rules** on this repository without SCIP (5,803 with it: the counts are live), and the
 honest statement is that `schema` is *at* its budget rather than inside it.
 
 That matters because it is now the *only* constraint the standard library
@@ -693,7 +693,7 @@ RULES
   calls_exact(Caller, Callee)    SCIP-resolved only
   impact_of(S, Caller)           transitive callers of S -- SEED THE 1st ARG; an impl misses trait callers
   reach_of(S, Callee)            transitive callees of S -- SEED THE 1st ARG; a trait method has no body
-  is_test(F)                     test file, by path or SCIP role
+  is_test(F)                     test file, by path
   ...
 BUILTINS = != < <= > >= + - * / between/3 match/2 prefix/2 suffix/2 contains/2
            count{X:g}
@@ -981,7 +981,7 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
   "truncated": false,
   "hint": null,
   "root": null,
-  "stats": { "derived": 18422, "refreshed": 0, "transformed": ["impact_of"],
+  "stats": { "derived": 18422, "refreshed": 0, "transformed": ["impact_of@bf"],
              "demand": "applied", "depends": ["def", "name_ref", "scip_ref"],
              "shadowed": [], "widened": [] }
 }
@@ -1143,7 +1143,7 @@ Three rules follow, and they supersede the earlier drafts named at each site:
    answer.
 3. **The schema is a budget, not an inventory.** It is read once per session
    before any question is asked, so its bytes are charged to every session
-   including the ones that ask one question. It is currently 5,695 bytes on this repository.
+   including the ones that ask one question. It was 5,776 bytes on this repository on 2026-10-21 (tier A only).
 
 **These are decisions, not measurements.** The magnitude each one recovers is
 the subject of a standing hypothesis in
