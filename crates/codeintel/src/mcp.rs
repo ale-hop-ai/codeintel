@@ -17,7 +17,6 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use crate::census::Census;
 use crate::query::{Options, Warm};
 use crate::schema::Schema;
 use crate::status::Status;
@@ -429,10 +428,7 @@ fn schema(
 ) -> Result<serde_json::Value, (i64, String)> {
     let counted = facts::store::locate(root, index_dir)
         .and_then(|dir| facts::Store::open(root, dir, &extract::fingerprint()))
-        .and_then(|mut store| {
-            let refreshed = crate::query::refresh_store(&mut store, root)?;
-            Census::of(&store).map(|census| (census, refreshed))
-        });
+        .and_then(|mut store| crate::query::count(&mut store, root));
     let (census, refreshed) = match counted {
         Ok(counted) => counted,
         Err(e) => {

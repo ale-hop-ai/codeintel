@@ -267,12 +267,8 @@ fn schema_cmd(
         Err(e) => return refusal(e, format),
     };
     // Refresh as `query` does: the counts are what `query` will see.
-    let refreshed = match query::refresh_store(&mut store, &root) {
-        Ok(refreshed) => refreshed,
-        Err(e) => return refusal(e, format),
-    };
-    let census = match Census::of(&store) {
-        Ok(census) => census,
+    let (census, refreshed) = match query::count(&mut store, &root) {
+        Ok(counted) => counted,
         Err(e) => return refusal(e, format),
     };
     let schema = Schema { census: &census };

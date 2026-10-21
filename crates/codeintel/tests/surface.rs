@@ -1285,6 +1285,42 @@ fn status_reports_another_schema_as_stale_without_counts() {
 }
 
 #[test]
+fn schema_agrees_with_query_and_status_about_another_schema() {
+    // #135: `schema` read `ok` and printed the counts of an index this build
+    // cannot read, while `query` and `status` said `stale` about the same one.
+    let dir = tree();
+    run(dir.path(), &["index", "."]);
+    let path = dir.path().join(".codeintel/manifest.json");
+    let mut json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).expect("reads")).expect("JSON");
+    json["schema_version"] = 999.into();
+    std::fs::write(&path, json.to_string()).expect("writes");
+
+    let out = run(dir.path(), &["schema", "--format", "json"]);
+    assert!(out.status.success(), "schema exits 0, as it always has");
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    assert_eq!(json["status"], "stale", "{json}");
+    assert!(
+        json["hint"]
+            .as_str()
+            .is_some_and(|h| h.contains("schema_version 999")),
+        "{json}"
+    );
+    let defs = json["relations"]
+        .as_array()
+        .expect("relations")
+        .iter()
+        .find(|r| r["name"] == "def")
+        .expect("def");
+    assert_eq!(defs["rows"], 0, "counts of an unreadable index: {defs}");
+
+    let text = run(dir.path(), &["schema"]);
+    let stderr = String::from_utf8_lossy(&text.stderr);
+    assert!(stderr.contains("status=stale"), "{stderr}");
+    assert!(stderr.contains("schema_version 999"), "{stderr}");
+}
+
+#[test]
 fn status_reports_a_store_that_will_not_load_as_corrupt() {
     let dir = tree();
     run(dir.path(), &["index", "."]);
