@@ -380,6 +380,17 @@ fn index_cmd(
     let root = path
         .canonicalize()
         .with_context(|| format!("{} does not exist", path.display()))?;
+    // An input the caller named is a claim that it exists. `./index.scip` is
+    // optional only because nobody named it. Checked before the lock and the
+    // `--rebuild` discard, so a typo costs nothing.
+    for path in &scip {
+        let absolute = if path.is_absolute() {
+            path.clone()
+        } else {
+            root.join(path)
+        };
+        anyhow::ensure!(absolute.exists(), "--scip {}: no such file", path.display());
+    }
     let dir = facts::store::locate(&root, index_dir).context("locating the index")?;
 
     let mut lock = Lock::open(&dir).context("opening the writer lock")?;

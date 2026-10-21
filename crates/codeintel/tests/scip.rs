@@ -1188,3 +1188,29 @@ fn a_second_scip_input_for_a_second_language_adds_its_rows() {
     assert!(!go.is_empty(), "no Go scip_ref rows: {stderr}");
     assert!(!rust.is_empty(), "no Rust scip_ref rows: {stderr}");
 }
+
+#[test]
+fn an_explicit_scip_that_does_not_exist_is_an_error() {
+    let dir = tree();
+    let out = run(dir.path(), &["index", ".", "--scip", "nope.scip"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("nope.scip"), "{stderr}");
+    assert!(
+        !dir.path().join(".codeintel").exists(),
+        "a typo wrote an index"
+    );
+}
+
+#[test]
+fn an_empty_scip_file_is_refused_like_any_non_index() {
+    let dir = tree();
+    std::fs::write(dir.path().join("empty.scip"), b"").expect("write");
+    let out = run(dir.path(), &["index", ".", "--scip", "empty.scip"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("empty.scip") && stderr.contains("0 bytes"),
+        "{stderr}"
+    );
+}

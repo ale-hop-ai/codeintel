@@ -214,6 +214,14 @@ impl Ingest {
             path: path.display().to_string(),
             message: e.to_string(),
         })?;
+        // Zero bytes parse as an index with no documents. What writes one is
+        // an indexer that died after creating its output, not an index.
+        if bytes.is_empty() {
+            return Err(Error::Scip {
+                path: path.display().to_string(),
+                message: "the file is empty (0 bytes)".to_string(),
+            });
+        }
         let index = Index::parse_from_bytes(&bytes).map_err(|e| Error::Scip {
             path: path.display().to_string(),
             message: e.to_string(),
