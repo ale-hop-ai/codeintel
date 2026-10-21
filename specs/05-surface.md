@@ -672,8 +672,9 @@ VALUES   closed sets, with counts from THIS index. A kind at 0 is a kind you
   Kind   function 4,201  class 812  module 96  interface 41
          method 0  struct 0  enum 0  trait 0  constant 0  field 0
          constructor 0  variable 0  macro 0  typealias 0  type 0  unknown 1,340
-  Role   read 0  write 0  import 402  test 0  generated 0  forward 0  unknown 5,150
-  Prov   exact 0 (scip_ref rows)  name 18,904 (name_ref rows)
+  Role   scip_ref; ref name tier = "read"  read 0  write 0  import 402  test 0
+         generated 0  forward 0  unknown 5,150
+  Prov   exact 0 (scip_ref)  name 18,904 (name_ref)
   Lang   go 7 files  python 11 files  rust 102 files
 `Role` is counted over `scip_ref` only, and the line says so: `ref` also
 carries `"read"` on every name-tier row (`rules/stdlib.dl`), which a count of
