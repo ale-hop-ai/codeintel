@@ -116,6 +116,11 @@ present. `--rebuild` discards and rewrites, including the dictionary. `--lang`
 restricts grammars: files of every other language are neither refreshed nor
 dropped, they are carried forward unchanged.
 
+An input the caller names must exist and must be a SCIP index: `--scip nope.scip`
+with no such file, and a zero-byte file (what an indexer that died after creating
+its output leaves), both exit 2 naming the path (#133). Only the *default*
+`./index.scip` is optional, because nobody asked for it.
+
 `--scip-root` declares the directory a SCIP input's document paths are relative
 to, for an indexer that had to be run from a subdirectory
 ([02-extraction.md](02-extraction.md) § Document paths, and `--scip-root`). Zero
