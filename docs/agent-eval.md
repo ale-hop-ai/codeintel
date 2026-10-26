@@ -1564,3 +1564,22 @@ instruction uses it on the questions whose wording names the relation
 (callers, unused) and not on the ones that do not (test reach). The
 CLAUDE.md paragraph closes that gap, and it is the configuration the tool
 is actually used in. The eval's arm B under-states real use.
+
+## T2 with the process-boundary note — declared 2026-10-26, before running
+
+The answer that arm C took on T2, `impact_of_exact` plus `is_test`, now
+carries a hint: `tests are found through calls only; a test that runs a
+built binary or another process is not followed, so tests may be missing`
+([05-surface.md](../specs/05-surface.md) § "One note says what the call
+graph cannot see"). The tree also has `is_test`'s schema caveat (a343573).
+
+Task **T2** only. Arms **B and C**, N = 4: 8 sessions, $0.558 a session,
+`--max-usd 6`.
+
+- **Primary:** arm C's median T2 recall is above the arm C run's 0.0 (its
+  per-session recall was 0, 0, 0.24 and 0). The note works if the agent,
+  told that tests may be missing, goes and looks for the binary's tests.
+- **Secondary:** solves. The prediction is none or one. 120 entries at
+  $0.558 is tight for either arm: 3 of 4 sessions in each arm hit the cap
+  in the full run.
+- B is the same-day control, and it is expected not to call the tool.
