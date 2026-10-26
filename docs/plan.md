@@ -620,6 +620,11 @@ runner code was written or any paid run made.
 No verb is added: the runner is test-harness code, so the surface budget is
 unchanged.
 
+**Done 2026-10-26.** One pilot and one full run, $14.27 of the €50. Verdict:
+**MIXED**. Where arm B used `code_query`, it did the same work for a fraction
+of the cost. It never tried the tool on test reach. See
+[agent-eval.md](agent-eval.md) § Full run.
+
 **Done when**
 - `tests/fixtures/eval/outcome/tasks.tsv`, each task's expected answer, and
   each oracle's recipe are committed, and `oracle.py <task>` regenerates every
