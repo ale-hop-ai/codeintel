@@ -9,12 +9,15 @@ crates/facts/src/intern.rs::Interner::is_empty
 crates/facts/src/lib.rs::REPAIR
 crates/facts/src/lib.rs::atomic_write
 crates/facts/src/lib.rs::segment_name
+crates/facts/src/lock.rs::Contended
 crates/facts/src/lock.rs::Held
+crates/facts/src/manifest.rs::FileEntry
 crates/facts/src/manifest.rs::Manifest::new
 crates/facts/src/manifest.rs::Manifest::save
 crates/facts/src/manifest.rs::SegName
 crates/facts/src/manifest.rs::SegName::as_str
 crates/facts/src/manifest.rs::rfc3339
+crates/facts/src/schema.rs::Rel
 crates/facts/src/schema.rs::by_id
 crates/facts/src/segment.rs::Segment::decode
 crates/facts/src/segment.rs::Segment::encode

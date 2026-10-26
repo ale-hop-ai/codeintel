@@ -1336,3 +1336,50 @@ answer.** The pilot had not run when this list was written.
    recipe's edited build, cargo reused that build, and a baseline test run
    carried the last task's `panic!()` (T6: 12 `sanitize` tests "failed before
    the edit"). Every expected answer was regenerated after the fix.
+10. **The pilot found two answer-key defects, and the agents were right in
+    both.** The answer-key changes went in before the full run, and the
+    pilot is re-scored, not re-run.
+    - **T6 (and T2) count execution directly.** "Fails when `X` panics" misses
+      every test that asserts a failure: a panicking binary still fails, so
+      fd's `assert_failure` tests pass. Both pilot arms named two such tests,
+      and the old key called them wrong. The recipe now writes a marker at
+      `X`'s entry (`ORACLE_TRACE`) and runs each test alone. A test counts if
+      its marker appears, whether it passes or fails. T6 went from 3 to 5 tests:
+      exactly the five both arms named. T2 went from 121 to 120. The dropped
+      test, `non_test_loc_is_what_the_golden_says`, had failed only because
+      the injected line changed the LOC it pins. That was a false positive of
+      the old method.
+    - **T3 ignores inherited field deprecation.** A deprecated struct's fields
+      inherit the deprecation, so `contended.pid` warned as a use of
+      `Contended` while naming nothing. Three types (`Contended`,
+      `FileEntry`, `Rel`) return to the key, and both pilot arms had named all
+      three.
+
+## Pilot — 2026-10-26
+
+`runs/20261026T141745Z-pilot/`: 16 sessions on `claude-opus-5-5`, **$4.16**.
+No cap hits, denials, errors or unparsed answers. `report.txt` is the
+pilot's report as recorded, against the defective key. `report-rescored.txt`
+re-scores the same answers against the corrected key: arm A 7/8, arm B 7/8,
+and both missed T2. **n = 1 per cell, so this is not a result.** The pilot
+exists for the numbers below.
+
+| Pilot measure | A | B |
+|---|---|---|
+| median cost/session | $0.279 | $0.112 |
+| priciest session | $0.637 (T2) | $0.636 (T2) |
+| `code_query` used in | — | T1, T3, T5 (not T2, T4, T6, C1, C2) |
+
+**Decisions, applying § Sample size and budget to those numbers:**
+- **Exchange rate:** EUR/USD **1.118**, the lowest of the same-day quotes
+  (the last dated close was 1.1202 on 2026-10-23). €50 = $55.90.
+- **Per-session cap:** 2 × arm A's median = **$0.558**. That is under the
+  per-session limit of $55.90 ÷ 64 = $0.873, so the model is
+  **`claude-opus-5-5`**.
+- **`--max-usd 54`.** It stops new launches only, and the 3 sessions in
+  flight can each add up to the per-session cap: $54 + 3 × $0.558 = $55.67,
+  which is under €50.
+- **Expected cap hits.** The cap sits below the pilot's priciest sessions
+  ($0.57–$0.64, on T2, T3 and T6 in both arms), so it will cut some of them
+  short. That follows the declared rule; the rule was not retuned after
+  seeing costs. Cap hits are counted per arm in the report.

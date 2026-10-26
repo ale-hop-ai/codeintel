@@ -321,6 +321,29 @@ def run(a, n, label):
     return 0
 
 
+def rescore(a):
+    """Re-score a run's stored answers against expected/ as it is now, into
+    report-rescored.txt beside the original, which stays as recorded. For an
+    answer-key defect found after a run: the original and the correction are
+    both kept, never one silently replacing the other."""
+    run_dir = Path(a.dir)
+    tasks = oracle.load_tasks()
+    rows = []
+    for raw in (run_dir / "sessions.jsonl").read_text().splitlines():
+        s = json.loads(raw)
+        s.update(score(s["answer"], load_expected(s["task"]), tasks[s["task"]]["format"]))
+        rows.append(s)
+    meta = json.loads((run_dir / "outcomes.json").read_text())
+    ids = [t for t in tasks if any(r["task"] == t for r in rows)]
+    label = "pilot" if run_dir.name.endswith("pilot") else "run"
+    a.model, a.seed = meta["model"], meta["seed"]
+    report = render(rows, ids, tasks, meta["n"], a, meta.get("skipped") or [], label)
+    report = f"RESCORED against expected/ at tree {git_head()}\n" + report
+    (run_dir / "report-rescored.txt").write_text(report + "\n")
+    print(report)
+    return 0
+
+
 def med(xs):
     return statistics.median(xs) if xs else 0.0
 
@@ -424,7 +447,8 @@ def probe(a):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("mode", choices=["prepare", "probe", "pilot", "run"])
+    ap.add_argument("mode", choices=["prepare", "probe", "pilot", "run", "rescore"])
+    ap.add_argument("dir", nargs="?", help="rescore: a runs/<stamp>-<label> directory")
     ap.add_argument("--model", default="claude-opus-5-5")
     ap.add_argument("--n", type=int, default=4, help="sessions per arm per task (run)")
     ap.add_argument("--tasks", default="", help="comma-separated subset")
@@ -441,6 +465,8 @@ def main():
         return prepare(a)
     if a.mode == "probe":
         return probe(a)
+    if a.mode == "rescore":
+        return rescore(a)
     if a.mode == "pilot":
         if a.max_usd > 8.0:
             die("the pilot is capped at $8 (docs/agent-eval.md § Sample size and budget)")

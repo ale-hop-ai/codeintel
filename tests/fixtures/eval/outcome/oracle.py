@@ -11,8 +11,8 @@ lets the compiler or the test runner say what moved:
               and target, and the build still succeeds, so one crate's error
               cannot hide another crate's uses. Each warning's line maps to
               its enclosing `fn`.
-  tests       `panic!()` at the target's entry; the tests that now fail and
-              did not before execute it.
+  tests       a marker write at the target's entry; every test runs alone,
+              and the ones that leave the marker executed it.
   unused_pub  `#[deprecated]` on every `pub` item of a crate at once; an item
               no warning outside that crate's src/ names is used nowhere else.
   impls       `#[deprecated]` on the trait; the warnings on `impl` lines name
@@ -215,6 +215,11 @@ def deprecated_uses(tree, corpus, notes=False):
             if span.get("is_primary"):
                 p = Path(span["file_name"])
                 rel = p.relative_to(tree) if p.is_absolute() else p
+                # A deprecated struct's fields inherit its deprecation, so
+                # `value.field` warns with the struct's note while naming
+                # nothing (T3 asks for names and calls).
+                if re.match(r"use of deprecated field", m.get("message", "")):
+                    continue
                 if notes:
                     tag = re.search(r": (OE\d+)$", m.get("message", ""))
                     uses.add((str(rel), span["line_start"], tag.group(1) if tag else ""))
@@ -254,33 +259,79 @@ def callers(task):
     return sorted(found)
 
 
-def failing_tests(tree, corpus):
-    out = cargo(tree, corpus, ["test", "--workspace", "--tests", "--no-fail-fast",
-                               "--", "--test-threads=4"])
-    return {m.group(1).rsplit("::", 1)[-1]
-            for m in re.finditer(r"^test (\S+) \.\.\. FAILED$", out.stdout, re.M)}
+def test_binaries(tree, corpus):
+    """[(executable, package_dir)] for every test target `cargo test --tests`
+    runs."""
+    out = cargo(tree, corpus, ["test", "--workspace", "--tests", "--no-run",
+                               "--message-format=json", "--quiet"])
+    if out.returncode != 0:
+        die(f"cargo test --no-run failed in the edited copy:\n{out.stderr[-3000:]}")
+    found = []
+    for raw in out.stdout.splitlines():
+        try:
+            msg = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if msg.get("reason") == "compiler-artifact" and msg.get("executable") \
+                and (msg.get("profile") or {}).get("test"):
+            found.append((msg["executable"], str(Path(msg["manifest_path"]).parent)))
+    return sorted(set(found))
+
+
+def listed(exe, cwd, ignored):
+    args = [exe, "--list", "--format", "terse"] + (["--ignored"] if ignored else [])
+    out = subprocess.run(args, cwd=cwd, capture_output=True, text=True)
+    return {l[: -len(": test")] for l in out.stdout.splitlines() if l.endswith(": test")}
 
 
 def tests(task):
-    """Names of the tests that fail once the target panics, minus those that
-    already failed without the edit."""
+    """Names of the tests during which the target ran, counted directly.
+
+    The target's entry writes a marker file named by `ORACLE_TRACE`, and every
+    test `cargo test --tests` runs (ignored ones are not) runs on its own with
+    its own marker path. The environment reaches a binary a test spawns, so
+    a test that runs the CLI counts if the CLI ran the target. Pass or fail
+    does not matter. The first design injected `panic!()` and counted the
+    tests that newly failed, and missed every test that asserts a failure:
+    a panicking binary still fails, so the test still passes (fd's
+    `assert_failure`, found by the pilot)."""
     rel, name, at = split_target(task["target"])
     corpus = task["corpus"]
     tree = scratch_copy(corpus_dir(corpus))
-    before = failing_tests(tree, corpus)
     path = tree / rel
     lines = path.read_text().splitlines(keepends=True)
     i = def_line(tree, rel, fn_pattern(name), at)
     while "{" not in blank_noise(lines[i]):
         i += 1
-    lines.insert(i + 1, 'panic!("outcome-eval oracle");\n')
+    lines.insert(i + 1, 'if let Some(p) = std::env::var_os("ORACLE_TRACE") '
+                        '{ let _ = std::fs::write(p, b"x"); }\n')
     path.write_text("".join(lines))
-    after = failing_tests(tree, corpus)
+    traces = Path(tempfile.mkdtemp(prefix="oracle-trace-"))
+    jobs = []
+    for exe, cwd in test_binaries(tree, corpus):
+        for t in sorted(listed(exe, cwd, False) - listed(exe, cwd, True)):
+            jobs.append((exe, cwd, t))
+
+    def one(job):
+        exe, cwd, t = job
+        marker = traces / f"{len(t)}-{abs(hash((exe, t)))}"
+        try:
+            subprocess.run([exe, "--exact", t, "--test-threads=1", "-q"], cwd=cwd,
+                           env=dict(os.environ, ORACLE_TRACE=str(marker)),
+                           capture_output=True, timeout=600)
+        except subprocess.TimeoutExpired:
+            print(f"note: {t} timed out; counted only if it reached the target",
+                  file=sys.stderr)
+        return t.rsplit("::", 1)[-1] if marker.exists() else None
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        hits = {h for h in pool.map(one, jobs) if h}
+    print(f"note: {len(jobs)} test(s) run one by one, {len(hits)} reached the target",
+          file=sys.stderr)
     shutil.rmtree(tree.parent)
-    if before:
-        print(f"note: {len(before)} test(s) failed before the edit and are excluded: "
-              f"{' '.join(sorted(before))}", file=sys.stderr)
-    return sorted(after - before)
+    shutil.rmtree(traces)
+    return sorted(hits)
 
 
 PUB_ITEM = re.compile(r"^(\s*)pub\s+((const|async|unsafe)\s+)*(fn|struct|enum|trait|type|const|static)\s+([A-Za-z_][A-Za-z0-9_]*)")
@@ -335,10 +386,13 @@ def unused_pub(task):
             indent = re.match(r"\s*", lines[i]).group(0)
             lines.insert(i, f'{indent}#[deprecated(note = "{tag}")]\n')
         path.write_text("".join(lines))
-    used = set()
-    for f, _line, note in deprecated_uses(tree, task["corpus"], notes=True):
+    used = {}
+    for f, line_no, note in sorted(deprecated_uses(tree, task["corpus"], notes=True)):
         if not f.startswith(src + "/") and note in candidates:
-            used.add(note)
+            used.setdefault(note, f"{f}:{line_no}")
+    if os.environ.get("ORACLE_SITES"):
+        for tag, site in sorted(used.items(), key=lambda kv: candidates[kv[0]]):
+            print(f"used: {candidates[tag]} at {site}", file=sys.stderr)
     shutil.rmtree(tree.parent)
     return sorted(v for k, v in candidates.items() if k not in used)
 
