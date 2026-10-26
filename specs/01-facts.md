@@ -1163,6 +1163,27 @@ status can say so. The caveat rides on the schema lines of `impact_of*`,
 `reach_of*` and `about`, and in the cookbook. The caller's workaround is to
 seed both ends: the impl for `reach_of`, the trait method for `impact_of`.
 
+**Test reach stops at a process boundary (#152).** "Which tests reach X" is
+`impact_of*` (or `about`'s `test` rows) joined with `is_test`. Both follow
+`calls`, and no call edge crosses into a process a test spawns. A test that
+runs the crate's own binary (`Command::new(env!("CARGO_BIN_EXE_..."))`, a CLI
+test harness, `subprocess` in Python) reaches X at runtime, but the static
+answer never lists it. Measured by the M7 outcome eval
+([docs/agent-eval.md](../docs/agent-eval.md), task T2) on this repository at
+981f795: `impact_of_exact` of `Ingest::read` plus `is_test` gives 27 tests,
+and running each test alone with a marker at `read`'s entry gives 120. On fd,
+every test spawns `fd`, so static test reach is empty for every function.
+
+The answer is `ok`, for the reason given above: nothing the index lacks
+decided it. A note on each answer would need the host to know that the goal
+reaches `is_test`. `Stats::depends` names only base relations, and
+`is_test`'s closure is `file`, which every query over a definition reaches,
+so the host cannot see the difference from a call. The caveat therefore
+rides on `is_test`'s schema line ("Calls stop at spawned binaries"), which
+every test-reach query names, and here. The schema budget had 2 characters
+to spare, so the line is terse and `documented_file`'s copy gave the rest.
+Making it a note on each answer is an engine change, and it is open on #152.
+
 `impl_of` names the other end (#116):
 
 ```prolog

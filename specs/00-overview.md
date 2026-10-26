@@ -166,7 +166,7 @@ A hard ceiling, checked in CI (see [docs/plan.md](../docs/plan.md) M4):
   counts — the three axes this output grows along — derived from
   `facts::RELATIONS`, `KINDS`, `ROLES` and `LANGS` rather than listed, so a new
   relation or a tenth language raises the measured worst case instead of
-  slipping past it. That census renders **5,998 characters**, and 6,000 is the
+  slipping past it. That census renders **6,000 characters**, and 6,000 is the
   ceiling over it: a real index cannot exceed the worst case, so this binds
   everywhere rather than on the smallest input.
 
