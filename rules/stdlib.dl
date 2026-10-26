@@ -355,7 +355,7 @@ within(C, A) :- parent(C, P), within(P, A).
 % === tests =============================================================
 % `file(F, _)` is not decoration: without it F is a head variable bound only by
 % a filter, which violates range restriction exactly as symbol_at would.
-%% is_test(F)  test file, by path.
+%% is_test(F)  by path. Calls stop at spawned binaries.
 is_test(F) :- file(F, _), match(F, "(^|/)(tests?|__tests__)/").
 is_test(F) :- file(F, _), match(F, "_test\\.(go|py|rs)$").
 is_test(F) :- file(F, _), match(F, "(^|/)(test_[^/]*|tests|conftest)\\.py$").
@@ -427,7 +427,7 @@ def_lines(S, N) :- def_span(S, A, B, _, _), H = B - A, N = H + 1.
 % spent, and this is the one question the join serves.
 %% undocumented_export(S)  exported with no doc comment.
 undocumented_export(S) :- exported(S), !def_doc(S, _), !documented_file(S).
-%% documented_file(D)  helper for the rule above.
+%% documented_file(D)  helper.
 documented_file(D) :- def(D, F, "module", _), def_name(D, L, C),
                       scip_ref(M, F, L, C, _, _), M != D, def_doc(M, _).
 
