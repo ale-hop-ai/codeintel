@@ -1097,3 +1097,172 @@ floor (#120). Both stay in the bank as tests of the rule layer, and are
 labelled here: a score on them says nothing about a real repository.
 
 Artifacts of the next run are committed whole, `agents.jsonl` included (#112).
+
+# Outcome eval — design, 2026-10-26, declared before any run (#146)
+
+Every section above measures **query writing**: given `schema`, can an agent
+write the Datalog that returns the reference rows. This one measures
+**outcome**. Two arms get the same structural task. One has codeintel and one
+does not, and the question is whether the arm with codeintel finishes the task
+more often, or more cheaply. It is [plan.md](plan.md) M7. Everything below,
+including the verdict rule, is fixed before the runner exists, so the result
+cannot shape the method.
+
+## Arms
+
+| | arm A — ripgrep | arm B — codeintel |
+|---|---|---|
+| tools | `Read`, `Grep`, `Glob` (`Grep` is ripgrep) | the same, plus `mcp__codeintel__code_query` |
+| MCP | none (`--strict-mcp-config`, no config) | `codeintel mcp` only, via `--mcp-config` + `--strict-mcp-config` |
+| index | none | built before the session (both tiers, `codeintel index`), timed and reported, **not** charged to the session |
+
+Everything else is identical and byte-equal:
+- **Same for both arms:** the model, the system prompt, the task text, the
+  corpus revision and the per-session caps.
+- **Same isolation as the tier-3 runner:** `claude -p --safe-mode`, a replaced
+  system prompt, and a fresh copy of the corpus as the working directory.
+- **No `Bash` in either arm.** With a shell, an agent could run the oracle
+  itself (`cargo check`). Without one, the question stays which arm *finds*
+  the answer.
+- **No prompt says to use codeintel.** Arm B learns about the tool only from
+  its MCP description and `schema`. That is the tool as shipped, so a tool that
+  goes unused is a finding about the tool, not about the prompt.
+
+**The isolation probe runs per arm**, extended from `run.py probe`. Arm A must
+not list `code_query`, and arm B must list it. Neither arm may read a canary
+placed in a CLAUDE.md in the corpus copy. A probe failure voids the run.
+
+**Open, and settled by the probe:** `--safe-mode` disables MCP servers, and its
+help does not say whether an explicit `--mcp-config` survives that. If it does
+not, both arms drop `--safe-mode` and run with `--setting-sources ""` and
+`--strict-mcp-config`. They then have to pass the same CLAUDE.md-canary check.
+Whichever flags were used are recorded in the report.
+
+## Corpora — the memorisation split
+
+On popular code, a model can answer from memory, and that makes both arms look
+equal. So:
+
+- **Unseen:** this repository, pinned at a commit. Its first commit is
+  2026-09-12, after the model's training cutoff, so no answer can come from
+  memory. 6 of the 8 tasks run here.
+- **Seen:** `sharkdp/fd` at `b422e5d8`, the pinned M6 corpus. It is small and
+  widely read. 2 tasks run here, and they are reported in their own column.
+
+Both corpora are Rust, so every lane-3 oracle can use the compiler.
+
+## Tasks and oracles
+
+**The oracle never uses codeintel.** Each one makes a deliberate edit to a
+scratch copy of the corpus, then lets the compiler or the test runner say what
+moved. `oracle.sh <task>` holds that recipe. Its output, normalised to one
+`path::function` per line and sorted, is the committed expected answer.
+
+**Targets are picked by a declared rule**, so nobody hand-picks a task that
+flatters one arm. The rule may use codeintel, because picking a target is not
+answering for it. Each target and the query that picked it are recorded in
+`tasks.tsv`.
+
+| id | lane | corpus | task | oracle | target rule |
+|---|---|---|---|---|---|
+| T1 | 3 | unseen | every function that calls `X` directly, tests excluded | add a parameter to `X`, run `cargo check --all-targets`, take the error sites' enclosing functions, drop tests | non-test fn with the most direct callers, among those with 5 to 15, ties broken by name |
+| T2 | 3 | unseen | every test that executes `X` | insert `panic!()` at `X`'s entry, run `cargo test --workspace`, collect the failing tests | non-test fn in `crates/extract` reached by 5 to 30 tests |
+| T3 | 3 | unseen | every `pub` item of crate `C` used by no other crate | narrow each `pub` item to `pub(crate)` one at a time and run `cargo check --workspace --all-targets`; the items that still compile are the answer | `C` = `facts` |
+| T4 | 3 | unseen | every type that implements trait `R` | add a required method with no default to `R` and run `cargo check --all-targets`; the error sites name the impls | workspace trait with the most impls, among those with at least 3 |
+| T5 | 3 | seen | as T1 | as T1 | as T1, on fd |
+| T6 | 3 | seen | as T2 | as T2 | as T2, on fd's crate |
+| C1 | 1 | unseen | every file that contains the string `S` | `rg -F -l S` | a 2-to-6-file string from an error message |
+| C2 | 2 | unseen | the function that does `<behaviour in prose>` | one known function, named in the task's recipe | described from the function's doc comment, without naming it |
+
+**C1 and C2 are controls.** Codeintel should make no difference there. If
+arm B does measurably worse on a control, that is reported as a finding: the
+tool cost the agent something on a question it does not own.
+
+**Answer format.** The agent's final message ends with a fenced
+` ```answer ` block, one `path::function` (or file path, for C1) per line. A
+missing or unparseable block counts as a failure, not a skip.
+
+## Scoring
+
+Per session, against the expected set:
+- **Solved:** the answer set equals the expected set exactly.
+- **Also reported:** precision and recall, `num_turns`, input and output
+  tokens, cache-read tokens, `total_cost_usd`, wall time.
+
+For arm B, the report also counts `code_query` calls and how many of them were
+answered `ok`, `no-index` or something else. It is a fact about the run, not
+part of the score.
+
+## Sample size and budget
+
+- **N = 8 sessions per arm per task.** 8 tasks × 2 arms × 8 = **128
+  sessions**.
+- **Hard cap:** **€50** for the full run. The runner's `--max-usd` is set to
+  €50 at the EUR/USD rate on the day of the run, rounded down, and the report
+  records that rate. The runner stops *launching* sessions at the cap, and a
+  truncated run is labelled as one, never presented as full (the same rule as
+  tier 3's `--max-usd`).
+- **Per-session cap:** `--max-budget-usd`. A session that hits it is
+  unsolved, and the cap hit is counted per arm. If the cap binds harder on
+  one arm than the other, that is a finding in itself.
+- **Pilot first:** 1 session per arm per task, 16 sessions, capped at $8 and
+  outside the €50. It measures the median cost per session for each arm. Then:
+  - **Per-session cap:** 2 × the costlier arm's pilot median, and never more
+    than $0.75.
+  - **Model:** `claude-opus-5-5` if 128 × that cap fits under the cap. Otherwise
+    `claude-sonnet-5-5`, and the report says which model was used and why.
+  - **If it still does not fit:** N stays at 8 and the tasks are cut in this
+    order: T6, T5, C2. The run is never cut below T1–T4 plus C1.
+
+  All of this is decided from the pilot's numbers before the full run starts,
+  and recorded beside them.
+- Sessions run 3 at a time, in a seeded shuffled order that interleaves arms
+  and tasks, so neither arm runs in a cheaper hour or on a quieter host.
+
+## The verdict rule
+
+Declared now. For each task, let `sA` and `sB` be the solves out of 8, and
+`cA` and `cB` the median cost per session.
+
+- **B wins a task** if either:
+  - `sB − sA ≥ 3`, or
+  - `sB = sA ≥ 6` and `cB ≤ 0.75 · cA`.
+
+  **A wins a task** under the mirror conditions. A task is a **tie**
+  otherwise.
+- **Effect**, if all three hold:
+  - B wins at least 3 of the 4 unseen lane-3 tasks (T1–T4);
+  - A wins none of T1–T4;
+  - A wins no control.
+- **No effect**, if B wins at most 1 of T1–T4.
+- **Mixed**, otherwise. It is reported as mixed, and is not rounded toward
+  either side.
+- **Seen-corpus tasks (T5, T6) are reported, but not counted.** If B wins on
+  unseen tasks and ties on seen ones, that is the memorisation confound the
+  split exists to expose.
+
+`|sB − sA| ≥ 3` of 8 is a threshold declared in advance, not a significance
+test. At n = 8, a difference of 1 or 2 is noise, and this page has already
+been burned once by reading noise as signal (§ Rescored).
+
+## Artifacts
+
+`tests/fixtures/eval/outcome/`:
+- **Committed with the runner:** `tasks.tsv` (id, corpus, revision, task text,
+  target, the selection query), `expected/<id>.txt`, `oracle.sh`.
+- **One directory per run:** `runs/<utc>/`, holding `report.txt`,
+  `sessions.jsonl` (one row per session: the reply's answer block and its
+  usage, but no transcript) and `outcomes.json`. Every run is committed whole,
+  the pilot included (#112).
+
+**Negative results go in the results table**, not in a footnote.
+
+## What it does not measure
+
+- **Answer quality on open-ended work.** Every task here has a set answer, so
+  "explain this subsystem" is out of scope.
+- **Other languages.** Both corpora are Rust, because Rust has the
+  compiler-backed oracle. A Go or TypeScript arm needs its own oracle recipe
+  first.
+- **Stability across days.** It is one run, and model behaviour drifts. A
+  second run compares distributions, not totals.

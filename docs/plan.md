@@ -1,6 +1,6 @@
 # Implementation plan
 
-Seven milestones, strict order. Each is independently shippable, leaves `main`
+Eight milestones, strict order. Each is independently shippable, leaves `main`
 green, and has a **done-when** that is checkable by running something — not by
 reading code.
 
@@ -9,8 +9,8 @@ the engine must be provably correct before code-intel facts can hide a bug in
 it. M3 before M4 because tier B anchors against tier A's identifier index.
 
 ```
-M0 ──► M1 ──► M2 ──► M3 ──► M4 ──► M5 ──► M6
-skel   engine  tier A  tier B  surface  langs  perf
+M0 ──► M1 ──► M2 ──► M3 ──► M4 ──► M5 ──► M6 ──► M7
+skel   engine  tier A  tier B  surface  langs  perf   outcome
 ```
 
 ---
@@ -596,6 +596,40 @@ needs the indexers installed (`~/dotfiles`, tag `indexers`).
 
 What M6 cost and what it found is frozen in [history.md](history.md)
 § M6 — Performance and incremental. Nobody is required to read it.
+
+---
+
+## M7 — Outcome eval
+
+Every earlier eval asks whether an agent can write the Datalog. None asks the
+question the project exists for: **does an agent with `code_query` finish a
+structural task better than the same agent with ripgrep alone?** Until that is
+measured, the three-lane premise
+([00-overview.md](../specs/00-overview.md) § The three-lane premise) is a
+claim (#146). The design is
+[agent-eval.md](agent-eval.md) § Outcome eval, and it was declared before any
+runner code was written or any paid run made.
+
+1. Tasks, each with an oracle that does not use codeintel: the compiler or the
+   test runner, applied to a deliberate edit.
+2. A runner. Two arms that differ only in their tool list. Headless
+   `claude -p`, reusing the tier-3 isolation probe.
+3. A pilot to measure cost per session, then one full run within **€50**.
+
+No verb is added: the runner is test-harness code, so the surface budget is
+unchanged.
+
+**Done when**
+- `tests/fixtures/eval/outcome/tasks.tsv`, each task's expected answer, and
+  each oracle's recipe are committed, and `oracle.sh <task>` regenerates every
+  expected answer byte for byte.
+- The isolation probe passes for both arms. Arm A has no `code_query`, arm B
+  has it, and neither sees a CLAUDE.md, memory or hooks.
+- One pilot run and one full run are committed whole (#112). The full run's
+  `total_cost_usd` is under the €50 cap, converted at the rate recorded for that day.
+- The results table is in agent-eval.md: solve rate, tokens and cost per arm,
+  per task, with spread. It also gives the verdict under the rule declared in
+  advance, **including "no effect" if that is what the run says**.
 
 ---
 
