@@ -1555,7 +1555,7 @@ sessions, $7.34.
   (a343573), and this run did not have that line.
 - **T1 and T3: no difference.** Both arms already used the tool on every
   session. B's T1 cost here ($0.099) is close to the full run's ($0.084).
-- **Cost of the instruction:** 1,151 characters of system prompt, which is
+- **Cost of the instruction:** 1,154 characters of system prompt, which is
   a few hundred tokens and a fraction of a cent a session. It is not visible
   in the medians.
 
