@@ -838,8 +838,46 @@ fn expect_empty_does_not_pass_on_an_index_the_query_never_ran_against() {
         "the failure says why: {stderr}"
     );
 
-    // Without the flag nothing moves: `stale` still exits 0 (#135 is that one).
+    // Without the flag too: a `stale` the engine never evaluated is "the query
+    // never ran", exit 2 whatever the status is called (#135).
     let plain = run(dir.path(), &["query", "?- def(S, F, K, N)."]);
+    let stderr = String::from_utf8_lossy(&plain.stderr);
+    assert!(stderr.contains("status=stale"), "{stderr}");
+    assert_eq!(plain.status.code(), Some(2), "{stderr}");
+}
+
+/// #134: clean is `ok` and empty, and nothing else. An `_exact` rule over a
+/// tree with no SCIP index is empty by construction, and a gate written on it
+/// passed on every repository that had never run an indexer.
+#[test]
+fn expect_empty_is_clean_only_when_ok_and_empty() {
+    let dir = tree();
+    index(dir.path());
+
+    let blind = run(
+        dir.path(),
+        &["query", "?- calls_exact(A, B).", "--expect-empty"],
+    );
+    let stderr = String::from_utf8_lossy(&blind.stderr);
+    assert!(stderr.contains("status=no-scip"), "{stderr}");
+    assert_eq!(blind.status.code(), Some(2), "could not tell: {stderr}");
+    assert!(stderr.contains("expect-empty"), "says why: {stderr}");
+
+    // The same tree, a tier-A check that is truly empty: clean.
+    let clean = run(
+        dir.path(),
+        &[
+            "query",
+            "?- def(S, _, _, \"no_such_name\").",
+            "--expect-empty",
+        ],
+    );
+    let stderr = String::from_utf8_lossy(&clean.stderr);
+    assert!(stderr.contains("status=ok"), "{stderr}");
+    assert_eq!(clean.status.code(), Some(0), "{stderr}");
+
+    // Without the flag `no-scip` is an answer, and exits 0.
+    let plain = run(dir.path(), &["query", "?- calls_exact(A, B)."]);
     assert_eq!(plain.status.code(), Some(0));
 }
 

@@ -285,7 +285,7 @@ fn schema_cmd(
         Err(e) => return refusal(e, format),
     };
     // Refresh as `query` does: the counts are what `query` will see.
-    let (census, refreshed) = match query::count(&mut store, &root) {
+    let (census, refreshed) = match query::count(&mut store, &root, index_dir.is_some()) {
         Ok(counted) => counted,
         Err(e) => return refusal(e, format),
     };
@@ -322,6 +322,14 @@ fn status_cmd(
         Ok(store) => store,
         Err(e) => return refusal(e, format),
     };
+    // Another root's pinned index is no index for this one, and a missing index
+    // is a fact about this directory: printed, exit 0, as below (#141).
+    if store.has_index()
+        && let Some(hint) = query::foreign_owner(store.manifest(), &root, index_dir.is_some())
+    {
+        print_verdict(Status::NoIndex, &hint, format);
+        return Ok(ExitCode::SUCCESS);
+    }
     if store.has_index()
         && let Some(hint) = query::stale_schema(store.manifest(), &root)
     {
@@ -347,19 +355,21 @@ fn status_cmd(
 }
 
 /// A `status` verdict with no counts behind it: the store would not load, or
-/// was written for another schema. Exits as `query` would.
+/// was written for another schema. Exits 2 as `query` would: in neither case
+/// could anything be counted, which is "never ran" whatever the status is
+/// called (#135).
 fn verdict(status: Status, hint: &str, format: Format) -> ExitCode {
+    print_verdict(status, hint, format);
+    ExitCode::from(2)
+}
+
+fn print_verdict(status: Status, hint: &str, format: Format) {
     match format {
         Format::Text => print!("status: {status}\nhint: {hint}\n"),
         Format::Json => println!(
             "{}",
             serde_json::json!({ "status": status.as_str(), "indexed": true, "hint": hint })
         ),
-    }
-    if status.answered() {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(2)
     }
 }
 
@@ -428,6 +438,14 @@ fn index_cmd(
     if rebuild {
         store.manifest_mut().dict_generation = generation;
     }
+    // The root this run indexes is the owner from now on. `roots` was written
+    // once, when the manifest was created, so a pinned directory re-indexed from
+    // another tree kept naming the first one — and the read verbs' owner check
+    // (#141) would have refused the tree that now owns it.
+    let here = root.display().to_string();
+    let displaced = (store.has_index() && store.manifest().roots != [here.clone()])
+        .then(|| store.manifest().roots.join(", "));
+    store.manifest_mut().roots = vec![here];
     // `--scip` if given, else `./index.scip` when it is there. Never implicit
     // beyond that: nothing is executed, only read.
     let scip = if scip.is_empty() {
@@ -506,6 +524,22 @@ fn index_cmd(
         eprintln!("  syntax errors: {note}");
     }
     report_scip(&report);
+    if let Some(owner) = displaced {
+        eprintln!("  replaced the index of {owner}");
+    }
+    // A tree no grammar reads is the wrong directory, not an empty answer:
+    // every query after a success here answered `ok` with zero rows (#140).
+    if store.manifest().files.is_empty() {
+        eprintln!(
+            "codeintel: indexed 0 files: nothing here is in a supported language ({})",
+            extract::lang::LANGS
+                .iter()
+                .map(|l| l.name)
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        return Ok(ExitCode::from(2));
+    }
     Ok(ExitCode::SUCCESS)
 }
 
@@ -686,29 +720,47 @@ fn query_cmd(
         eprintln!("widened: `{head}` adds clauses to the stdlib rule of that name");
     }
 
-    if !answer.status.answered() {
-        return Ok(ExitCode::from(2));
-    }
-    // A schema-mismatched index answers `stale` with zero rows and no
-    // evaluation. For a check whose passing case is "no rows", that is "I could
-    // not tell you", not "none" (#134).
-    if expect_empty && !answer.evaluated {
-        eprintln!(
-            "expect-empty: the query never ran against this index, so \"no rows\" is not an answer; \
-             see the hint above"
-        );
+    // A status that never ran, and a `stale` the engine never evaluated (a
+    // schema mismatch): 2 means "the query never ran" whatever the status is
+    // called (#135).
+    if !answer.ran() {
+        if expect_empty {
+            eprintln!(
+                "expect-empty: the query never ran against this index, so \"no rows\" is not an \
+                 answer; see the hint above"
+            );
+        }
         return Ok(ExitCode::from(2));
     }
     // A conformance check states the violation it looks for, so finding none is
     // the passing case. Exit 1 — distinct from the 2 that means the query never
     // ran, because "your code violates this" and "I could not tell you" are not
-    // the same result in CI.
+    // the same result in CI. A violation found on a degraded index is still one.
     if expect_empty && !answer.rows.is_empty() {
         eprintln!(
             "expect-empty: {} row(s) returned; this check states a violation and found one",
             answer.rows.len()
         );
         return Ok(ExitCode::from(1));
+    }
+    // Clean is `ok` and empty, and nothing else (#134). Zero rows from an index
+    // that could not see — no SCIP, stale SCIP, a stale tree, files the exact
+    // tier never covered — is "I could not tell you".
+    if expect_empty && (answer.status != Status::Ok || answer.scip_uncovered > 0) {
+        eprintln!(
+            "expect-empty: no rows, but status={}{} — the index could not see everything this \
+             check reads, so \"no rows\" is not \"none\"; see the hint above",
+            answer.status,
+            if answer.scip_uncovered > 0 {
+                format!(
+                    " with {} file(s) no SCIP document covers",
+                    answer.scip_uncovered
+                )
+            } else {
+                String::new()
+            }
+        );
+        return Ok(ExitCode::from(2));
     }
     Ok(ExitCode::SUCCESS)
 }

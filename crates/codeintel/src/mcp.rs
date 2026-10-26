@@ -428,7 +428,7 @@ fn schema(
 ) -> Result<serde_json::Value, (i64, String)> {
     let counted = facts::store::locate(root, index_dir)
         .and_then(|dir| facts::Store::open(root, dir, &extract::fingerprint()))
-        .and_then(|mut store| crate::query::count(&mut store, root));
+        .and_then(|mut store| crate::query::count(&mut store, root, index_dir.is_some()));
     let (census, refreshed) = match counted {
         Ok(counted) => counted,
         Err(e) => {

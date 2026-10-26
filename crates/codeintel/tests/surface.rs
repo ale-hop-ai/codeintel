@@ -1279,9 +1279,36 @@ fn status_reports_another_schema_as_stale_without_counts() {
 
     let out = run(dir.path(), &["status"]);
     let text = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success(), "{text}");
+    // Nothing could be counted: exit 2, as `query` does on the same index
+    // (#135).
+    assert_eq!(out.status.code(), Some(2), "{text}");
     assert!(text.starts_with("status: stale"), "{text}");
     assert!(text.contains("schema_version 999"), "{text}");
+}
+
+#[test]
+fn a_stale_schema_is_an_mcp_error_because_the_query_never_ran() {
+    // #135: `isError` is the MCP form of exit 2. `stale` with rows is an
+    // answer; `stale` over an index the engine never read is not.
+    let dir = tree();
+    run(dir.path(), &["index", "."]);
+    let path = dir.path().join(".codeintel/manifest.json");
+    let mut json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).expect("reads")).expect("JSON");
+    json["schema_version"] = 999.into();
+    std::fs::write(&path, json.to_string()).expect("writes");
+
+    let out = rpc_structured(
+        dir.path(),
+        &[
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+            "name":"code_query",
+            "arguments":{"query":"?- def(S, F, K, N)."}}}),
+        ],
+    );
+    let result = &out[0]["result"];
+    assert_eq!(result["structuredContent"]["status"], "stale", "{result}");
+    assert_eq!(result["isError"], true, "{result}");
 }
 
 #[test]

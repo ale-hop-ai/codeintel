@@ -26,7 +26,7 @@ guessing what an empty result means.
 |---|---|---|
 | `ok` | query ran, results are complete | — , unless `root` differs from the root asked about (§ The nearest index) |
 | `truncated` | query ran, a cap fired | which cap (`max_result_rows` / `max_result_bytes`), and its value |
-| `no-index` | no index for this root, and none was adopted | one line that indexes it, tier B included (§ The no-index hint); plus any index found nearby (§ The nearest index) |
+| `no-index` | no index for this root, and none was adopted — **or** the index holds 0 files (#140) — **or** a pinned index (`--index-dir`, `CODEINTEL_INDEX_DIR`) was built for another root (#141) | one line that indexes it, tier B included (§ The no-index hint); plus any index found nearby (§ The nearest index). For 0 files: that, and that `codeintel status` lists the extensions no grammar covers. For another root: both roots, and the command that indexes this one into its own directory |
 | `stale` | sources changed and auto-refresh was skipped, exceeded `max_refresh_ms`, or `schema_version` mismatched | `run: codeintel index .` — names the N files |
 | `no-scip` | the goal's **relation-dependency closure** reaches a relation only SCIP populates, and none was ingested — **or** an index was ingested and not one of its documents matched an indexed file, which leaves those relations just as empty | which relations, and the indexer command for the languages present. When documents were ingested and none matched, the hint says so, with the count and the `--scip-root` that would fix it |
 | `scip-stale` | an indexed file holds bytes `index.scip` did not see ([04-storage.md](04-storage.md) § Manifest, `scip_hash`) | which files, and the indexer command |
@@ -61,6 +61,15 @@ program on stdin, an I/O failure), because 2 means "the query never ran" and 1
 is `--expect-empty`'s "it ran and found a violation" (§ `query`). `schema` is
 the one exception: its answer is the catalog, complete without an index, so it
 reports `no-index` and exits 0 (§ `schema`).
+
+**A `stale` that never evaluated exits 2 (#135).** An index written for
+another `schema_version` is `stale`, but the engine is never run against it —
+`columns: []`, `stats.demand: "disabled"` — so it is the "never ran" case the
+exit code exists for, whatever the status is called. `query` exits 2, MCP sets
+`isError: true`, and `status` on the same index exits 2. The status stays
+`stale`: the repair (`--rebuild`) is a stale index's repair, and a new name for
+one cause of it would cost every consumer a case. A `stale` from a held lock or
+a refresh deadline *did* evaluate, carries rows, and exits 0.
 
 **When two of those apply, the index's condition wins the `status` and the cap
 rides along.** A truncated answer from a stale index is `stale`, not
@@ -126,6 +135,27 @@ store is opened. A file indexed as a root walks to nothing and leaves a zero-fil
 index keyed on that file's path, `ok` forever; and `query --path <missing>` was
 `no-index` with a hint to `cd` into the directory that is not there, while
 `status` and `schema` refused the same path (#141).
+
+**A tree that yields no supported file is refused (#140).** `index` over a
+directory where the walk finds nothing a grammar reads — a docs checkout, an
+empty repository, `~` — prints the summary with its `skipped:` line, says
+`indexed 0 files: nothing here is in a supported language`, and exits 2. The
+zero-file manifest it wrote is harmless: a query over it answers `no-index`
+(§ Status taxonomy), never `ok`. It used to exit 0, and every query after it
+answered `ok` with zero rows for the rest of the session — the wrong-directory
+agent's whole failure, told as success.
+
+**A pinned index belongs to one root (#141).** With `--index-dir` or
+`CODEINTEL_INDEX_DIR`, one directory can be handed to any tree. `index` keeps
+overwriting it, because that is what it was asked to do, but when the manifest
+it replaces was built for another root it says so: `replaced the index of
+<other root>`. The *read* verbs refuse instead: `query`, `schema` and `status`
+over a pinned index whose `roots` does not hold the root asked about answer
+`no-index` (exit 2; `schema` exits 0 as it does for any `no-index`) and never
+refresh it. A refresh there walked the asked root, found none of the owner's
+files, and pruned every one of them — a read deleted another tree's index and
+answered `ok` with zero rows about it. The default location is keyed by the
+root and cannot collide, so the check applies only to a pinned directory.
 
 An input the caller names must exist and must be a SCIP index: `--scip nope.scip`
 with no such file, and a zero-byte file (what an indexer that died after creating
@@ -325,13 +355,34 @@ the violation it looks for, so finding none is the passing case. The exit code
 is 1 and not 2 because "your code violates this" and "I could not tell you" are
 different results in CI: 2 stays reserved for a query that never ran.
 
-**That includes a `stale` answer the engine never evaluated.** A schema mismatch
-is `stale` and "carries rows" only in the sense that the field is present: no
-evaluation happened, so zero rows is not "none". With `--expect-empty` it exits
-2, because the check's passing case would otherwise be reached by an index that
-could not look (#134). `no-scip`, `scip-stale` and a `stale` from a lock or a
-refresh deadline *did* evaluate, and their exit under `--expect-empty` is an
-open decision recorded on #134, not settled here.
+**Clean means `ok` and empty, and nothing else (#134).** Under `--expect-empty`
+an answer with rows exits 1 whatever its status — a violation found on a
+degraded index is still a violation. An answer with **no** rows exits 0 only
+when `status` is `ok` and `stats.scip_uncovered` is absent; any other status
+with zero rows exits 2, and so does an `ok` whose exact tier could not see some
+files. A gate has three answers — clean, violation, could not tell — and
+`no-scip`, `scip-stale`, a `stale` of any cause, and partial SCIP coverage with
+zero rows are all the third. An `_exact` rule over an index with no SCIP is
+empty by construction; a gate written on one passed on every repository that
+had never run an indexer. `stats.unread` does **not** fail the check: a file
+too large, not UTF-8 or unreadable is a property of the tree that `index`,
+`status` and the hint all name, and one generated 3 MB file must not make every
+gate in a repository unanswerable.
+
+**Two counts say what the index could not see, without prose.** Both are in
+`stats`, both are omitted when zero, and neither changes the status:
+
+- **`stats.unread`** — files the walk found in a supported language and `index`
+  refused: too large, not UTF-8, unreadable (#130). The hint names them on an
+  empty answer.
+- **`stats.scip_uncovered`** — when the goal's dependency closure reaches a
+  relation only SCIP populates, the number of indexed files no SCIP document
+  covered (#132). A SCIP index built from one crate of a workspace, or one
+  language of a polyglot tree, leaves the exact tier blind there, and
+  `calls_exact` over those files answered `ok` and empty while `calls` had the
+  edge. The hint gains `N of M indexed file(s) have no SCIP document: a.rs,
+  ...`. Not asked when SCIP is absent or matched nothing (`no-scip` says that),
+  and not counted on an answer whose closure never reaches SCIP.
 
 MCP always refreshes; the flag is not exposed there. An agent editing files is
 the assumed case, not the exception.
@@ -826,9 +877,9 @@ none; #130). A file recorded there **is not "changed since index"**: it was
 walked, read and refused, and `index` cannot clear a `stale` it caused. It is
 changed again, and `stale`, when its mtime or size moves. **It does not change
 the verdict**, for the reason below; `query` carries the fact in the hint.
-`indexed: 0 files` with `status: ok` is the zero-file index (#140), readable
-without prose as JSON `files: 0`; whether that earns a status is the owner's
-call, below.
+`indexed: 0 files` is the zero-file index (#140). `status` reports it as it is,
+with the unsupported extensions that explain it and JSON `files: 0`; `query`
+over it answers `no-index`, and `index` that wrote it exited 2.
 
 `status` lists the files that parsed with errors the same way, with their first
 error line (`syntax errors:` in text, `syntax_errors` in JSON — an object from
@@ -1122,16 +1173,11 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
 - **An empty result over a store that skipped files says so (#130, #140).** The
   hint gains `. also: N file(s) were not read, so the answer may be in one:
   src/huge.rs (too large), ...` — the files `index` refused (too large, not
-  UTF-8, unreadable), five names, the total shown. Over a store holding **no
-  files at all** it gains `. also: the index holds 0 files, so no query can
-  match; `codeintel status` lists the extensions no grammar covers`, which is
-  said whether or not the query reached SCIP, so a `no-scip` over nothing is not
-  left recommending an indexer for a tree no grammar reads. Status stays `ok` /
-  `no-scip`, as for syntax errors, and a non-empty answer carries nothing.
-  **A caller reading only JSON can tell on `status`** (`files: 0`,
-  `skipped`), not on `query`. A `no-files` / `partial` status would put it on
-  `query` too: a new row in § Status taxonomy and an owner decision, not taken
-  here (options on #130 and #140).
+  UTF-8, unreadable), five names, the total shown. Status stays `ok`, as for
+  syntax errors, and a non-empty answer carries nothing in the hint. A caller
+  reading only JSON branches on `stats.unread` (§ `query`), which every answer
+  from such a store carries. A store holding **no files at all** never gets
+  here: it answers `no-index` (§ Status taxonomy, #140).
 - **A negated literal is named as the one that excluded, not the one that
   matched nothing (#124).** For `!p(..)` an empty join means `p` *had* matching
   rows — matching is what removed every binding — so "matched 0 rows" says the

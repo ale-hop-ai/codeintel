@@ -32,11 +32,13 @@ fn query_json(root: &Path, program: &str) -> serde_json::Value {
 
 #[test]
 fn the_first_literal_is_not_said_to_follow_a_match() {
-    let dir = tree(&[("A.scala", "class A {}\n")]);
+    // A real index, so the query is answered (a zero-file one is `no-index`,
+    // #140); the first literal is a constant no row carries.
+    let dir = tree(&[("a.rs", "pub fn f() {}\n")]);
     assert!(run(dir.path(), &["index", "."]).status.success());
-    let answer = query_json(dir.path(), "?- def(S,F,K,N).");
+    let answer = query_json(dir.path(), "?- def(S,F,K,\"nosuch\").");
     let hint = answer["hint"].as_str().expect("an empty answer has a hint");
-    assert!(hint.contains("the index holds 0 `def` row(s)"), "{hint}");
+    assert!(hint.contains("matched 0 rows"), "{hint}");
     assert!(!hint.contains("everything before it"), "{hint}");
 }
 
@@ -121,7 +123,11 @@ fn status_lists_what_was_not_read_and_does_not_call_it_changed() {
 
 #[test]
 fn a_skipped_file_that_becomes_readable_is_indexed() {
-    let dir = tree(&[("bin.rs", "pub fn was_bin() {}\n")]);
+    // `lib.rs` keeps the tree indexable while `bin.rs` is refused (#140).
+    let dir = tree(&[
+        ("bin.rs", "pub fn was_bin() {}\n"),
+        ("lib.rs", "pub fn good() {}\n"),
+    ]);
     std::fs::write(dir.path().join("bin.rs"), b"pub fn was_bin() {}\n\xff\n").expect("write");
     assert!(run(dir.path(), &["index", "."]).status.success());
     std::fs::write(dir.path().join("bin.rs"), "pub fn was_bin() {}\n// fixed\n").expect("write");
@@ -140,18 +146,63 @@ fn a_skipped_file_that_becomes_readable_is_indexed() {
 }
 
 #[test]
-fn an_index_of_zero_files_says_so_in_an_empty_answer_and_in_status() {
+fn an_index_of_zero_files_is_refused_and_answers_no_index() {
+    // #140: a tree no grammar reads is the wrong directory. `index` exits 2,
+    // and every verb after it says there is nothing to answer from, never
+    // `ok` with zero rows.
     let dir = tree(&[("A.scala", "class A {}\n"), ("README.md", "# hi\n")]);
-    assert!(run(dir.path(), &["index", "."]).status.success());
+    let out = run(dir.path(), &["index", "."]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("indexed 0 files"), "{stderr}");
+    assert!(stderr.contains("unsupported (.scala)"), "{stderr}");
+
     for program in ["?- def(S,F,K,N).", "?- impact_of(S,C)."] {
-        let answer = query_json(dir.path(), program);
+        let out = run(dir.path(), &["query", program, "--format", "json"]);
+        assert_eq!(out.status.code(), Some(2), "{program}");
+        let answer: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+        assert_eq!(answer["status"], "no-index", "{program}: {answer}");
         let hint = answer["hint"].as_str().expect("hint");
+        assert!(hint.contains("holds 0 files"), "{program}: {hint}");
         assert!(
-            hint.contains("the index holds 0 files"),
-            "{program}: {hint}"
+            !hint.contains("run:"),
+            "indexing again changes nothing: {hint}"
         );
     }
+
+    let out = run(dir.path(), &["schema", "--format", "json"]);
+    let schema: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    assert_eq!(schema["status"], "no-index", "{schema}");
+
     let out = run(dir.path(), &["status", ".", "--format", "json"]);
     let status: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
     assert_eq!(status["files"], 0);
+}
+
+#[test]
+fn every_answer_counts_the_unread_files_and_a_clean_tree_carries_no_count() {
+    // #130: without prose. Omitted at zero, so a clean tree pays nothing.
+    let dir = unread_tree();
+    assert!(run(dir.path(), &["index", "."]).status.success());
+    let expected = if unreadable_is_enforced(dir.path()) {
+        3
+    } else {
+        2
+    };
+    for program in ["?- def(S,_,_,\"good\").", "?- def(S,_,_,\"in_huge\")."] {
+        let answer = query_json(dir.path(), program);
+        assert_eq!(answer["status"], "ok", "{answer}");
+        assert_eq!(answer["stats"]["unread"], expected, "{program}: {answer}");
+    }
+    // It does not fail a gate: the files are named, and they are the tree's.
+    let out = run(
+        dir.path(),
+        &["query", "?- def(S,_,_,\"in_huge\").", "--expect-empty"],
+    );
+    assert_eq!(out.status.code(), Some(0));
+
+    let clean = tree(&[("lib.rs", "pub fn good() {}\n")]);
+    assert!(run(clean.path(), &["index", "."]).status.success());
+    let answer = query_json(clean.path(), "?- def(S,_,_,_).");
+    assert!(answer["stats"].get("unread").is_none(), "{answer}");
 }
