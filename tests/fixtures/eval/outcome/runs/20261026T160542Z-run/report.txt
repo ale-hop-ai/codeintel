@@ -1,0 +1,15 @@
+run  tree 7195546c91b8  model claude-opus-5-5  N 4  seed 1
+sessions 24 run, 0 skipped by --max-usd; cost $7.34
+
+task  lane corpus             | B solved  med$   med turns | C solved  med$   med turns | B code_query calls | C code_query calls
+T1    3    codeintel-981f795  | 4/4  $0.099    6.5         | 4/4  $0.087    5.0         | [2, 4, 2, 2] | [3, 2, 3, 3]
+T2    3    codeintel-981f795  | 0/4  $0.558   18.5         | 0/4  $0.589   16.5         | [0, 0, 0, 0] | [3, 2, 4, 2]
+T3    3    codeintel-981f795  | 3/4  $0.209    8.5         | 4/4  $0.244    8.0         | [8, 4, 4, 4] | [5, 4, 6, 8]
+
+arm B: solved 7/12, median $0.209/session, total $3.62, cap hit 2, unparsed 2, errors 2, denials 0
+arm C: solved 8/12, median $0.244/session, total $3.72, cap hit 3, unparsed 3, errors 3, denials 0
+
+C against B (per-task rule, reported, not a verdict):
+  T1: tie
+  T2: tie
+  T3: tie
