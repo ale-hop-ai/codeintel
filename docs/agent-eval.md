@@ -1450,3 +1450,53 @@ large where the agent reaches for `code_query` (T1, T3). The agent did not
 reach for it on the one lane-3 question it never tried (T2, test reach), and
 nothing in the MCP tool's description points it there. That gap is filed
 against the tool. The eval does not change.
+
+## Re-run: the description names test reach — declared 2026-10-26, before running
+
+The fix for case 1 of #152 changes only `code_query`'s description
+(`crates/codeintel/src/mcp.rs`, [05-surface.md](../specs/05-surface.md) § MCP):
+it now lists questions, "which tests reach X" among them. Everything else is
+the full run's: model, prompt, corpora, oracles, caps ($0.558 a session), and
+N = 4. Arm A is re-run as a same-day control, because its inputs are
+unchanged.
+
+Tasks: **T2 and T6 only**, 16 sessions, `--max-usd 10`.
+
+- **T2 asks whether adoption moves.** The prediction is that arm B calls
+  `code_query` in at least 3 of 4 sessions, where it called it in 0 of 4
+  before. The solve count is not expected to move, because the static answer
+  is 27 of 120 tests, labelled `ok` (case 2 of #152, still open). A T2 solve
+  would therefore mean the agent went past the tool's answer.
+- **T6 asks whether the description now hurts.** On fd, every test runs the
+  binary, so static test reach is empty, and `ok`. If arm B takes that
+  answer, it drops below its 4/4. **A drop of one or more solves on T6 is a
+  regression**, and it makes case 2 a blocker rather than a follow-up.
+
+The full run's verdict is not recomputed from this. The re-run covers two
+tasks, so it is a probe of one change, and is reported as one.
+
+### Result — 2026-10-26: adoption 1 of 4, the prediction failed
+
+`runs/20261026T152434Z-run/`, tree `3142cf84d984`, fallback flags, 16
+sessions, $7.90.
+
+| task | A solved | A median $ | B solved | B median $ | B sessions calling `code_query` |
+|---|---|---|---|---|---|
+| T2 | 0/4 | $0.561 | 0/4 | $0.578 | 1 of 4 (was 0 of 4) |
+| T6 | 4/4 | $0.468 | 4/4 | $0.414 | 0 of 4 (was 0 of 4) |
+
+- **The prediction was at least 3 of 4 on T2, and the result is 1.** Naming
+  the question in the description is not enough, on its own, to send the
+  agent to the tool. The one session that called it made 3 calls and still
+  scored recall 0.
+- **No regression on T6.** Arm B solved 4/4 and never called the tool, so
+  the static empty answer was never in front of it.
+- **The description change stays.** It is accurate, it costs nothing, and it
+  moved adoption from 0 to 1. It is not the lever, and it is not claimed as
+  one.
+
+**Void run, kept as a record.** `runs/20261026T151816Z-run/` ran without
+`--no-safe-mode`. Safe mode drops `--mcp-config`, so all 8 arm B sessions
+ran without `code_query`, and the runner scored them anyway. The runner now
+voids a run whose arm was offered the wrong tool set (`run.py`, `broken`).
+That run is not evidence of anything.

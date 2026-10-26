@@ -220,8 +220,11 @@ fn initialize(structured: bool) -> serde_json::Value {
 fn tool() -> serde_json::Value {
     serde_json::json!({
         "name": TOOL,
-        "description": "Query the structural code graph in Datalog. Facts: definitions, \
-                        spans, containment, imports, references, implements. Call with \
+        "description": "Query the structural code graph in Datalog. Answers: where X is \
+                        defined, who calls X, what breaks if X changes, which tests reach \
+                        X, what implements a trait or interface, what imports a module, \
+                        which exported items nothing uses. Facts: definitions, spans, \
+                        containment, imports, references, implements. Call with \
                         {\"schema\":true} first to get the relation catalog and examples.",
         "inputSchema": {
             "type": "object",

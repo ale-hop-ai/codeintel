@@ -284,17 +284,22 @@ def run(a, n, label):
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     outdir = HERE / "runs" / f"{stamp}-{label}"
     outdir.mkdir(parents=True)
-    spent, skipped, rows = [0.0], [], []
+    spent, skipped, rows, broken = [0.0], [], [], []
     log = (outdir / "sessions.jsonl").open("w")
 
     def go(job):
         tid, arm, rep = job
-        if spent[0] >= a.max_usd:
+        if spent[0] >= a.max_usd or broken:
             skipped.append(job)
             return
         task = tasks[tid]
         prompt = PROMPT.format(text=task["text"], fmt=FORMATS[task["format"]])
         s = session(arm, task["corpus"], prompt, a.model, a.session_usd, not a.no_safe_mode, a.timeout)
+        # An arm that did not get its tool set is not that arm. Safe mode
+        # drops --mcp-config, and a run without --no-safe-mode once ran all
+        # of arm B without code_query, scored it, and reported a tie.
+        if (TOOL in s["tools_offered"]) != (arm == "B"):
+            broken.append(f"{tid} {arm} #{rep} offered {s['tools_offered']}")
         entries = answer_block(s["result"])
         s.update({"task": tid, "rep": rep, "answer": entries,
                   **score(entries, load_expected(tid), task["format"])})
@@ -310,6 +315,9 @@ def run(a, n, label):
     with ThreadPoolExecutor(max_workers=a.jobs) as pool:
         list(pool.map(go, jobs))
     log.close()
+    if broken:
+        die(f"arm isolation broke, run is void ({outdir}): {broken[0]}; "
+            "was --no-safe-mode left out?")
     report = render(rows, ids, tasks, n, a, skipped, label)
     (outdir / "report.txt").write_text(report + "\n")
     (outdir / "outcomes.json").write_text(json.dumps(
