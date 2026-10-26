@@ -627,8 +627,11 @@ fn report_scip(report: &index::Report) {
         );
     }
     eprintln!(
-        "  tier B: {} refs, {} resolved, {} defs tier A missed",
-        report.scip_counts.refs, report.scip_counts.resolved, report.scip_counts.only
+        "  tier B: {} refs, {} resolved, {} defs tier A missed, {} locals set aside",
+        report.scip_counts.refs,
+        report.scip_counts.resolved,
+        report.scip_counts.only,
+        report.scip_counts.locals
     );
     let collisions = report.scip_collisions;
     if collisions > 0 {

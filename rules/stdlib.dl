@@ -140,6 +140,13 @@ impl_sym(F, N, S) :- name_impl(F, _, N, _),
 % `local_def` and `ambiguous` are shaped this way too.
 scip_claim(F, Line, Col) :- scip_ref(S, F, Line, Col, _, _), def(S, _, _, _).
 scip_claim(F, Line, Col) :- scip_ref(S, F, Line, Col, _, _), extern(S, _, _, _).
+% A third way: SCIP resolved the position to a document-scoped local (a
+% parameter, a binding, a closure), which has `resolved` but no `def` (#128).
+% Still a claim: without it, `mock.read(..)` resolved to a local and tier A's
+% `read` then name-matched the test fn `read` -- 44 false `calls` edges on
+% tokio. `resolved`, never the `local ` prefix: scip-typescript's unbound
+% placeholders are `local N` too, define nothing, and must not claim (#56).
+scip_claim(F, Line, Col) :- scip_ref(S, F, Line, Col, _, _), resolved(S).
 
 %% ref(S, F, Line, Col, From, Role, Prov)  resolved occurrence. Prov says which tier.
 % The same two clauses here, so the partition is a partition: an occurrence

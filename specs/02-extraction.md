@@ -951,6 +951,39 @@ unrelated locals across every file in the repo.
 
 ---
 
+### SCIP locals are not definitions (#128)
+
+A SCIP symbol in the `local N` scheme is document-scoped: a parameter, a `let`
+binding, a receiver, a closure. When tier A anchored nothing to one, tier B
+emits only `resolved` for it — no `def`, `def_doc`, `def_sig` or `parent` — and
+it is not an owner for `From`. Before this they were 72% of `def` on this repository (7,459 of 10,283),
+none with a span, a signature or a visibility, and labelled by each indexer its
+own way: `unknown` from rust-analyzer's `Parameter` kinds, `variable` from
+scip-go's. Keyed on a SCIP field — the symbol's scheme — not on a guess about
+what counts as a definition, so invariant 1 holds.
+
+Three consequences, each measured before it landed:
+
+- **Their `scip_ref` rows stay**, and `scip_claim` counts an occurrence of a
+  `resolved` symbol as a claim (01-facts.md § Derived relations). `resolved`,
+  not the `local ` prefix: scip-typescript writes `local N` placeholders for
+  names it could not bind, which define nothing, and a placeholder that claimed
+  its position silently dropped ordinary cross-package calls (#56). Without that clause the
+  position was un-claimed and tier A's name guess took it: `mock.read(..)`
+  resolved to a local became a call to a test fn named `read` — 44 false
+  `calls` edges on tokio. With it, the name tier is suppressed exactly where it
+  was. `ref` gives no exact row for a local (it needs `def` or `extern`).
+- **A reference inside a local closure is attributed to the enclosing
+  definition.** Locals were owners in the `From` sweep, so a call inside
+  `let f = |x| ...` had a caller nobody could open. On tokio 81 `calls` rows
+  had such a caller; they now name the function the closure sits in.
+- **An anchored local is untouched.** A nested function tier A found and SCIP
+  scoped as a local keeps its span, its symbol and its rows.
+
+What it does not reach: scip-python and scip-typescript name parameters as
+global descriptors (`fn().(param)`), not `local N`, so their parameters are
+still `def` rows with `unknown` kind. `index` prints `N locals set aside`.
+
 ## The anchor join
 
 When both tiers cover a file, identity is unified so there is exactly one `def`

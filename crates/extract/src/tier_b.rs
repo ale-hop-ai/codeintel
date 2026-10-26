@@ -102,6 +102,9 @@ pub struct Counts {
     pub resolved: usize,
     /// `def` rows for definitions tier A had no counterpart for.
     pub only: usize,
+    /// SCIP local definitions tier A did not anchor, which emit nothing
+    /// (#128). Counted so `index` can say how many it set aside.
+    pub locals: usize,
     /// Definition occurrences whose symbol this index refuses: defined in
     /// more than one document, or beside another symbol at one position.
     /// Not adopted, not emitted; counted so `status` can say so
@@ -149,6 +152,25 @@ pub fn emit(
             // Tier A owns the `def` row; it already adopted this symbol.
             push(seg, "resolved", &[resolved]);
             counts.resolved += 1;
+            continue;
+        }
+        // A SCIP local tier A did not anchor — a parameter, a `let` binding,
+        // a closure — is not a definition anyone opens: no span, no signature,
+        // a document-scoped symbol, and a `Kind` each indexer labels its own
+        // way (`unknown` on three, `variable` on Go). They were 72% of `def`
+        // on this repository (#128). Nothing is emitted for it, and it is not
+        // an owner: a reference inside such a closure is attributed to the
+        // definition that encloses it, the one an agent can open. It keeps
+        // `resolved` — SCIP defined it, which is what that row says — and its
+        // `scip_ref` rows, so `scip_claim` still holds the position and tier
+        // A's name guess there stays suppressed. `resolved` and not the
+        // `local ` prefix, because scip-typescript also writes `local N`
+        // placeholders for names it could not bind, which define nothing and
+        // must not claim (#56) (`specs/02-extraction.md` § SCIP locals).
+        if def.symbol.starts_with("local ") {
+            counts.locals += 1;
+            counts.resolved += 1;
+            push(seg, "resolved", &[resolved]);
             continue;
         }
         counts.only += 1;
@@ -441,6 +463,41 @@ mod tests {
             anchors.at(4, 7).expect("anchored").parent.as_deref(),
             Some("sc cargo p 1.0 store/Store#")
         );
+    }
+
+    /// #128: a SCIP local tier A did not anchor emits only `resolved` — no
+    /// `def`, no `parent` — and is counted; one tier A anchored is untouched.
+    #[test]
+    fn an_unanchored_local_emits_nothing_and_an_anchored_one_is_kept() {
+        let mut ingest = ingest();
+        let local = "local src/store.rs 4".to_string();
+        ingest.docs.get_mut("src/store.rs").expect("doc").defs[1].symbol = local.clone();
+        let emit_with = |anchored: &[(Span, String)]| {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let mut interner = Interner::open(dir.path()).expect("interner");
+            let mut seg = Segment::new();
+            let counts = emit(
+                &mut seg,
+                &ingest,
+                "src/store.rs",
+                Some(SRC),
+                anchored,
+                &mut interner,
+            )
+            .expect("emits");
+            let defs = rows(&seg, "def", &interner);
+            let resolved = rows(&seg, "resolved", &interner);
+            (counts, defs, resolved)
+        };
+        let (counts, defs, resolved) = emit_with(&[]);
+        assert_eq!(counts.locals, 1);
+        assert!(defs.iter().all(|d| !d.starts_with("local ")), "{defs:?}");
+        // `resolved` stays: SCIP defined it, and `scip_claim` reads that to
+        // tell a local from scip-typescript's unbound placeholder (#56).
+        assert!(resolved.contains(&local), "{resolved:?}");
+        let (counts, _, resolved) = emit_with(&[((36, 76), local.clone())]);
+        assert_eq!(counts.locals, 0);
+        assert!(resolved.contains(&local), "{resolved:?}");
     }
 
     fn emitted(anchored: &[(Span, String)]) -> (Segment, Counts, Interner) {

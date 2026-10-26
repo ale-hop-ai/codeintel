@@ -1,25 +1,25 @@
 id	fixture	status	rows	truncated	derived	demand	transformed
 1	rust	ok	8	false	12	nothing to seed: no derived literal has a bound argument	
 2	rust	ok	1	false	9	applied	innermost_at@bbf,symbol_at@bbb,symbol_at@bbf,tighter_at@bbb
-3	rust	ok	5	false	418	applied	about@bffff,at@bbf,callable@b,calls@bf,calls@fb,calls_at@bffff,calls_at@fbfff,exported@b,impl_sym@bbf,impl_sym@ffb,implements@bff,implements@fbf,innermost_at@bbf,is_test@b,ref@bffffff,ref@ffffbff,symbol_at@bbb,symbol_at@bbf,tighter_at@bbb,trait_sym@b
-4	rust	ok	1	false	377	applied	callable@b,calls@fb,calls_at@fbfff,exported@b,impact_of@bf,ref@bffffff
-5	rust	ok	1	false	377	applied	callable@b,calls_at@fbffb,calls_exact@fb,exported@b,impact_of_exact@bf,ref@bfffffb
-6	rust	ok	1	false	397	applied	callable@b,calls@bf,calls_at@bffff,exported@b,reach_of@bf,ref@ffffbff
-7	rust	ok	1	false	386	applied	callable@b,calls@fb,calls_at@fbfff,exported@b,impact_of@bf,innermost_at@bbf,is_test@b,ref@bffffff,symbol_at@bbb,symbol_at@bbf,tighter_at@bbb
-8	rust	ok	3	false	526	nothing to seed: no derived literal has a bound argument	
-9	rust	ok	3	false	526	nothing to seed: no derived literal has a bound argument	
-10	rust	ok	3	false	529	nothing to seed: no derived literal has a bound argument	
-11	rust	ok	16	false	190	nothing to seed: no derived literal has a bound argument	
-12	rust	ok	27	false	588	nothing to seed: no derived literal has a bound argument	
-13	rust	ok	18	false	570	nothing to seed: no derived literal has a bound argument	
-14	rust	ok	16	false	555	nothing to seed: no derived literal has a bound argument	
-15	rust	ok	13	false	547	nothing to seed: no derived literal has a bound argument	
-16	rust	ok	202	false	408	nothing to seed: no derived literal has a bound argument	
-17	rust	ok	2	false	302	nothing to seed: no derived literal has a bound argument	
-18	rust	ok	8	false	533	nothing to seed: no derived literal has a bound argument	
+3	rust	ok	5	false	376	applied	about@bffff,at@bbf,callable@b,calls@bf,calls@fb,calls_at@bffff,calls_at@fbfff,exported@b,impl_sym@bbf,impl_sym@ffb,implements@bff,implements@fbf,innermost_at@bbf,is_test@b,ref@bffffff,ref@ffffbff,symbol_at@bbb,symbol_at@bbf,tighter_at@bbb,trait_sym@b
+4	rust	ok	1	false	341	applied	callable@b,calls@fb,calls_at@fbfff,exported@b,impact_of@bf,ref@bffffff
+5	rust	ok	1	false	341	applied	callable@b,calls_at@fbffb,calls_exact@fb,exported@b,impact_of_exact@bf,ref@bfffffb
+6	rust	ok	1	false	353	applied	callable@b,calls@bf,calls_at@bffff,exported@b,reach_of@bf,ref@ffffbff
+7	rust	ok	1	false	350	applied	callable@b,calls@fb,calls_at@fbfff,exported@b,impact_of@bf,innermost_at@bbf,is_test@b,ref@bffffff,symbol_at@bbb,symbol_at@bbf,tighter_at@bbb
+8	rust	ok	3	false	473	nothing to seed: no derived literal has a bound argument	
+9	rust	ok	3	false	473	nothing to seed: no derived literal has a bound argument	
+10	rust	ok	3	false	476	nothing to seed: no derived literal has a bound argument	
+11	rust	ok	11	false	134	nothing to seed: no derived literal has a bound argument	
+12	rust	ok	27	false	535	nothing to seed: no derived literal has a bound argument	
+13	rust	ok	18	false	517	nothing to seed: no derived literal has a bound argument	
+14	rust	ok	16	false	502	nothing to seed: no derived literal has a bound argument	
+15	rust	ok	13	false	494	nothing to seed: no derived literal has a bound argument	
+16	rust	ok	113	false	230	nothing to seed: no derived literal has a bound argument	
+17	rust	ok	2	false	228	nothing to seed: no derived literal has a bound argument	
+18	rust	ok	8	false	480	nothing to seed: no derived literal has a bound argument	
 19	rust	ok	1	false	5	nothing to seed: no derived literal has a bound argument	
-20	go	ok	50	false	54	nothing to seed: no derived literal has a bound argument	
+20	go	ok	31	false	35	nothing to seed: no derived literal has a bound argument	
 21	go	ok	7	false	11	nothing to seed: no derived literal has a bound argument	
-22	go	ok	4	false	322	nothing to seed: no derived literal has a bound argument	
-23	go	ok	18	false	357	nothing to seed: no derived literal has a bound argument	
+22	go	ok	4	false	275	nothing to seed: no derived literal has a bound argument	
+23	go	ok	18	false	310	nothing to seed: no derived literal has a bound argument	
 24	go	ok	1	false	5	nothing to seed: no derived literal has a bound argument	

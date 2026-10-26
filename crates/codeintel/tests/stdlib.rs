@@ -232,13 +232,14 @@ fn scip_claim_is_a_resolved_occurrence_not_merely_an_emitted_one() {
     assert!(rows(r#"?- scip_claim("src/app.rs", 1, 0)."#).is_empty());
 
     // The property that matters: every claim names a symbol something knows
-    // about. A `scip_ref` row whose target has neither a `def` nor an `extern`
-    // is the indexer writing down "something is here and I could not name it",
-    // and before #56 it counted as a claim anyway — so the position resolved
-    // to nothing at either tier.
+    // about — a `def`, an `extern`, or a SCIP definition (`resolved`; a local
+    // keeps that and no `def`, #128). A `scip_ref` row whose target has none
+    // is the indexer writing down "something is here and I could not name
+    // it", and before #56 it counted as a claim anyway — so the position
+    // resolved to nothing at either tier.
     let dangling = rows(
         r"?- scip_ref(S, F, L, C, _, _), scip_claim(F, L, C),
-              !def(S, _, _, _), !extern(S, _, _, _).",
+              !def(S, _, _, _), !extern(S, _, _, _), !resolved(S).",
     );
     assert!(
         dangling.is_empty(),
