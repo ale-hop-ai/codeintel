@@ -216,7 +216,7 @@ fn classify(root: &Path, entry: &ignore::DirEntry) -> (Option<String>, Verdict) 
 /// interleaving cannot reach the result.
 ///
 /// Parallel because it is the dominant cost of a warm call —
-/// `docs/plan.md` § #28 measured it at 161 of the 168 ms `refresh` spends on
+/// `docs/history.md` § #28 measured it at 161 of the 168 ms `refresh` spends on
 /// deno, against a per-file stale check of 2.8 ms. The cost is directory
 /// traversal and ignore-matching, which is what `ignore` parallelizes; nothing
 /// about the contract changes, only how many threads run the same policy.

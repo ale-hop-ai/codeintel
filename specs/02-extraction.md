@@ -469,7 +469,7 @@ counted and named with the other skipped documents in the `index` summary
 
 **The walk runs on four threads, and that is why its outputs are ordered.**
 Traversal and ignore-matching are the dominant cost of a warm call —
-[plan.md](../docs/plan.md) § #28 measured the walk as the dominant phase of
+[history.md](../docs/history.md) § #28 measured the walk as the dominant phase of
 `refresh` on a ~831k-LOC tree, against a per-file stale check of a few
 milliseconds (that section withdraws its own magnitudes as not quotable, so none
 is repeated here) — and they parallelize without touching what the walk decides. Each thread applies

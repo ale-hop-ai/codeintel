@@ -1,4 +1,4 @@
-//! Wall clock over the pinned corpora: `docs/plan.md` M6 § Pulled forward,
+//! Wall clock over the pinned corpora: `docs/history.md` M6 § Pulled forward,
 //! harness 2. Local only — CI's regression gate is `tests/counters.rs`.
 //!
 //! ```sh

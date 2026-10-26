@@ -393,7 +393,7 @@ honest workaround.
 code in `lib.rs` uses any of them: the file is six `pub mod` lines under a
 doc comment and nothing else. Each `mod` statement is a reference to a module symbol SCIP places
 in the module's *own* file rather than where the statement is
-([plan.md](plan.md) M3 records the same effect on the anchor rate), and
+([history.md](history.md) M3 records the same effect on the anchor rate), and
 `depends` is file-granular, so it inherits that placement. Read a `depends` row
 involving a module definition as "these two files are in one module graph", not
 as "this file uses that file".
