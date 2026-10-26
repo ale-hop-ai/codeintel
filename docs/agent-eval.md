@@ -1383,3 +1383,70 @@ exists for the numbers below.
   ($0.57–$0.64, on T2, T3 and T6 in both arms), so it will cut some of them
   short. That follows the declared rule; the rule was not retuned after
   seeing costs. Cap hits are counted per arm in the report.
+
+## Full run — 2026-10-26: MIXED
+
+`runs/20261026T142803Z-run/`, tree `28ee3517be56`, `claude-opus-5-5`,
+N = 4, seed 1, using the fallback flags (amendment 6). **64 of 64 sessions
+ran, none were skipped, and the cost was $14.27** (≈ €12.76 at 1.118).
+
+| task | lane | corpus | A solved | A median $ | A median turns | B solved | B median $ | B median turns | B used `code_query` | rule |
+|---|---|---|---|---|---|---|---|---|---|---|
+| T1 callers | 3 | unseen | 4/4 | $0.467 | 17 | 4/4 | **$0.084** | 6 | 4 of 4 | **B** |
+| T2 tests reaching X | 3 | unseen | 0/4 | $0.515 | 16.5 | 0/4 | $0.569 | 16 | 0 of 4 | tie |
+| T3 unused `pub` | 3 | unseen | 3/4 | $0.516 | 14 | 4/4 | $0.295 | 10 | 4 of 4 | tie |
+| T4 impls | 3 | unseen | 4/4 | $0.047 | 4.5 | 4/4 | **$0.031** | 4 | 1 of 4 | **B** |
+| T5 callers | 3 | seen | 4/4 | $0.052 | 3 | 4/4 | $0.063 | 4.5 | 4 of 4 | tie |
+| T6 tests reaching X | 3 | seen | 4/4 | $0.418 | 20 | 4/4 | $0.424 | 21.5 | 0 of 4 | tie |
+| C1 grep (control) | 1 | unseen | 4/4 | $0.021 | 4.5 | 4/4 | **$0.008** | 2 | 0 of 4 | **B** |
+| C2 by description (control) | 2 | unseen | 4/4 | $0.038 | 3 | 4/4 | $0.034 | 3 | 0 of 4 | tie |
+
+| totals | arm A | arm B |
+|---|---|---|
+| solved | 27/32 | 28/32 |
+| median cost per session | $0.236 | $0.076 |
+| total cost | $8.26 | $6.01 |
+| sessions stopped by the per-session cap | 1 (T2) | 2 (T2) |
+
+**Verdict under § The verdict rule: MIXED.** B wins 2 of the 4 unseen lane-3
+tasks (T1, T4), A wins none of them, and A wins no control. "Effect" needed 3
+of 4.
+
+What the table says, and what it does not:
+
+- **Where arm B used the tool, it did the same work for less.** On T1 it
+  used `code_query` in all 4 sessions: the same 4/4 solved, at 18% of A's
+  median cost and a third of A's turns. On T3 it used the tool in all 4 and
+  solved 4/4 against A's 3/4, at 57% of A's median cost. **T3 is still a tie
+  under the rule**: one more solve is under the declared threshold of 2, and
+  the cost clause applies only when the solve counts are equal. The rule was
+  fixed before the run and is applied as written.
+- **Where arm B did not use the tool, it was arm A.** On T2, T6, C1 and C2,
+  B made no `code_query` call, and its cost and outcome track A's.
+- **T6 is right not to use it.** fd's tests run the `fd` binary, a path no
+  static call graph follows. Both arms traced it by reading, and both solved
+  4/4.
+- **T2 is the miss.** "Which tests execute `Ingest::read`" is
+  `impact_of_exact` plus `is_test`, which is the question `impact_of`
+  exists for. No arm B session tried it, and both arms failed all 4
+  sessions, with recall 0–0.56 against a 120-test answer. Three T2 sessions
+  (1 in A, 2 in B) hit the $0.558 cap before writing an answer. The rule's
+  cap did bind, and it bound slightly harder on B.
+- **The win on T4 and C1 is cost on tasks that are already cheap.** Their
+  medians differ by 1 to 2 cents. They pass the rule's 0.75× cost clause, but
+  carry little weight.
+- **Memorisation split.** On the seen corpus (fd), both arms solved
+  everything, and B used the tool on T5 without saving anything. There, the
+  task was easy enough by grep that the tool had nothing to add. It is not
+  evidence of memorisation either way.
+
+**Known defect in the report: `code_query` status counts.** They are parsed
+with a regex over the tool result, which also matches status names quoted
+in schema and hint text, so they are not reported. The index arm B read
+answered `status: ok` when checked directly after the run.
+
+**Takeaway for the tool, not the eval.** The measured benefit is real and
+large where the agent reaches for `code_query` (T1, T3). The agent did not
+reach for it on the one lane-3 question it never tried (T2, test reach), and
+nothing in the MCP tool's description points it there. That gap is filed
+against the tool. The eval does not change.

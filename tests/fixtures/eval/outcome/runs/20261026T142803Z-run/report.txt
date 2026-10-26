@@ -1,0 +1,25 @@
+run  tree 28ee3517be56  model claude-opus-5-5  N 4  seed 1
+sessions 64 run, 0 skipped by --max-usd; cost $14.27
+
+task  lane corpus             | A solved  med$   med turns | B solved  med$   med turns | B code_query calls
+T1    3    codeintel-981f795  | 4/4  $0.467   17.0         | 4/4  $0.084    6.0         | [2, 2, 2, 2]
+T2    3    codeintel-981f795  | 0/4  $0.515   16.5         | 0/4  $0.569   16.0         | [0, 0, 0, 0]
+T3    3    codeintel-981f795  | 3/4  $0.516   14.0         | 4/4  $0.295   10.0         | [6, 6, 4, 4]
+T4    3    codeintel-981f795  | 4/4  $0.047    4.5         | 4/4  $0.031    4.0         | [2, 0, 0, 0]
+T5    3    fd                 | 4/4  $0.052    3.0         | 4/4  $0.063    4.5         | [3, 3, 1, 1]
+T6    3    fd                 | 4/4  $0.418   20.0         | 4/4  $0.424   21.5         | [0, 0, 0, 0]
+C1    1    codeintel-981f795  | 4/4  $0.021    4.5         | 4/4  $0.008    2.0         | [0, 0, 0, 0]
+C2    2    codeintel-981f795  | 4/4  $0.038    3.0         | 4/4  $0.034    3.0         | [0, 0, 0, 0]
+
+arm A: solved 27/32, median $0.236/session, total $8.26, cap hit 1, unparsed 1, errors 1, denials 0
+arm B: solved 28/32, median $0.076/session, total $6.01, cap hit 2, unparsed 2, errors 2, denials 0
+
+verdict: MIXED (B wins 2 of 4 unseen lane-3 tasks, A wins 0, A wins 0 control(s); T5/T6 reported, not counted)
+  T1: B
+  T2: tie
+  T3: tie
+  T4: B
+  T5: tie
+  T6: tie
+  C1: B
+  C2: tie
