@@ -1583,3 +1583,27 @@ Task **T2** only. Arms **B and C**, N = 4: 8 sessions, $0.558 a session,
   $0.558 is tight for either arm: 3 of 4 sessions in each arm hit the cap
   in the full run.
 - B is the same-day control, and it is expected not to call the tool.
+
+### Result — 2026-10-26: the prediction failed; T2 is bound by its cap
+
+`runs/20261026T164643Z-run/`, tree `c67dc0f110dd`, 8 sessions, $4.77.
+
+| arm | solved | recall per session | `code_query` calls | sessions at the cap with no answer |
+|---|---|---|---|---|
+| B | 0/4 | 0, 0.55, 0.30, 0 | 0, 0, 2, 0 | 2 |
+| C | 0/4 | 0, 0, 0, 0 | 2, 5, 7, 4 | **4** |
+
+- **The primary prediction failed.** Arm C's median recall is still 0.
+- **The reason is the cap, not the note.** Every C session spent its
+  $0.558 and stopped before writing an answer. They made more `code_query`
+  calls than the previous arm C run (median 4.5 against 2.5), and they kept
+  reading after the tool answered. That is consistent with the note being
+  read and acted on. The runner keeps no transcripts, so it is not shown.
+  B's two non-zero recalls are sessions that stopped early and answered
+  with a partial list.
+- **T2 cannot separate the arms at this cap.** A 120-entry answer by
+  reading does not fit in $0.558, with the tool or without it. A test-reach
+  task whose answer fits the budget, or a budget the answer fits in, is a
+  change to the eval. It is not made here.
+- **The note stays.** Invariant 5 asks for it whatever T2 shows: the answer
+  it is attached to is 27 of 120, labelled `ok`.
