@@ -216,8 +216,8 @@ fn a_pinned_index_dir_turns_discovery_off() {
 
 #[test]
 fn the_no_index_hint_is_one_complete_line() {
-    // #59 Option B. The agent that gets this runs one line and is done — tier
-    // A, the indexer, and the re-index that ingests its output.
+    // #59 Option B. The agent that gets this runs one line and is done:
+    // `index` builds tier A and runs the indexers for tier B.
     let sandbox = Sandbox::new();
     sandbox.file("main.rs", SOURCE);
 
@@ -229,16 +229,12 @@ fn the_no_index_hint_is_one_complete_line() {
         hint.starts_with(&format!("no index for {}", root.display())),
         "{hint}"
     );
+    // `index` runs the indexer itself, so one command is the whole remedy.
     assert!(
-        hint.contains(&format!("run: cd {}", root.display())),
+        hint.ends_with(&format!("run: codeintel index {}", root.display())),
         "{hint}"
     );
-    assert!(hint.contains("rust-analyzer scip ."), "{hint}");
-    assert_eq!(
-        hint.matches("codeintel index .").count(),
-        2,
-        "the indexer writes ./index.scip and only a second `index` ingests it: {hint}"
-    );
+    assert_eq!(hint.matches("codeintel index").count(), 1, "{hint}");
 }
 
 #[test]
@@ -251,7 +247,7 @@ fn a_tree_with_no_scip_indexer_is_not_told_to_run_one() {
     assert_eq!(answer["status"], "no-index", "{answer}");
     let hint = answer["hint"].as_str().expect("a hint");
     assert!(!hint.contains("scip"), "{hint}");
-    assert_eq!(hint.matches("codeintel index .").count(), 1, "{hint}");
+    assert_eq!(hint.matches("codeintel index").count(), 1, "{hint}");
 }
 
 #[test]

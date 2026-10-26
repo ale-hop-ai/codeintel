@@ -1,0 +1,75 @@
+---
+description: re-run every installed SCIP indexer on the fixtures and diff against the committed index — #109
+
+# Local only, never in the gate: it needs the indexers installed (on this
+# project's hosts, ~/dotfiles + provision, tag `indexers`) and runs them for a
+# minute or more. Cadence: on every toolchain or indexer bump, and before a
+# release. Named in docs/plan.md M6 and tests/fixtures/README.md § Indexer
+# pins, because a local check nobody names is a check nobody runs (#94).
+#
+# Every tier-B test reads a committed index.scip, so the gate pins one
+# indexer's output shape forever. This runs `codeintel index` over each
+# fixture with the installed indexer (specs/02-extraction.md § Acquisition)
+# and fails when its `scip coverage` or `anchored` line differs from
+# tests/fixtures/indexer-drift.tsv. A difference is a finding: file it with
+# the output, which the step prints. The committed index's numbers and both
+# producers are printed beside it for context; a newer producer with the same
+# numbers is not drift.
+#
+# `provision apply --stream tasks/indexer-drift.yml` to watch it.
+steps:
+  - name: build codeintel
+    shell: cargo build --locked --release -p codeintel
+    changed_when: "false"
+    timeout: 10m
+
+  - name: indexer drift over tests/fixtures
+    shell: |
+      set -eu
+      bin="$PWD/target/release/codeintel"
+      scratch="$(mktemp -d)"
+      trap 'rm -rf "$scratch"' EXIT
+      drift=0
+      for fixture in rust go python typescript; do
+        for side in committed installed; do
+          tree="$scratch/$side/$fixture"
+          mkdir -p "$tree"
+          cp -R "tests/fixtures/$fixture/." "$tree"
+          rm -rf "$tree/expected.facts" "$tree/.codeintel" "$tree/target"
+          # A fixed clock, the indexer's output after its sources: a copy
+          # stamps every file with one `now`, which can read as scip-stale.
+          find "$tree" -type f -exec touch -t 202311141200 {} +
+          if [ "$side" = committed ]; then
+            touch -t 202311141201 "$tree/index.scip"
+          else
+            rm -f "$tree/index.scip"
+          fi
+          env -u CODEINTEL_INDEX_DIR XDG_CACHE_HOME="$scratch/cache" \
+            "$bin" index "$tree" > "$scratch/$side-$fixture.index" 2>&1 || true
+          env -u CODEINTEL_INDEX_DIR XDG_CACHE_HOME="$scratch/cache" \
+            "$bin" status "$tree" > "$scratch/$side-$fixture.status" 2>&1 || true
+          grep -E '^(scip coverage|anchored):' "$scratch/$side-$fixture.status" \
+            > "$scratch/$side-$fixture.numbers" || true
+        done
+        echo "== $fixture"
+        grep -E '^  [a-z-]+: (ok|up to date|skipped|exit|timed|no output|could)' \
+          "$scratch/installed-$fixture.index" || true
+        for side in committed installed; do
+          echo "  $side: $(grep -E '^scip:' "$scratch/$side-$fixture.status" \
+            | sed -E 's/^scip: [^(]*//' | head -1)"
+          sed 's/^/    /' "$scratch/$side-$fixture.numbers"
+        done
+        grep "^$fixture	" tests/fixtures/indexer-drift.tsv | cut -f2 \
+          > "$scratch/expected-$fixture.numbers"
+        if ! cmp -s "$scratch/expected-$fixture.numbers" "$scratch/installed-$fixture.numbers" \
+          || [ ! -s "$scratch/installed-$fixture.numbers" ]; then
+          echo "  expected:"
+          sed 's/^/    /' "$scratch/expected-$fixture.numbers"
+          echo "  DRIFT: $fixture — the installed indexer's output reads differently"
+          sed 's/^/    /' "$scratch/installed-$fixture.index"
+          drift=1
+        fi
+      done
+      exit "$drift"
+    changed_when: "false"
+    timeout: 30m

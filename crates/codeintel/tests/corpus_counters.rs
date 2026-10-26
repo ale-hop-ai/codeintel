@@ -299,6 +299,9 @@ fn index_corpus(root: &Path, index: &Path) {
         .arg(root)
         .arg("--index-dir")
         .arg(index)
+        // The pins are tier A. Without this `index` runs the corpus's
+        // indexers, and every digest moves with whatever version is installed.
+        .arg("--no-scip")
         .output()
         .expect("the binary runs");
     assert!(

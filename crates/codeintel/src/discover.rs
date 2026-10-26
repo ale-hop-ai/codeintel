@@ -170,10 +170,9 @@ fn below(root: &Path) -> (Vec<PathBuf>, bool) {
 /// The `no-index` hint: one complete line that leaves nothing to look up
 /// (`specs/05-surface.md` § The no-index hint).
 ///
-/// It chains the tier-A index, the SCIP indexer for every language actually in
-/// the tree, and the re-index that ingests their output — because an agent
-/// told only the first command comes back for `no-scip` on its next question,
-/// and that second round trip is where agents were measured giving up (#59).
+/// One command that builds both tiers: an agent told to build only the first
+/// came back for `no-scip` on its next question, and that second round trip
+/// is where agents were measured giving up (#59).
 #[must_use]
 pub fn no_index_hint(root: &Path, nearby: &Nearby) -> String {
     let mut parts = Vec::new();
@@ -204,50 +203,25 @@ pub fn adopted_hint(requested: &Path, adopted: &Path) -> String {
     )
 }
 
-/// `cd <root> && codeintel index . && <indexer> && codeintel index .`
-///
-/// `cd` leads because every SCIP indexer resolves its project relative to the
-/// working directory. The trailing re-index is not redundant: `index` reads
-/// `./index.scip` when it is there, and the indexer has only just written it.
+/// `run: codeintel index <root>`: one command, both tiers, since `index` runs
+/// the SCIP indexers itself (`specs/05-surface.md` § The no-index hint).
 fn index_chain(root: &Path) -> String {
-    let mut chain = vec![
-        format!("cd {}", shell_quote(&root.to_string_lossy())),
-        "codeintel index .".to_string(),
-    ];
-    let indexers = indexers(root);
-    if indexers.is_empty() {
-        // Never name a command that does not exist for this tree.
-        return format!("run: {}", chain.join(" && "));
-    }
-    chain.extend(indexers.into_iter().map(ToString::to_string));
-    chain.push("codeintel index .".to_string());
-    format!("run: {}", chain.join(" && "))
+    format!(
+        "run: codeintel index {}",
+        shell_quote(&root.to_string_lossy())
+    )
 }
 
 /// `word` as one POSIX shell word. Left bare when every byte is safe, so the
 /// common line stays the line the spec shows; single-quoted otherwise, with an
 /// embedded `'` written as `'\''`.
-fn shell_quote(word: &str) -> String {
+pub(crate) fn shell_quote(word: &str) -> String {
     let safe = |c: char| c.is_ascii_alphanumeric() || "/._-+=:@%,".contains(c);
     if !word.is_empty() && word.chars().all(safe) {
         word.to_string()
     } else {
         format!("'{}'", word.replace('\'', "'\\''"))
     }
-}
-
-/// The SCIP indexer for every language the tree actually holds.
-///
-/// Observed from the same walk `index` performs and the same `Lang.indexer`
-/// string `index` prints, so the hint and the summary cannot disagree about
-/// which indexer a tree needs. A language is in the chain when a file of it is
-/// in the tree — no project-marker sniffing, no guess (invariant 1).
-fn indexers(root: &Path) -> Vec<&'static str> {
-    let found = extract::walk(root);
-    let mut indexers: Vec<&'static str> = found.files.iter().map(|c| c.lang.indexer).collect();
-    indexers.sort_unstable();
-    indexers.dedup();
-    indexers
 }
 
 #[cfg(test)]

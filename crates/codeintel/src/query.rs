@@ -386,7 +386,6 @@ struct Loaded {
     relations: BTreeMap<&'static str, Relation>,
     sites: Sites,
     scip: ScipState,
-    langs: Vec<&'static str>,
 }
 
 impl Loaded {
@@ -396,7 +395,6 @@ impl Loaded {
     /// keeps nothing warm.
     fn of(store: Store, relations: Relations, rules: &[PathBuf]) -> Result<Result<Self, Answer>> {
         let scip = ScipState::of(store.manifest());
-        let langs = indexers(store.manifest());
 
         let sites = Sites::of(&relations);
         let (interner, manifest) = store.into_parts();
@@ -486,7 +484,6 @@ impl Loaded {
             relations,
             sites,
             scip,
-            langs,
         }))
     }
 }
@@ -658,8 +655,7 @@ fn evaluate(
     // The index's condition first. A refresh that did not finish outranks the
     // SCIP verdict, which is why `verdict` is only asked on an `ok` refresh.
     if status == Status::Ok
-        && let Some((scip_status, scip_hint)) =
-            loaded.scip.verdict(&result.stats.depends, &loaded.langs)
+        && let Some((scip_status, scip_hint)) = loaded.scip.verdict(&result.stats.depends)
     {
         status = scip_status;
         hint = Some(scip_hint);
@@ -1407,6 +1403,12 @@ pub struct ScipState {
     /// (#142).
     pub suggestions: Vec<String>,
     inputs: Vec<String>,
+    /// Each input's `--scip-root`, paired with `inputs`.
+    input_roots: Vec<String>,
+    /// What the last `index` did with each indexer: why tier B is absent, and
+    /// whether an input is one `index` produced (`specs/04-storage.md`
+    /// § Manifest).
+    runs: Vec<facts::IndexerRun>,
     root: String,
 }
 
@@ -1419,9 +1421,16 @@ impl ScipState {
     /// `ok` and said nothing.
     #[must_use]
     pub fn of(manifest: &facts::Manifest) -> Self {
+        let root = manifest
+            .roots
+            .first()
+            .cloned()
+            .unwrap_or_else(|| ".".to_string());
         let Some(newest) = manifest.scip.iter().map(|i| i.mtime).max() else {
             return Self {
                 absent: true,
+                runs: manifest.indexers.clone(),
+                root,
                 ..Self::default()
             };
         };
@@ -1444,11 +1453,9 @@ impl ScipState {
             uncovered,
             suggestions: manifest.scip_root_suggestions.clone(),
             inputs: manifest.scip.iter().map(|i| i.path.clone()).collect(),
-            root: manifest
-                .roots
-                .first()
-                .cloned()
-                .unwrap_or_else(|| ".".to_string()),
+            input_roots: manifest.scip.iter().map(|i| i.root.clone()).collect(),
+            runs: manifest.indexers.clone(),
+            root,
             stale: manifest
                 .files
                 .iter()
@@ -1486,6 +1493,76 @@ impl ScipState {
         }
     }
 
+    /// What brings a stale SCIP input up to date. `codeintel index` when it
+    /// produced every input, since it re-runs a stale indexer itself; the
+    /// user's own indexer and the line that reads its output again when they
+    /// built one (`specs/05-surface.md` § Status taxonomy).
+    #[must_use]
+    pub fn rerun(&self) -> String {
+        let root = discover::shell_quote(&self.root);
+        let produced = self
+            .inputs
+            .iter()
+            .all(|i| self.runs.iter().any(|r| &r.output == i));
+        if produced {
+            return format!("run: codeintel index {root}");
+        }
+        let scip: String = self
+            .inputs
+            .iter()
+            .zip(&self.input_roots)
+            .flat_map(|(input, dir)| {
+                let mut words = vec![" --scip ".to_string(), discover::shell_quote(input)];
+                if !dir.is_empty() {
+                    words.push(" --scip-root ".to_string());
+                    words.push(discover::shell_quote(dir));
+                }
+                words
+            })
+            .collect();
+        format!(
+            "re-run the indexer that wrote {}, then run: codeintel index {root}{scip}",
+            self.inputs.join(", ")
+        )
+    }
+
+    /// What builds tier B when none was ingested: why the last `index`
+    /// produced none, when it recorded why, and the command — never a command
+    /// that will only skip the same indexer again.
+    fn build(&self) -> String {
+        let root = discover::shell_quote(&self.root);
+        let failed: Vec<&facts::IndexerRun> = self.runs.iter().filter(|r| !r.ok()).collect();
+        if failed.is_empty() {
+            return format!(
+                "`codeintel index` runs the SCIP indexers. run: codeintel index {root}"
+            );
+        }
+        let misplaced = |r: &facts::IndexerRun| r.outcome.ends_with(" at the root");
+        let why: Vec<String> = failed
+            .iter()
+            .map(|r| {
+                if r.outcome == "not on PATH" {
+                    format!("{} is not on PATH; install it", r.program)
+                } else if misplaced(r) {
+                    format!(
+                        "{}: {} — run `{}` where it is and pass the output with --scip and \
+                         --scip-root",
+                        r.program, r.outcome, r.command
+                    )
+                } else {
+                    format!("{}: {}, see {}", r.program, r.outcome, r.log)
+                }
+            })
+            .collect();
+        let why = why.join("; ");
+        if failed.iter().all(|r| misplaced(r)) {
+            // Re-running `index` would skip them again.
+            format!("the last `codeintel index` built none: {why}")
+        } else {
+            format!("the last `codeintel index` built none: {why}. run: codeintel index {root}")
+        }
+    }
+
     /// The files the exact tier is blind in, for a goal whose closure is
     /// `depends`: none unless the closure reaches a relation SCIP populates.
     fn uncovered_for(&self, depends: &[String]) -> &[String] {
@@ -1498,15 +1575,10 @@ impl ScipState {
 
     /// The status this answer deserves, or `None` when SCIP has nothing to say
     /// about it.
-    fn verdict(&self, depends: &[String], langs: &[&'static str]) -> Option<(Status, String)> {
+    fn verdict(&self, depends: &[String]) -> Option<(Status, String)> {
         if !depends.iter().any(|d| scip_backed(d)) {
             return None;
         }
-        let commands = if langs.is_empty() {
-            "build a SCIP index for this repository".to_string()
-        } else {
-            format!("run: {}", langs.join(" && "))
-        };
         let wanted = depends
             .iter()
             .filter(|d| scip_backed(d))
@@ -1518,7 +1590,8 @@ impl ScipState {
                 Status::NoScip,
                 format!(
                     "this query depends on {wanted}, which only a SCIP index populates; the \
-                     answer above is what tier A alone can see. {commands}"
+                     answer above is what tier A alone can see. {}",
+                    self.build()
                 ),
             ));
         }
@@ -1545,9 +1618,10 @@ impl ScipState {
             Status::ScipStale,
             format!(
                 "{} file(s) changed after the SCIP index was built, so their `name_ref` rows are \
-                 fresh and their `scip_ref` rows are not: {}. {commands}",
+                 fresh and their `scip_ref` rows are not: {}. {}",
                 self.stale.len(),
-                name_list(&self.stale)
+                name_list(&self.stale),
+                self.rerun()
             ),
         ))
     }
@@ -1628,18 +1702,6 @@ pub fn unread_note_of(skipped: &BTreeMap<String, facts::SkipEntry>) -> Option<St
         named.len(),
         name_list(&named)
     ))
-}
-
-/// The indexer command for every language the index holds files in.
-pub(crate) fn indexers(manifest: &facts::Manifest) -> Vec<&'static str> {
-    let mut out: Vec<&'static str> = manifest
-        .files
-        .values()
-        .filter_map(|entry| extract::lang::by_name(&entry.lang).map(|l| l.indexer))
-        .collect();
-    out.sort_unstable();
-    out.dedup();
-    out
 }
 
 /// Count `store` as `schema` prints it, after refreshing as `query` would, so a

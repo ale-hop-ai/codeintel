@@ -59,23 +59,21 @@ fn the_no_index_hint_is_valid_shell_over_every_language() {
         .unwrap_or_else(|| panic!("no hint in: {text}"));
     let line = line.lines().next().expect("a line");
 
-    assert_parses("the no-index chain", line);
-    for lang in extract::lang::LANGS {
-        let command = lang.indexer;
-        assert!(line.contains(command), "{command} missing from: {line}");
-    }
+    assert_parses("the no-index hint", line);
+    // One command now: `index` runs the indexers itself, so nothing is
+    // chained after it (`specs/05-surface.md` § The no-index hint).
+    assert!(!line.contains("&&"), "{line}");
 
-    // `cd` must land in the root, not in the first word of it.
-    let (cd, _) = line.split_once(" && ").expect("a chain");
-    let landed = sh(&["-c", &format!("{cd} && pwd -P")]);
+    // The root must reach `index` as one word, not as the first word of it.
+    let landed = sh(&["-c", &format!("set -- {line}; printf %s \"$3\"")]);
     assert!(
         landed.status.success(),
-        "`{cd} && pwd -P` exited {:?}: {}",
+        "`set -- {line}` exited {:?}: {}",
         landed.status.code(),
         String::from_utf8_lossy(&landed.stderr)
     );
     assert_eq!(
-        String::from_utf8_lossy(&landed.stdout).trim_end(),
+        String::from_utf8_lossy(&landed.stdout),
         tree.path()
             .canonicalize()
             .expect("canonical")
@@ -86,34 +84,14 @@ fn the_no_index_hint_is_valid_shell_over_every_language() {
 #[test]
 fn every_indexer_command_is_valid_shell_on_its_own() {
     for lang in extract::lang::LANGS {
-        assert_parses(lang.name, lang.indexer);
-    }
-}
-
-#[test]
-fn the_build_one_list_that_index_prints_is_valid_shell() {
-    let tree = polyglot_tree();
-    let out = codeintel(tree.path(), &["index", "."]);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    let (_, list) = stderr
-        .split_once("build one:")
-        .unwrap_or_else(|| panic!("no build-one list in: {stderr}"));
-    let commands: Vec<&str> = list
-        .lines()
-        .skip(1)
-        .take_while(|l| l.starts_with("    "))
-        .map(str::trim)
-        .collect();
-    assert!(!commands.is_empty(), "{stderr}");
-    for command in commands {
-        assert_parses("a build-one line", command);
+        assert_parses(lang.name, &lang.indexer.to_string());
     }
 }
 
 /// The `scip-stale` hint rides on every answer until someone re-runs the
-/// indexers, so it is the paste-ready line an agent is shown most. It has no
-/// `cd` and builds its own chain, so it is checked as its own producer, for
-/// each language, rather than inferred from the `no-index` one.
+/// indexers, so it is the paste-ready line an agent is shown most. Over an
+/// input the user built it names that input back, so it is checked as its own
+/// producer, for each language, rather than inferred from the `no-index` one.
 fn the_scip_stale_hints_are_valid_shell(fixture: &str) {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
     let dir = tempfile::tempdir().expect("tempdir");
@@ -246,8 +224,9 @@ fn first_source(dir: &Path) -> Option<std::path::PathBuf> {
     None
 }
 
-/// A tree whose chain ends in `scip-python index .` — the shape #104 reported —
-/// with a real call in the Rust so one query returns rows and composes nothing.
+/// A two-language tree with a real call in the Rust, so one query returns rows
+/// and composes nothing. #104 was a chain ending in `scip-python index .`;
+/// the chain is one command now, and composition must still leave it whole.
 fn two_language_tree() -> tempfile::TempDir {
     let tree = tempfile::tempdir().expect("tempdir");
     std::fs::write(
@@ -299,7 +278,9 @@ fn chain_under(tree: &Path, shape: &str, goal: &str) -> String {
 #[test]
 fn composing_a_hint_leaves_its_runnable_chain_untouched() {
     let tree = two_language_tree();
-    let indexed = codeintel(tree.path(), &["index", "."]);
+    // `--no-scip`: tier A is the condition under test, and the indexers on
+    // this host are not part of it.
+    let indexed = codeintel(tree.path(), &["index", ".", "--no-scip"]);
     assert!(
         indexed.status.success(),
         "`codeintel index .` exited {:?}: {}",

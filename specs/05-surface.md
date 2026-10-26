@@ -28,8 +28,8 @@ guessing what an empty result means.
 | `truncated` | query ran, a cap fired | which cap (`max_result_rows` / `max_result_bytes`), and its value |
 | `no-index` | no index for this root, and none was adopted — **or** the index holds 0 files (#140) — **or** a pinned index (`--index-dir`, `CODEINTEL_INDEX_DIR`) was built for another root (#141) | one line that indexes it, tier B included (§ The no-index hint); plus any index found nearby (§ The nearest index). For 0 files: that, and that `codeintel status` lists the extensions no grammar covers. For another root: both roots, and the command that indexes this one into its own directory |
 | `stale` | sources changed and auto-refresh was skipped, exceeded `max_refresh_ms`, or `schema_version` mismatched | `run: codeintel index .` — names the N files |
-| `no-scip` | the goal's **relation-dependency closure** reaches a relation only SCIP populates, and none was ingested — **or** an index was ingested and not one of its documents matched an indexed file, which leaves those relations just as empty | which relations, and the indexer command for the languages present. When documents were ingested and none matched, the hint says so, with the count and the `--scip-root` that would fix it: a `run:` line re-indexing with it when one directory fits, the candidates when several do — never a pick among them (#142) |
-| `scip-stale` | an indexed file holds bytes `index.scip` did not see ([04-storage.md](04-storage.md) § Manifest, `scip_hash`) | which files, and the indexer command |
+| `no-scip` | the goal's **relation-dependency closure** reaches a relation only SCIP populates, and none was ingested — **or** an index was ingested and not one of its documents matched an indexed file, which leaves those relations just as empty | which relations, and what to run: `run: codeintel index <root>`, which runs the indexers — preceded by why the last run produced nothing when the manifest records it (a program not on `PATH`, a project file not at the root, a failure, `--no-scip`; [02-extraction.md](02-extraction.md) § Acquisition). When documents were ingested and none matched, the hint says so, with the count and the `--scip-root` that would fix it: a `run:` line re-indexing with it when one directory fits, the candidates when several do — never a pick among them (#142) |
+| `scip-stale` | an indexed file holds bytes `index.scip` did not see ([04-storage.md](04-storage.md) § Manifest, `scip_hash`) | which files, and `run: codeintel index <root>` when `index` produced the inputs; when the user did (`--scip`, `./index.scip`), re-run the indexer that wrote them and the `codeintel index` line that reads them |
 | `invalid-query` | parse or safety failure | the rule, the variable, the violated rule |
 | `unstratified` | negation cycle | the cycle |
 | `timeout` / `budget-exceeded` | a limit aborted evaluation | the limit and its value |
@@ -86,8 +86,8 @@ refresh that did not finish makes the SCIP verdict moot.
 ## CLI
 
 ```
-codeintel index  [PATH] [--scip FILE]... [--scip-root DIR]... [--rebuild]
-                 [--lang L]... [--index-dir DIR]
+codeintel index  [PATH] [--scip FILE]... [--scip-root DIR]... [--no-scip]
+                 [--rebuild] [--lang L]... [--index-dir DIR]
 codeintel query  <PROGRAM|-> [--path DIR] [--format text|json] [--limit N]
                  [--rules FILE]... [--raw] [--no-refresh] [--expect-empty]
                  [--index-dir DIR]
@@ -115,13 +115,16 @@ join an agent writes itself.
 `--format tsv` is gone: text is already TSV-ish and there were three formats for
 two consumers.
 
-`--run-indexers` is not built — see [02-extraction.md](02-extraction.md)
-§ Acquisition. `index` prints the exact command.
+`index` runs the SCIP indexers itself unless told not to — see
+[02-extraction.md](02-extraction.md) § Acquisition. `--no-scip` is a flag, not
+a verb, so the surface budget is unchanged.
 
 ### `index`
 
-Builds or updates the store. `--scip` may repeat; defaults to `./index.scip` if
-present. `--rebuild` discards and rewrites, including the dictionary. `--lang`
+Builds or updates the store, both tiers. `--scip` may repeat; without it,
+`./index.scip` is read if present, and otherwise `index` runs the indexer of
+every language it found and reads their output ([02-extraction.md](02-extraction.md)
+§ Acquisition). `--no-scip` runs and reads nothing: tier A only. `--rebuild` discards and rewrites, including the dictionary. `--lang`
 restricts grammars: files of every other language are neither refreshed nor
 dropped, they are carried forward unchanged. A `--lang` that names no grammar in
 the language table (`extract::lang::LANGS`) exits 2 and lists the valid names:
@@ -169,9 +172,20 @@ means the repository root, one applies to every `--scip`, N pairs positionally
 with N; any other count is an error. Like `--index-dir`, it is a flag and not a
 verb, so the surface budget is unchanged.
 
-`index` prints the exact indexer command for every language it found.
-Copy-pasteable, not a description of one. It never runs one: `--run-indexers`
-is not built ([docs/plan.md](../docs/plan.md) M3, § Explicitly deferred).
+**The indexers report before and after they run.** Before each program
+starts, `index` prints the command and the log it writes to:
+
+```
+codeintel: running rust-analyzer scip . --output <store>/scip/rust-analyzer.scip (log: <store>/scip/rust-analyzer.log)
+```
+
+and after it, one line per program considered: `ok in 41.2 s`, `up to date`,
+`skipped — not on PATH; install it, then re-run`, `skipped — no go.mod at the
+root`, `failed (exit 101); see <log>`, `timed out after 600 s; see <log>`. A
+failure keeps the program's previous output, if any, and never changes the
+exit code: tier A stands. A language with no indexer gets no line, and a run
+that ingests nothing says `no SCIP index: tier A only, so every reference is
+provenance "name"`.
 
 Prints a summary to stderr: files indexed/skipped/unchanged, facts produced,
 SCIP coverage, anchor rate, SCIP occurrences skipped because their column is
@@ -299,7 +313,8 @@ the worst failure this tool has, because it looks like a right one.
   never do is refresh with no SCIP at all: that looks like "the index
   disappeared", re-extracts the tree tier-A-only, and deletes every tier-B fact
   — the store would degrade a little more with each query, silently. Rerunning
-  the indexer and `codeintel index` is what reconciles a `scip-stale` index.
+  the indexer — `codeintel index` does that itself for the inputs it produced
+  — is what reconciles a `scip-stale` index.
 - Bounded by `max_refresh_ms` (default 2,000). If the refresh would exceed it,
   it is abandoned, the query runs against the index as it stands, and the
   response carries `status: "stale"` naming the files it could not refresh.
@@ -633,61 +648,41 @@ answer from, so it costs nothing on the hot path — and not at all when
 
 ### The no-index hint
 
-`run: codeintel index <root>` was the whole hint, and it was not enough (#59).
-An agent that gets it runs the one command, asks again, and is told `no-scip`
-on the next question that needs tier B — a second round trip, and the one place
-measured where agents gave up and fell back to `grep`.
+`run: codeintel index <root>` was the whole hint once, and it was not enough
+(#59): `index` built tier A only, so an agent that ran it asked again and was
+told `no-scip` on the next question that needed tier B — a second round trip,
+and the one place measured where agents gave up and fell back to `grep`. The
+fix then was a chain — the index, every indexer, the index again — and the
+chain was where #102, #104 and #109 lived.
 
-**The `no-index` hint is one complete line that leaves nothing to look up.** It
-chains, in order: the tier-A index, the SCIP indexer for every language
-actually present in the tree, and the re-index that ingests their output.
+**Now `index` runs the indexers itself, so the hint is that one command again,
+and it is enough:**
 
 ```
-no index for /repo. run: cd /repo && codeintel index . && rust-analyzer scip . && codeintel index .
+no index for /repo. run: codeintel index /repo
 ```
 
-- The languages come from the same `.gitignore`-aware walk `index` performs and
-  the same `Lang.indexer` string `index` prints, so the hint and the summary
-  can never disagree about which indexer a tree needs. No project-marker
-  sniffing, no guessing: a language is in the chain when a file of it is in the
-  tree (invariant 1).
-- A tree whose languages have no SCIP indexer gets the first command alone. The
-  chain never names a command that does not exist.
-- The trailing `codeintel index .` is not redundant. `index` reads
-  `./index.scip` when it is there and the indexer has only just written it, so
-  without the second run the SCIP output is produced and never ingested.
-- `cd <root> &&` leads, because every SCIP indexer resolves its own project
-  relative to the working directory. The root is a shell word: bare when every
-  byte is safe, single-quoted otherwise, so a root with a space or a `'` still
-  lands where it says.
-- **The line is paste-ready, so it holds no placeholder.** An `Lang.indexer`
-  string is run verbatim; `<name>` is a redirect in `sh` and makes the whole
-  chain a syntax error. A command that needs an argument the tree does not
-  supply is written without it. `crates/codeintel/tests/hint_runs.rs` runs the
-  hint, and the `build one:` list `index` prints, through `sh -n` over a tree
-  holding every language in the table, at a root with a space and a quote.
-- **The chain is `&&` on purpose.** If one indexer is missing or exits
-  non-zero, the chain stops there and the final `codeintel index .` does not
-  run: nothing is ingested, and the index stays tier A, which is what it already
-  was. A partial SCIP set ingested without anyone being told is the worse
-  outcome. The shell reports which command failed. **This guards only an
-  indexer that fails.** `scip-go` run where `go.mod` is not the working
-  directory exits 0 over an empty index, so the chain continues and `index`
-  ingests `0 documents` (#109); what catches that is `index`'s own `scip
-  coverage` line, not the `&&`. § Indexer evidence in
-  [02-extraction.md](02-extraction.md) records which commands have been run.
+- The root is a shell word: bare when every byte is safe, single-quoted
+  otherwise, so a root with a space or a `'` still lands where it says.
+  `crates/codeintel/tests/hint_runs.rs` runs the hint through `sh -n` at a root
+  with a space and a quote.
+- No `cd`. `index` runs every indexer with the root as its working directory
+  ([02-extraction.md](02-extraction.md) § Acquisition), so the caller's
+  directory does not matter.
+- What the indexers will cost is not in the hint. It is in `index`'s progress
+  lines, where the agent that ran it reads them as they happen.
 - When discovery found indexes that were not adopted, the hint names them
   first: `no index for /repo; found an index at /repo/daemon` (`found indexes at a, b` for several). The found path is the
   **root**, not its store directory — that is what the caller passes to
   `--path`, and under [04-storage.md](04-storage.md) § Location the store
   directory is not somewhere the caller ever types.
 - The hint is cut to fit `max_result_bytes` like any other (§ Symbol
-  rendering), so a chain over a polyglot tree degrades by truncation with its
-  marker, never by a silent cap.
+  rendering), never by a silent cap.
 
 **The server still does not index.** The rule stands: **no indexer ever runs on
-the query path.** `index` builds; `query` and `mcp` refresh tier A from files
-already in the manifest and nothing else (§ `query`). A structural question
+the query path.** `index` builds and runs indexers; `query` and `mcp` refresh
+tier A from files already in the manifest, re-read the SCIP inputs it names,
+and nothing else (§ `query`). A structural question
 must never block on `cargo`, `tsc` or `go build`, and an answer served from a
 half-built index is the confidently-wrong answer this whole taxonomy exists to
 prevent.
@@ -871,6 +866,11 @@ count `index` prints is the run it just did, every count `status` prints is the
 whole store — so after an incremental reindex the two describe different sets
 of files. They never describe the same set two ways.
 
+`status` lists what the last `index` did with each indexer (`indexers:` in
+text, `indexers` in JSON — the manifest's record, [04-storage.md](04-storage.md)
+§ Manifest): the program, the outcome, the log. It does not change the verdict;
+it is how a bug report says why an index has no tier B.
+
 `status` lists the files that were not read the same way (`not read:` in text,
 `skipped` in JSON — an object from path to `{reason, mtime, size}`, empty when
 none; #130). A file recorded there **is not "changed since index"**: it was
@@ -909,7 +909,7 @@ reader repairing a `corrupt` index cannot otherwise work out.
 
 `status` **never adopts a nearby index** (§ The nearest index) — it reports on
 the directory named on its command line and nothing else — but its `no-index`
-hint is the same one `query` gives: the complete index chain, and any index
+hint is the same one `query` gives: the one command that indexes it, and any index
 discovery found above or below, named by root.
 
 **`status` does not refresh, on purpose.** It is the diagnostic for the index
@@ -1277,8 +1277,8 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
   an error would make the taxonomy claim a malformed program where there is
   only an empty one, and the taxonomy's whole job is keeping those apart.
 - Everything else carries a command the agent can run. `no-index` returns the
-  complete chain of § The no-index hint, not "index not found" and not a
-  fragment that needs a second lookup.
+  command of § The no-index hint, which builds both tiers, not "index not
+  found" and not a fragment that needs a second lookup.
 - On `invalid-query`, `hint` contains the corrected shape where it can be
   inferred — an arity mismatch reports the expected arity. An agent should be
   able to self-correct in one retry.

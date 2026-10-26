@@ -153,9 +153,10 @@ fn named_only() -> &'static Path {
         copy(&from, dir.path());
         drop(std::fs::remove_file(dir.path().join("expected.facts")));
         // Removed, not merely un-passed: `index` auto-detects `index.scip`.
+        // And `--no-scip`, or `index` would run the indexers instead.
         drop(std::fs::remove_file(dir.path().join("index.scip")));
         let out = Command::new(binary())
-            .args(["index", "."])
+            .args(["index", ".", "--no-scip"])
             .current_dir(dir.path())
             .env("CODEINTEL_INDEX_DIR", dir.path().join(".codeintel"))
             .output()

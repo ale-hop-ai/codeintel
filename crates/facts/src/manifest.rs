@@ -65,6 +65,12 @@ pub struct Manifest {
     /// documents matched or no candidate exists.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scip_root_suggestions: Vec<String>,
+    /// What the last `index` did with each SCIP indexer it considered. Empty
+    /// when it ran none — `--no-scip`, `--scip`, `./index.scip` — and in a
+    /// manifest written before the field existed. Written by `index` only; a
+    /// refresh carries it forward (`specs/04-storage.md` § Manifest).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub indexers: Vec<IndexerRun>,
     /// Indexed files, keyed by repo-relative path with `/` separators.
     pub files: BTreeMap<String, FileEntry>,
     /// Files in a supported language the walk reached and the indexer did
@@ -139,6 +145,31 @@ pub struct ScipInput {
     /// normalization). Zero until it is parsed.
     #[serde(default)]
     pub ambiguous: u64,
+}
+
+/// One SCIP indexer `index` considered, and what happened to it
+/// (`specs/02-extraction.md` § Acquisition).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IndexerRun {
+    /// The program, as the language table names it.
+    pub program: String,
+    /// `<program> <args>`, without the output flag.
+    pub command: String,
+    /// `ok`, or why there is no fresh output: `not on PATH`, `no go.mod at
+    /// the root`, `exit 1`, `timed out after 600 s`, `no output`.
+    pub outcome: String,
+    /// Where its output is, absolute.
+    pub output: String,
+    /// Where its stdout and stderr went, absolute. Empty when it never ran.
+    pub log: String,
+}
+
+impl IndexerRun {
+    /// True when the last run produced the output it names.
+    #[must_use]
+    pub fn ok(&self) -> bool {
+        self.outcome == "ok"
+    }
 }
 
 impl ScipInput {
@@ -360,6 +391,7 @@ impl Manifest {
             scip_collisions: 0,
             scip_matched: None,
             scip_root_suggestions: Vec::new(),
+            indexers: Vec::new(),
             files: BTreeMap::new(),
             skipped: BTreeMap::new(),
         }

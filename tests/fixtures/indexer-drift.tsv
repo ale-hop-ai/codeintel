@@ -1,0 +1,20 @@
+# What `codeintel index` reads from a fresh run of each installed indexer over
+# each fixture: the baseline `tasks/indexer-drift.yml` compares against (#109).
+#
+# Not the committed index.scip's numbers. Two committed indexes are stale on
+# purpose — Go's predates `Drain`, TypeScript's predates `sig.ts`
+# (README.md § the anchor table) — so a fresh run reads more than they do.
+#
+# Recorded 2026-10-26 with rust-analyzer 1.98.1, scip-go 0.2.7,
+# scip-python 0.6.8, scip-typescript 0.5.2. Change a line only with the reason
+# in the commit: which indexer moved, and why the new number is right.
+#
+# <fixture><TAB><line `codeintel status` prints>
+rust	scip coverage: 11 of 11 document(s) matched an indexed file
+rust	anchored: 36/45 tier-A defs (80.0%)
+go	scip coverage: 7 of 8 document(s) matched an indexed file
+go	anchored: 26/26 tier-A defs (100.0%)
+python	scip coverage: 8 of 8 document(s) matched an indexed file
+python	anchored: 32/33 tier-A defs (97.0%)
+typescript	scip coverage: 10 of 10 document(s) matched an indexed file
+typescript	anchored: 60/61 tier-A defs (98.4%)

@@ -59,8 +59,9 @@ enum Command {
         /// Restrict to these languages. Repeatable.
         #[arg(long = "lang", value_parser = lang_names())]
         langs: Vec<String>,
-        /// A SCIP index to ingest. Repeatable. Defaults to `./index.scip` if
-        /// one is there.
+        /// A SCIP index to ingest. Repeatable. Without it, `./index.scip` if
+        /// one is there, else `index` runs the indexer of every language it
+        /// finds and ingests their output.
         #[arg(long = "scip")]
         scip: Vec<PathBuf>,
         /// The repo-relative directory a SCIP index's document paths are
@@ -68,6 +69,9 @@ enum Command {
         /// none, one for every `--scip`, or one each in the same order.
         #[arg(long = "scip-root", value_name = "DIR")]
         scip_roots: Vec<String>,
+        /// Run no SCIP indexer and read no SCIP index: tier A only.
+        #[arg(long, conflicts_with_all = ["scip", "scip_roots"])]
+        no_scip: bool,
         #[command(flatten)]
         location: Location,
     },
@@ -217,6 +221,7 @@ fn run() -> Result<ExitCode> {
             langs,
             scip,
             scip_roots,
+            no_scip,
             location,
         } => index_cmd(
             &path,
@@ -225,6 +230,7 @@ fn run() -> Result<ExitCode> {
             langs,
             scip,
             scip_roots,
+            no_scip,
         ),
         Command::Query {
             program,
@@ -396,6 +402,7 @@ fn index_cmd(
     langs: Vec<String>,
     scip: Vec<PathBuf>,
     scip_roots: Vec<String>,
+    no_scip: bool,
 ) -> Result<ExitCode> {
     let root = root_of(path)?;
     // An input the caller named is a claim that it exists. `./index.scip` is
@@ -410,6 +417,21 @@ fn index_cmd(
         anyhow::ensure!(absolute.exists(), "--scip {}: no such file", path.display());
     }
     let dir = facts::store::locate(&root, index_dir).context("locating the index")?;
+
+    // The indexers run before the lock, so queries keep answering from the
+    // index as it stands for the minutes one can take, and only when nobody
+    // named an input: a hand-built index is never second-guessed
+    // (specs/02-extraction.md § Acquisition).
+    let runs = if no_scip || !scip.is_empty() || root.join(index::DEFAULT_SCIP).exists() {
+        Vec::new()
+    } else {
+        let prior = facts::Manifest::open(&dir)
+            .ok()
+            .flatten()
+            .map(|m| m.indexers)
+            .unwrap_or_default();
+        codeintel::indexers::run(&root, &dir, &langs, rebuild, &prior)?
+    };
 
     let mut lock = Lock::open(&dir).context("opening the writer lock")?;
     let held = match lock.try_hold().context("taking the writer lock")? {
@@ -446,18 +468,22 @@ fn index_cmd(
     let displaced = (store.has_index() && store.manifest().roots != [here.clone()])
         .then(|| store.manifest().roots.join(", "));
     store.manifest_mut().roots = vec![here];
-    // `--scip` if given, else `./index.scip` when it is there. Never implicit
-    // beyond that: nothing is executed, only read.
-    let scip = if scip.is_empty() {
-        let default = root.join(index::DEFAULT_SCIP);
-        if default.exists() {
-            vec![PathBuf::from(index::DEFAULT_SCIP)]
-        } else {
-            Vec::new()
-        }
-    } else {
+    // `--scip` if given, else `./index.scip` when it is there, else whatever
+    // the indexers left in the store — a failed run's previous output
+    // included, whose files then answer `scip-stale`.
+    let scip = if no_scip {
+        Vec::new()
+    } else if !scip.is_empty() {
         scip
+    } else if root.join(index::DEFAULT_SCIP).exists() {
+        vec![PathBuf::from(index::DEFAULT_SCIP)]
+    } else {
+        runs.iter()
+            .map(|r| PathBuf::from(&r.output))
+            .filter(|p| p.is_file())
+            .collect()
     };
+    store.manifest_mut().indexers = runs;
     // Pairing is checked here and nowhere later: a root silently reused for a
     // second input would re-base a whole index onto the wrong subtree and
     // still report a plausible anchor rate (specs/02-extraction.md § Document
@@ -589,28 +615,11 @@ fn report_scip_coverage(report: &index::Report) {
     }
 }
 
-/// The tier-B half of the summary: what was ingested, how well it joined, and
-/// — when nothing was — the exact command that would close the gap.
+/// The tier-B half of the summary: what was ingested and how well it joined.
 fn report_scip(report: &index::Report) {
     if report.scip.is_empty() {
-        let mut langs: Vec<&str> = report
-            .langs
-            .iter()
-            .filter_map(|name| extract::lang::by_name(name).map(|l| l.indexer))
-            .collect();
-        langs.sort_unstable();
-        langs.dedup();
-        if langs.is_empty() {
-            eprintln!("  no SCIP index: tier A only, so every reference is provenance \"name\"");
-            return;
-        }
-        // The literal line, not a description of one.
-        eprintln!(
-            "  no SCIP index: tier A only, so every reference is provenance \"name\". build one:"
-        );
-        for command in langs {
-            eprintln!("    {command}");
-        }
+        // Why is on the indexer lines above, or is `--no-scip`.
+        eprintln!("  no SCIP index: tier A only, so every reference is provenance \"name\"");
         return;
     }
 

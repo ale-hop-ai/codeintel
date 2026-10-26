@@ -105,6 +105,11 @@ fn run(root: &Path, args: &[&str]) -> Output {
         .args(args)
         .current_dir(root)
         .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
+        // No indexer on this host reaches the child: a tree with no
+        // `index.scip` is indexed tier A, as it was before `index` ran them
+        // (`specs/02-extraction.md` § Acquisition). `tests/indexers.rs` tests
+        // the runner with a stub.
+        .env_remove("PATH")
         .output()
         .expect("the binary runs")
 }
@@ -447,7 +452,13 @@ fn no_scip_fires_on_the_dependency_closure_not_the_syntax() {
             stderr.contains("status=no-scip"),
             "{program} did not report no-scip: {stderr}"
         );
-        assert!(stderr.contains("rust-analyzer scip ."), "{stderr}");
+        // Why the last `index` built none, and what to do about it: this
+        // host's PATH holds no indexer (the `run` helper removes it).
+        assert!(
+            stderr.contains("rust-analyzer is not on PATH; install it"),
+            "{stderr}"
+        );
+        assert!(stderr.contains("run: codeintel index "), "{stderr}");
     }
 
     // A query that needs nothing from tier B is plain `ok`. `no-scip` on
@@ -495,12 +506,15 @@ fn a_present_scip_index_answers_ok() {
 }
 
 #[test]
-fn index_prints_the_indexer_command_for_every_language_it_found() {
+fn index_says_why_it_built_no_scip_index() {
     let dir = tree();
     std::fs::remove_file(dir.path().join("index.scip")).expect("removes");
     let stderr = index(dir.path());
-    // The literal, copy-pasteable line — not a description of one.
-    assert!(stderr.contains("rust-analyzer scip ."), "{stderr}");
+    // The indexer `index` would have run, and why it did not.
+    assert!(
+        stderr.contains("rust-analyzer: skipped — not on PATH; install it"),
+        "{stderr}"
+    );
     assert!(stderr.contains("no SCIP index"), "{stderr}");
 }
 
@@ -853,7 +867,11 @@ fn status_reports_the_scip_staleness_that_query_acts_on() {
     let report = String::from_utf8_lossy(&run(dir.path(), &["status"]).stdout).to_string();
     assert!(report.contains("scip stale:"), "{report}");
     assert!(report.contains("src/app.rs"), "{report}");
-    assert!(report.contains("rust-analyzer scip ."), "{report}");
+    // A hand-built input: the user's indexer, then the line that reads it.
+    assert!(
+        report.contains("re-run the indexer that wrote index.scip, then run: codeintel index "),
+        "{report}"
+    );
 
     // And the query verb agrees, naming the same file.
     let (_, stderr) = query(dir.path(), "?- calls_exact(A, B).");

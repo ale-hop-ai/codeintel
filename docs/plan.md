@@ -434,11 +434,13 @@ first-zero-literal `hint` on an empty result. `--scip` is M3. `index` and
 8. Parent precedence: descriptor prefix → `enclosing_symbol` → tier A span
    nesting, replacing tier A's row after the anchor join.
 
-**`--run-indexers` is not built.** `index` prints the exact command for every
-detected language, which is where the value is. Running another project's build
-system inside this tool buys a 600 s subprocess, seven environment-failure
-matrices, and the only path by which this binary executes arbitrary code. The
-printed command is copy-pasteable and the user runs it.
+**`index` runs the indexers.** First built as print-only — `index` printed the
+exact command and the user ran it — and reopened 2026-10-26 (D2 in
+[onboarding.md](onboarding.md) §7): with no `--scip` and no `./index.scip`,
+`index` runs the indexer of every language it found from the static `Lang`
+table, into the store, and ingests the output in the same run. `--no-scip`
+opts out. The rules that keep it from becoming a build system are in
+[specs/02-extraction.md](../specs/02-extraction.md) § Acquisition.
 
 **Done when**
 - On `tests/fixtures/rust/` with both tiers, >= 95% of tier-A definitions carry
@@ -1066,6 +1068,15 @@ pin into `~/.cache/codeintel/corpus/<name>` and benches them in size order: fd,
 tokio, deno. The bench works on a copy of the corpus in a temp directory and
 never writes into the checkout.
 
+**3. Indexer drift, locally (#109).** `provision apply --stream
+tasks/indexer-drift.yml` indexes each fixture twice — from its committed
+`index.scip`, and with `codeintel index` running the installed indexer — and
+fails when the fresh run's `scip coverage` or `anchored` differ from
+`tests/fixtures/indexer-drift.tsv`. The gate cannot see this: every
+tier-B test reads a committed index, so it pins one indexer's output shape. It
+needs the indexers installed and takes a minute or more, so it is not in the
+gate. Cadence: on every toolchain or indexer bump, and before a release.
+
 **The copy is made, then the harness waits for the machine to go quiet** before
 it measures anything (#84). The copy is not free: on macOS the endpoint scanner
 reads every file the bench has just written, and it was observed at ~300% CPU
@@ -1623,7 +1634,6 @@ Recorded so a future agent knows these were considered, not overlooked.
 |---|---|
 | Merged-array load cache | M6 measures warm load > 200 ms |
 | Caching the derived `ref` relation | a profile shows materializing it dominates query time |
-| `--run-indexers` | users report that printing the command is not enough |
 | Watch mode | single-file reindex measures > 1 s |
 | C, C++, Java | M5 is green and conformance has a user |
 | `query --facts FILE` (ephemeral injection) | a real consumer — coverage, a stack trace — asks for it |

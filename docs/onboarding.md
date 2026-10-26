@@ -54,7 +54,11 @@ but `./index.scip` is still the default input and nothing moves indexer output
 into the store (that waits on `--run-indexers`, §4.2). F4 is decided, not
 built: §7 D2 makes `--run-indexers` opt-in, and today the command is only
 printed. F5 and F6 still hold. F7 through F9 are outside this pass and are
-unchecked. The §2 table cites the lines read on 2026-10-20, re-pointed on 2026-10-21 (#126) where `query.rs` and the README had moved under them; the
+unchecked. **2026-10-26:** D2 was reopened and built — `index` runs the
+indexers by default into `<store>/scip/`, which closes F3 for every tree
+without a hand-built `./index.scip`, closes F4, and closes F6 for the inputs
+`index` produced (it re-runs a stale indexer itself). The table is left as
+verified on 2026-10-20. The §2 table cites the lines read on 2026-10-20, re-pointed on 2026-10-21 (#126) where `query.rs` and the README had moved under them; the
 paragraphs below it are left as written because they are the evidence the
 decisions were made against.
 
@@ -274,7 +278,7 @@ Each phase is independently shippable and independently revertible.
 | **P1** | Store resolution → `$CODEINTEL_HOME/projects/<slug>-<hash12>`; `Store::open` takes a resolved dir; delete `ignore_the_store`; `status` prints the store path | 0 verbs, 0 deps, net −LOC |
 | **P2** | Orphan/size reporting in `status`; reverse root check on open | 0 verbs |
 | **P3** | `tasks/indexers.yml` + README install/registration lines | 0 code |
-| **P4** | `--run-indexers`, output into the store, `scip-stale`-driven re-run, failure reporting | 1 flag, 0 verbs, 0 deps |
+| **P4** | indexers run by `index` (default on, `--no-scip` off — D2 reopened 2026-10-26), output into the store, stale-driven re-run, failure reporting | 1 flag, 0 verbs, 0 deps |
 | **P5** | *(decision 3)* first-query bootstrap | see §7 |
 
 P1+P3 alone deliver most of the request: nothing is written to the repo, and one
@@ -295,29 +299,34 @@ prints the resolved path, which was the non-negotiable part and is honoured.
 F1 and F2 are closed by this: nothing is written to the tree, and
 `ignore_the_store()` is gone.
 
-**D2 — does `codeintel index` run indexers by default? DECIDED: no.
-Opt-in `--run-indexers`, against this document's recommendation.** The reason
-the recommendation is overruled is that on-by-default turns a two-second
-command into a multi-minute one on first run and spawns a build tool the user
-did not ask for, and the failure mode is invisible: an agent that runs
-`codeintel index` and waits four minutes has no way to tell a slow indexer from
-a hung one. Opting in makes the cost something the user chose. Everything else
-in §4.2 stands unchanged and is binding when the flag is built:
+**D2 — does `codeintel index` run indexers by default? DECIDED: yes
+(reopened by the owner 2026-10-26; first decided "no, opt-in
+`--run-indexers`").** The first decision's reason was cost and invisibility:
+on-by-default turns a two-second command into a multi-minute one on first run,
+spawns a build tool the user did not ask for, and an agent waiting four minutes
+cannot tell a slow indexer from a hung one. The reopening keeps the cost and
+answers the rest: a progress line and log path before each program starts, a
+reported 600 s timeout, and `--no-scip` as the way out. What it buys is the
+second round trip of #59 gone for good — one command builds both tiers — and
+the whole #102 chain with it. Binding, as built
+([specs/02-extraction.md](../specs/02-extraction.md) § Acquisition):
 
-- output to `<store>/scip/<lang>.scip`, never the repo root;
-- re-run only a language with ≥1 `scip-stale` file, from `scip_hash`;
+- runs only the SCIP indexer in the static `Lang` table, never a build, test,
+  task runner or install — a narrow carve-out to the non-goal in
+  [specs/00-overview.md](../specs/00-overview.md);
+- skipped when `--scip` is given or `./index.scip` exists;
+- output to `<store>/scip/<program>.scip`, never the repository;
+- re-runs only a program whose output is missing or older than a file of its
+  languages (mtime, the cheap direction — not `scip_hash`, which needs every
+  file hashed before the decision);
 - **never on the query path** — `index` only, never the auto-refresh in
   `query`/`mcp`;
-- a failing indexer is a degradation, not an error: exit code and last stderr
-  lines in the `index` summary, full log to `<store>/scip/<lang>.log`, tier A
-  answers stand, status stays `no-scip`;
+- a failing indexer is a degradation, not an error: outcome and log path in the
+  `index` summary, recorded in the manifest, tier A answers stand;
 - a wall-clock cap is reported, never silent (invariant 5);
 - zero new dependencies, `std::process::Command`;
-- `codeintel` never downloads a binary. Installing indexers is
-  `tasks/indexers.yml`, per §4.3.
-
-This leaves F4 half-solved and that is accepted: the tool prints the command,
-and `--run-indexers` runs it for you when you say so.
+- `codeintel` never downloads a binary. A missing one is reported; installing
+  indexers is the host's job (`provision`, per §4.3).
 
 **D3 — does the first query bootstrap an index? DECIDED: no (option a), with
 the cheaper half of option (b) shipped.** Recorded 2026-10-20; the decision was

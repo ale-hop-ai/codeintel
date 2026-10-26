@@ -73,7 +73,12 @@ Out — and these are **non-goals, not backlog items**:
   `Makefile`, `package.json`, `Cargo.toml` metadata. "How do I run this
   repository's tests" is not a fact about source code, and the harness already
   knows it. Running commands is the agent's job; `codeintel` describes
-  structure.
+  structure. **One carve-out:** `index` runs the SCIP indexer named in the
+  static language table, whose output it consumes, and nothing else — never a
+  build, a test, a task runner or an install
+  ([02-extraction.md](02-extraction.md) § Acquisition). Whether `Cargo.toml` or
+  `go.mod` exists at the root decides whether that indexer can run there; what
+  they say is still not read.
 
 **The list is illustrative, not exhaustive.** Every entry is something that was
 tempting enough to need refusing in writing, and the absence of a ninth entry is

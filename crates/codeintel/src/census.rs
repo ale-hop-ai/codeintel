@@ -313,10 +313,10 @@ impl Report<'_> {
                 let scip = crate::query::ScipState::of(self.manifest);
                 Some(format!(
                     "{} file(s) changed after the SCIP index was built, so their `scip_ref` rows \
-                     are not fresh: {}. run: {}",
+                     are not fresh: {}. {}",
                     scip.stale.len(),
                     scip.stale.join(", "),
-                    crate::query::indexers(self.manifest).join(" && ")
+                    scip.rerun()
                 ))
             }
             // Every other verdict reaches `status` through `verdict()`, which
@@ -387,6 +387,19 @@ impl fmt::Display for Report<'_> {
             )?;
         }
 
+        // What the last `index` did with each indexer, so a bug report says
+        // why there is no tier B (`specs/05-surface.md` § `status`).
+        for run in &manifest.indexers {
+            if run.log.is_empty() {
+                writeln!(f, "indexer: {} — {}", run.command, run.outcome)?;
+            } else {
+                writeln!(
+                    f,
+                    "indexer: {} — {} (log: {})",
+                    run.command, run.outcome, run.log
+                )?;
+            }
+        }
         if manifest.scip.is_empty() {
             f.write_str(
                 "scip: none. every reference is provenance \"name\", so calls may be\n      \
@@ -450,17 +463,16 @@ impl fmt::Display for Report<'_> {
             // disagreed: `query` answered `scip-stale` naming two files while
             // this report — the artifact a bug report is supposed to carry —
             // printed `ok` and mentioned nothing.
-            let stale = crate::query::ScipState::of(manifest).stale;
+            let scip = crate::query::ScipState::of(manifest);
+            let stale = &scip.stale;
             if !stale.is_empty() {
                 let named: Vec<&str> = stale.iter().map(String::as_str).take(5).collect();
-                // The indexer of every language the index holds, from the same
-                // function `query`'s hint uses. This line once said
-                // `rust-analyzer scip .` to a Go repository.
-                let indexers = crate::query::indexers(manifest);
+                // The remedy from the same function `query`'s hint uses. This
+                // line once said `rust-analyzer scip .` to a Go repository.
                 writeln!(
                     f,
                     "scip stale: {} file(s) changed after it was built, so their \
-                     `scip_ref` rows are not — {}{}. run: {}",
+                     `scip_ref` rows are not — {}{}. {}",
                     stale.len(),
                     named.join(", "),
                     if stale.len() > named.len() {
@@ -468,7 +480,7 @@ impl fmt::Display for Report<'_> {
                     } else {
                         ""
                     },
-                    indexers.join(" && ")
+                    scip.rerun()
                 )?;
             }
         }
@@ -534,6 +546,7 @@ impl Report<'_> {
             "size": input.size,
         })).collect::<Vec<_>>(),
         "scip_matched": manifest.scip_matched,
+        "indexers": manifest.indexers,
         "scip_collisions": manifest.scip_collisions,
         "anchor_rate": census.anchor_rate(),
         "anchored": census.anchored,

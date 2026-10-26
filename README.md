@@ -146,15 +146,22 @@ Tier A matches identifiers as text. It does not resolve `x.method()` — and in
 Rust, Python, TypeScript, and Java that is the *dominant* call form. Tier A
 alone gives you a good symbol map and a thin, unrepresentative call graph.
 
-So `codeintel index` always prints the exact indexer command for the languages
-it found, e.g. `rust-analyzer scip .` or `scip-typescript index --infer-tsconfig`.
-You run it: an indexer runs your build, and `codeintel` never does
-([docs/plan.md](docs/plan.md) M3) — not on the query path, and not on `index`
-either until you ask with a flag ([docs/onboarding.md](docs/onboarding.md) D2).
-Then `codeintel index .` again picks up `./index.scip`.
+So `codeintel index` builds both tiers. With no `--scip` and no `./index.scip`
+it runs the SCIP indexer of every language it found — `rust-analyzer`,
+`scip-go`, `scip-python`, `scip-typescript`, whichever are on `PATH` — writes
+the output into its own store, never the tree (the indexer's build may: `cargo
+check` writes `target/`), and ingests it in the same run.
+It prints each command and its log before starting it, gives each 600 s, and
+re-runs only an indexer whose languages changed. An indexer runs your build
+(build scripts, proc macros, package loading); `--no-scip` runs none and indexes
+tier A only. A missing indexer, a missing `Cargo.toml`/`go.mod`/`tsconfig.json`
+at the root, or a failing run is reported and never fatal
+([specs/02-extraction.md](specs/02-extraction.md) § Acquisition). Nothing runs on
+the query path.
 
-An indexer run from a subdirectory writes document paths relative to *that*
-directory, not to the repository root. `--scip-root <DIR>` says which one, and
+A project whose module is not at the root runs its indexer from that
+directory itself and passes the output with `--scip`. Such an index writes
+document paths relative to *that* directory, not to the repository root. `--scip-root <DIR>` says which one, and
 pairs with `--scip`: pass none, one for every `--scip`, or one each in the same
 order. Both `index` and `status` then report `scip coverage: N of M document(s)
 matched an indexed file`, so a SCIP index whose paths landed nowhere says so
@@ -247,5 +254,6 @@ goldens that were pulled forward.
 See [docs/plan.md](docs/plan.md) for where the line is.
 
 Both examples above run today. The second one needs a SCIP index — without one
-it answers `status: "no-scip"` and prints the command that would build it,
+it answers `status: "no-scip"`, says why the last `index` produced none, and
+prints the command that would build it,
 rather than `ok` with zero rows.
