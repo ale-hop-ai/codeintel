@@ -126,7 +126,7 @@ impl_sym(F, N, S) :- name_impl(F, _, N, _),
 %
 %% scip_claim(F, Line, Col)  tier B resolved this position.
 % Two clauses because an index knows a symbol two ways, and BOTH are claims: it
-% has a `def` here, or it names a third-party package and carries an `extern`
+% has a `def` here, or it names a package and carries an `extern`
 % row. `def` alone un-suppresses tier A at every reference into a dependency,
 % which is the worst place for it: `Map#get()` has no `def`, and freeing that
 % position restores the `Store::get` self-edge the guard exists to kill (#56).
@@ -276,26 +276,20 @@ calls_exact(From, S) :- calls_at(From, S, _, _, "exact").
 % base relation Rust alone would use (#111): not taken. The widening is a
 % caller-side filter, `calls(C, S), in_tests(C)`, in the cookbook.
 %
-% What a fix would cost (#116 option B, decided by nobody yet). An
-% `impl_of(Method, TraitMethod)` rule over `implements` + `parent`, joined by
-% name, is ONE clause and needs nothing new: #6 closed with tier A emitting
-% `implements(.., "name")` from `name_impl`, type-level, so #6 is not the
-% blocker. Measured at 03b1ad8 with fresh SCIP (91/91 documents, anchored
-% 2325/2819): the clause yields 13 rows, none ambiguous, among them all five
-% `Symbols::intern` impls. Its real costs:
-%   * coverage: 42 `name_impl` rows but 7 `implements` rows, because the trait
-%     must be a local `def`; the other 35 impls are std/extern traits (`Display`,
-%     `From`, `Iterator`) with no def to seed, so those stay blind;
-%   * grade: `scip_impl` is 0 under rust-analyzer, so every row is `name`. An
-%     `impact_of_exact` seeded through it would be an exact closure over a
-%     text-matched hop, which is the blending invariant 2 forbids -- it would
-%     need its own provenance column, i.e. an `impact_of_via_impl` twin;
-%   * identity: `parent` of an impl method is the TYPE, not the impl block, so
-%     one type implementing two traits with a same-named method is ambiguous;
-%     none on this repository, found nowhere by measurement either way;
-%   * budget: the schema is 5,993 of 6,000 on the worst-case census, so a new
-%     head cannot land without removing copy elsewhere.
-% Option C (a new extractor fact) is a relation: the budget is 16 of 16.
+% `impl_of` is the seed's other half (#116, option B). One clause over
+% `implements` + `parent`, matched by method name: tier A's `implements` is
+% type-level, so the method hop is a NAME join, and the rule says so in its
+% doc rather than hiding inside an `_exact` closure. Composing it with
+% `impact_of_exact` is the caller's visible choice -- invariant 2 forbids a
+% rule doing that blending for them. Measured at 03b1ad8 (fresh SCIP, 91/91):
+% 13 rows, none ambiguous, all five `Symbols::intern` impls among them. A
+% floor, the way `implements` is: an impl of a std/extern trait (`Display`,
+% `From`) has no local trait method to name. `parent` of an impl method is
+% the TYPE, so one type implementing two traits with a same-named method
+% lists both; none here.
+%% impl_of(M, TM)  M implements trait method TM, NAME-matched: seed impact_of(TM, C) too.
+impl_of(M, TM) :- def(M, _, "method", N), parent(M, Ty), implements(Ty, Tr, _),
+                  def(TM, _, "method", N), parent(TM, Tr), M != TM.
 
 %% impact_of(Seed, Caller)  transitive callers. SEED THE 1st ARG. An impl misses callers via its trait: seed both.
 impact_of(Seed, C) :- calls(C, Seed).                     % who calls Seed
@@ -359,12 +353,12 @@ is_test(F) :- file(F, _), match(F, "(^|/)(tests?|__tests__)/").
 is_test(F) :- file(F, _), match(F, "_test\\.(go|py|rs)$").
 is_test(F) :- file(F, _), match(F, "(^|/)(test_[^/]*|tests|conftest)\\.py$").
 is_test(F) :- file(F, _), match(F, "\\.(test|spec)\\.(ts|tsx|js|jsx)$").
-% The last clause is inert today: no indexer measured emits SymbolRole::Test
-% (0 rows of "test" in all four fixtures' SCIP), and scip.rs ranks read/write
-% above test, so a test+read occurrence reports `read`. It stays because it is
-% correct the day an indexer sets the bit; until then `scip_ref` hands this
-% rule nothing and `is_test` is path-only. specs/01-facts.md § Role.
-is_test(F) :- scip_ref(_, F, _, _, _, "test").
+% Path only. A clause on `scip_ref(.., "test")` was here and could never fire:
+% no indexer measured emits SymbolRole::Test (0 rows in all four fixtures'
+% SCIP), and scip.rs ranks read/write above it. It put `scip_ref` in the
+% closure of every `!is_test` query, so each one answered `no-scip` on a
+% tier-A index over a complete answer (#139). Re-add it with the measurement
+% the day an indexer sets the bit. specs/01-facts.md § Role.
 
 % === orientation: everything about one symbol, in one round trip =======
 % Heterogeneous rows sharing a discriminator column. One query instead of six,
@@ -397,8 +391,9 @@ depends(F, G) :- ref(S, F, _, _, _, _, _), def(S, G, _, _), F != G.
 % only in a comparison, so the rule is not range-restricted and the engine
 % rejects its own standard library. F is always S's defining file at every call
 % site, so naming that is both the fix and the honest reading.
-%% dead_export(S)  exported, unreferenced elsewhere. See tier.
-dead_export(S) :- exported(S), def(S, F, _, _), !ref_outside(S, F).
+%% dead_export(S)  exported, unreferenced elsewhere: an export to narrow. See tier.
+dead_export(S) :- exported(S), def(S, F, _, _), !visibility(S, "inherited"),
+                  !ref_outside(S, F).
 %% ref_outside(S, F)  helper for dead_export.
 ref_outside(S, F) :- def(S, F, _, _), ref(S, G, _, _, _, _, _), G != F.
 
@@ -427,20 +422,25 @@ undocumented_export(S) :- exported(S), !def_doc(S, _).
 % specifier, not a package name -- `"std::collections::HashMap"` in Rust,
 % `"\"fmt\""` in Go, `"../db/conn"` in TypeScript. Rewriting either side into
 % the other is the guess 02-extraction.md forbids. Ask `import` instead.
-%% uses_package(F, P)  SCIP only; P is the INDEXER's name -- `@types/x`, not `x`.
+% Exact by construction, so it has no `_exact` twin and no `tier` rows: a
+% `name` row would need a `ref` whose symbol is also `extern`, and ingest drops
+% from `extern` every symbol a document defines, so `def` and `extern` never
+% overlap (#117, specs/01-facts.md § extern).
+%% uses_package(F, P)  SCIP only, always exact; P is the INDEXER's name -- `@types/x`, not `x`.
 %%   Imports: ask `import`.
 uses_package(F, P) :- ref(S, F, _, _, _, _, _), extern(S, _, P, _).
 
 % === the precise forms =================================================
 % What a row asks of its reader (#114). The edit a row invites is narrowing the
 % export, and an `inherited` S (variant, trait item, trait-impl method) has no
-% slot to narrow: on this repository 35 of 98 rows. `!visibility(S, "inherited")`
-% removes exactly those; `visibility(S, "public")` also drops a TypeScript
-% `export { x }`, which is `restricted` and narrowable. A filter the caller
-% writes, not a rule: see specs/01-facts.md.
-%% dead_export_exact(S)  dead_export, SCIP refs only. Variants, trait-impl members cannot be narrowed: !visibility(S, "inherited").
+% slot to narrow -- its visibility is its parent's -- so it is not an answer to
+% the question these two ask: on this repository 35 of 98 rows were. The
+% filter is `!visibility(S, "inherited")`, not `visibility(S, "public")`,
+% which would also drop a TypeScript `export { x }` (`restricted`, and
+% narrowable). specs/01-facts.md § dead_export.
+%% dead_export_exact(S)  dead_export, SCIP refs only.
 dead_export_exact(S) :- exported(S), resolved(S), def(S, F, _, _),
-                        !ref_outside_exact(S, F).
+                        !visibility(S, "inherited"), !ref_outside_exact(S, F).
 %% ref_outside_exact(S, F)  ref_outside, SCIP refs only.
 ref_outside_exact(S, F) :- def(S, F, _, _), ref(S, G, _, _, _, _, "exact"), G != F.
 
@@ -465,23 +465,19 @@ entrypoint_exact(S) :- def(S, _, K, _), callable(K), resolved(S),
                        !calls_exact(_, S).
 %% depends_exact(F, G)  depends, SCIP refs only.
 depends_exact(F, G) :- ref(S, F, _, _, _, _, "exact"), def(S, G, _, _), F != G.
-%% uses_package_exact(F, P)  uses_package, SCIP only; P is the indexer's name.
-uses_package_exact(F, P) :- ref(S, F, _, _, _, _, "exact"), extern(S, _, P, _).
 
 % === row provenance ====================================================
-% The five rules above that read `calls` or `ref` drop `Prov` from their
+% The four rules above that read `calls` or `ref` drop `Prov` from their
 % tuples. `tier` hands it back without changing any of their heads: the same
 % rows, one more column, two values (specs/01-facts.md § Row provenance).
 % `exact` iff the `_exact` twin also yields the row; the pair of clauses is a
 % partition. `dead_export`/`entrypoint` join their name form because their twin
 % is not a subset of it (it also demands `resolved(S)`).
-%% tier(Rel, A, B, Prov)  Prov of calls|depends|uses_package|dead_export|entrypoint rows. Unary: B=""
+%% tier(Rel, A, B, Prov)  Prov of calls|depends|dead_export|entrypoint rows. Unary: B=""
 tier("calls", A, B, "exact")        :- calls_exact(A, B).
 tier("calls", A, B, "name")         :- calls(A, B), !calls_exact(A, B).
 tier("depends", A, B, "exact")      :- depends_exact(A, B).
 tier("depends", A, B, "name")       :- depends(A, B), !depends_exact(A, B).
-tier("uses_package", A, B, "exact") :- uses_package_exact(A, B).
-tier("uses_package", A, B, "name")  :- uses_package(A, B), !uses_package_exact(A, B).
 tier("dead_export", S, "", "exact") :- dead_export(S), dead_export_exact(S).
 tier("dead_export", S, "", "name")  :- dead_export(S), !dead_export_exact(S).
 tier("entrypoint", S, "", "exact")  :- entrypoint(S), entrypoint_exact(S).

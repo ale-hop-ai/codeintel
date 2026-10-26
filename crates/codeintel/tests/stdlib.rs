@@ -669,26 +669,52 @@ fn dead_export_and_its_exact_form() {
     );
 }
 
-/// #114: a variant and a trait-impl method are `inherited`, list in
-/// `dead_export_exact`, and cannot be narrowed. The cookbook's filter removes
-/// exactly them and nothing else.
+/// #114: a variant and a trait-impl method are `inherited` — their visibility
+/// is their parent's — so they are not exports anyone can narrow, and neither
+/// `dead_export` form lists them. They are exported and unreferenced outside
+/// their file, so it is the `inherited` clause and nothing else that drops
+/// them; `Store`, which can be narrowed, stays.
 #[test]
-fn dead_export_exact_lists_inherited_rows_and_the_filter_removes_only_them() {
-    let all = rows("?- dead_export_exact(S), def(S, F, K, N), visibility(S, V).");
-    let inherited: Vec<&String> = all.iter().filter(|r| r.ends_with("\tinherited")).collect();
-    for want in ["Fast ", "Careful ", "handle "] {
+fn dead_export_lists_only_exports_that_can_be_narrowed() {
+    for rule in ["dead_export", "dead_export_exact"] {
+        let listed = rows(&format!("?- {rule}(S), def(S, F, K, N), visibility(S, V)."));
         assert!(
-            inherited.iter().any(|r| r.starts_with(want)),
-            "{want}must list as inherited: {all:?}"
+            listed.iter().any(|r| r.starts_with("Store ")),
+            "{rule}: {listed:?}"
+        );
+        assert!(
+            listed.iter().all(|r| !r.ends_with("\tinherited")),
+            "{rule}: {listed:?}"
         );
     }
-    let kept = rows(
-        r#"?- dead_export_exact(S), def(S, F, K, N), visibility(S, V), !visibility(S, "inherited")."#,
+    let unnarrowable = rows(
+        r#"?- exported(S), def(S, F, _, N), visibility(S, "inherited"), resolved(S), !ref_outside_exact(S, F)."#,
     );
-    assert!(kept.iter().any(|r| r.starts_with("Store ")), "{kept:?}");
-    assert!(kept.iter().all(|r| !r.ends_with("\tinherited")), "{kept:?}");
-    let data = |rs: &[String]| rs.iter().filter(|r| r.contains('\t')).count();
-    assert_eq!(data(&kept) + inherited.len(), data(&all), "{kept:?}");
+    for want in ["Fast ", "Careful ", "handle "] {
+        assert!(
+            unnarrowable.iter().any(|r| r.starts_with(want)),
+            "{want}is exported, inherited and unreferenced elsewhere: {unnarrowable:?}"
+        );
+    }
+}
+
+/// #116: `impl_of` is the seed's other half. A call through a trait names the
+/// trait's method, so `impact_of` of an impl method misses those callers; the
+/// impl's trait method is where to seed. Both `Handler::handle` impls name the
+/// one trait method, and nothing names itself.
+#[test]
+fn impl_of_maps_each_impl_method_to_its_trait_method() {
+    let pairs = rows("?- impl_of(M, TM).");
+    assert!(
+        pairs.contains(&"handle src/kinds.rs:47\thandle src/kinds.rs:31".to_string()),
+        "{pairs:?}"
+    );
+    assert!(
+        pairs.contains(&"handle src/kinds.rs:77\thandle src/kinds.rs:31".to_string()),
+        "{pairs:?}"
+    );
+    // `fmt` impls of std traits have no local trait method to name: a floor.
+    assert!(pairs.iter().all(|p| !p.starts_with("fmt ")), "{pairs:?}");
 }
 
 #[test]
@@ -836,33 +862,24 @@ fn extern_and_uses_package_see_the_standard_library() {
     let store = rows(r#"?- uses_package("src/store.rs", P)."#);
     assert!(store.iter().any(|p| p == "std"), "{store:?}");
 
-    // The `_exact` form is the same set here: all of it came from SCIP.
-    assert_eq!(
-        rows("?- uses_package(F, P)."),
-        rows("?- uses_package_exact(F, P).")
-    );
-
     // And `about` reports them under the `extern` discriminator.
     assert!(!rows(r#"?- about(S, "extern", A, B, L)."#).is_empty());
 }
 
-/// #117: `uses_package` has no `name` tier, and that is EXPECTED. A `name` row
-/// needs a `ref` whose symbol is also in `extern`; `ref`'s name clauses bind
-/// the symbol from `def`, and ingest drops from `extern` every symbol a SCIP
-/// document defines (`Ingest::recount`). So `def` and `extern` never overlap.
-/// If either assertion fires, that extraction invariant broke and the
-/// `uses_package` / `uses_package_exact` pair is no longer identical by
-/// construction (`specs/01-facts.md` § `extern`).
+/// #117: `uses_package` is exact by construction, which is why it has no
+/// `_exact` twin and no `tier` rows. A `name` row would need a `ref` whose
+/// symbol is also in `extern`; `ref`'s name clauses bind the symbol from
+/// `def`, and ingest drops from `extern` every symbol a SCIP document defines
+/// (`Ingest::recount`). If this fires, that extraction invariant broke and
+/// `uses_package` can carry a name tier again (`specs/01-facts.md` § `extern`).
 #[test]
-fn uses_package_has_no_name_tier_because_def_and_extern_never_overlap() {
+fn uses_package_is_exact_because_def_and_extern_never_overlap() {
     let overlap = rows("?- def(S, _, _, _), extern(S, _, _, _).");
     assert!(
         overlap.is_empty(),
         "a symbol is both defined and external: {overlap:?}"
     );
-    let exact = rows(r#"?- tier("uses_package", A, B, "exact")."#);
-    assert!(!exact.is_empty(), "the exact tier is the whole answer here");
-    let name = rows(r#"?- tier("uses_package", A, B, "name")."#);
+    let name = rows("?- uses_package(F, P), ref(S, F, _, _, _, _, \"name\"), extern(S, _, P, _).");
     assert!(name.is_empty(), "uses_package grew a name tier: {name:?}");
 }
 
@@ -1005,7 +1022,7 @@ fn trait_sym_admits_only_trait_like_definitions() {
     assert!(rows(r"?- implements(S, T, _), !trait_sym(T).").is_empty());
 }
 
-/// `tier` is a tag and not a filter: for each of the five rules that carry no
+/// `tier` is a tag and not a filter: for each of the four rules that carry no
 /// `Prov` of their own, its rows are exactly the rule's rows, each with exactly
 /// one of the two provenances (`specs/01-facts.md` § Row provenance).
 #[test]
@@ -1014,7 +1031,6 @@ fn tier_tags_every_row_of_the_five_rules_without_adding_or_dropping_any() {
     let rules = [
         ("calls", "A, B", "B", "calls_exact(A, B)"),
         ("depends", "A, B", "B", "depends_exact(A, B)"),
-        ("uses_package", "A, B", "B", "uses_package_exact(A, B)"),
         ("dead_export", "A", "\"\"", "dead_export_exact(A)"),
         ("entrypoint", "A", "\"\"", "entrypoint_exact(A)"),
     ];

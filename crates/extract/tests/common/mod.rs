@@ -253,9 +253,9 @@ pub(crate) fn assert_golden(extracted: &Extracted) {
 /// [`span_defect`] reads the spans off that tree. It is the whole file and not
 /// the slice `src[start..end]` that is re-parsed: a method, a field, an enum
 /// variant or a TypeScript constructor is only a node inside its parent, and
-/// standalone it is a parse error or a different kind. On the four fixtures 59
-/// of 167 definitions (every member) fail that literal check although their
-/// spans are exact, which is why `specs/02-extraction.md` § Validation 2 says
+/// standalone it is a parse error or a different kind. On the four fixtures 39
+/// of 167 definitions parse alone with `root.has_error()` although their spans
+/// are exact (#126), which is why `specs/02-extraction.md` § Validation 2 says
 /// "in context".
 pub(crate) fn assert_spans_exact(extracted: &Extracted) {
     let spans: BTreeMap<String, (usize, usize)> = extracted

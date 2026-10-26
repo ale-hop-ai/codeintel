@@ -172,6 +172,36 @@ fn the_schema_fits_its_size_budget_with_the_rule_list_complete() {
     for rule in schema::rules(codeintel::STDLIB) {
         assert!(text.contains(&rule.head), "{} is not advertised", rule.head);
     }
+
+    // The figure the specs quote is this one (#126 item 8). 5,490 survived in
+    // both documents while the render moved, because nothing compared them; a
+    // copy edit to `schema` now touches the spec in the same commit.
+    let quoted = |doc: &str, before: &str, after: &str| -> usize {
+        let (_, rest) = doc
+            .split_once(before)
+            .unwrap_or_else(|| panic!("`{before}` is quoted"));
+        let (figure, _) = rest.split_once(after).expect("the figure is closed");
+        figure.replace(',', "").parse().expect("a number")
+    };
+    let overview = include_str!("../../../specs/00-overview.md");
+    let surface = include_str!("../../../specs/05-surface.md");
+    for (name, figure) in [
+        (
+            "00-overview.md",
+            quoted(overview, "That census renders **", " characters**"),
+        ),
+        (
+            "05-surface.md",
+            quoted(surface, "counts, and it renders ", "."),
+        ),
+    ] {
+        assert_eq!(
+            figure,
+            text.len(),
+            "specs/{name} quotes the worst-case census as {figure} characters; it renders {}",
+            text.len()
+        );
+    }
 }
 
 /// The ceiling binds the binary, not just a `Display` a test can construct.
@@ -1495,18 +1525,16 @@ fn an_argument_the_tool_does_not_have_is_refused() {
 /// what this test holds in place.
 #[test]
 fn uses_package_advertises_whose_package_name_it_reports() {
-    for name in ["uses_package", "uses_package_exact"] {
-        let rule = schema::rules(codeintel::STDLIB)
-            .into_iter()
-            .find(|r| schema::split_head(&r.head).is_some_and(|(n, _)| n == name))
-            .unwrap_or_else(|| panic!("`{name}` is not advertised"));
-        assert!(
-            rule.doc.contains("INDEXER") || rule.doc.contains("indexer"),
-            "`{name}`'s doc must say the package name is the indexer's, not \
-             the import's (#58): {:?}",
-            rule.doc
-        );
-    }
+    let rule = schema::rules(codeintel::STDLIB)
+        .into_iter()
+        .find(|r| schema::split_head(&r.head).is_some_and(|(n, _)| n == "uses_package"))
+        .expect("`uses_package` is advertised");
+    assert!(
+        rule.doc.contains("INDEXER") || rule.doc.contains("indexer"),
+        "`uses_package`'s doc must say the package name is the indexer's, not \
+         the import's (#58): {:?}",
+        rule.doc
+    );
 
     let uses_package = schema::rules(codeintel::STDLIB)
         .into_iter()

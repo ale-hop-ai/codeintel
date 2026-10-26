@@ -14,7 +14,7 @@
 14	2	scip demo render/render().|scip demo tests/test_get().
 15	4	scip ts app/App#render().|scip ts app/boot().|scip ts util/retry().|scip ts util/sleep().
 16	2	scip demo cache/Cache#warm(). scip demo cache/hash().|scip demo cache/hash(). scip demo cache/hash().
-17	6	local cmd/server/main_test.go TestServe().|local py/test_pipeline.py test_run().|scip demo smoke/smoke_open().|scip demo tests/test_get().|scip demo tests/test_put().|scip ts apptest/test_render().
+17	5	local cmd/server/main_test.go TestServe().|local py/test_pipeline.py test_run().|scip demo tests/test_get().|scip demo tests/test_put().|scip ts apptest/test_render().
 18	4	local cmd/server/main.go main().|local cmd/server/main_test.go TestServe().|local py/test_pipeline.py test_run().|local src/legacy.rs migrate().
 19	2	scip ts app/|scip ts app/App#
 20	1	src/core/cache.rs

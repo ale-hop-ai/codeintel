@@ -543,9 +543,16 @@ column can only ever hold `"exact"`, since tier A cannot produce types. Re-add
 when a query needs it, at which point it costs the one free base-relation slot.
 
 ### `extern(S, Manager, Pkg, Version)`
-`S` belongs to a third-party package, parsed from the SCIP symbol string's
-`Package`. Lets a query separate "our code" from "our dependencies" without a
-path heuristic.
+`S` is a SCIP symbol that a reference names, whose symbol string names a
+package (`Package`, parsed from the string), and **that no indexed document
+defines**. That is what the extractor emits, and it is wider than "third-party"
+(#118): measured on this repository, `uses_package_exact` was 399 rows, of which
+251 name the standard library (`core`, `alloc`, `std`) and 58 this workspace's
+own crates — impl blocks and tuple fields SCIP names but tier A has no `def`
+for. The standard library is separable today from rust-analyzer's `Version`, a
+`https://github.com/rust-lang/rust/library/...` URL
+([cookbook](../docs/cookbook.md) § The dependency split); first-party is not, and
+waits for a consumer who needs it.
 ```
 extern("scip-go gomod github.com/gin-gonic/gin v1.9.1 gin/Context#JSON().",
        "gomod", "github.com/gin-gonic/gin", "v1.9.1").
@@ -584,16 +591,16 @@ external, on any index the indexer writes:
    `extern` candidate (`package_of`, `crates/extract/src/scip.rs:486`).
 
 Consequence: `ref`'s `name` clauses bind `S` from `def`, so no `ref(.., "name")`
-row can join `extern`, and `uses_package` has **no `name` tier**. It equals
-`uses_package_exact` on every index, and `tier("uses_package", _, _, "name")` is
-zero rows by construction, not by accident of an index. The `_exact` twin stays
-for the uniformity of the roster (§ Tier precedence), not because the pair can
-differ.
+row can join `extern`, and `uses_package` has **no `name` tier** — by
+construction, not by accident of an index. So it has no `_exact` twin and no
+`tier` rows (#117): an identical twin spent schema characters to say nothing,
+and a `tier("uses_package", .., "name")` that could never hold a row was the
+vocabulary-advertising-an-impossible-value shape #44 deleted.
 
 The proof is an extraction invariant, not a property of the rule: the rule
 alone does not forbid a `name` row, and `stats.depends` cannot show it (its
 closure includes `name_ref` and always will). A hand-built fact set can violate
-it; the indexer cannot. `uses_package_has_no_name_tier_because_def_and_extern_never_overlap`
+it; the indexer cannot. `uses_package_is_exact_because_def_and_extern_never_overlap`
 (`crates/codeintel/tests/stdlib.rs`) fails if it ever does.
 
 ### `name_export(F, Name)`
@@ -682,7 +689,7 @@ exported would make `dead_export` demand documentation for unreachable code.
 % contributes names that these rules resolve against the whole-repo def set.
 
 % An occurrence is a resolution only if its target is a symbol the index can
-% describe: it has a definition here, or it names a third-party package. See
+% describe: it has a definition here, or it names a package (`extern`). See
 % § Tier precedence below.
 scip_claim(F, L, C) :- scip_ref(S, F, L, C, _, _), def(S, _, _, _).
 scip_claim(F, L, C) :- scip_ref(S, F, L, C, _, _), extern(S, _, _, _).
@@ -739,7 +746,7 @@ it, and tier A was forbidden from answering (#56). On a TypeScript monorepo
 of them cost a position tier A could have resolved.
 
 **Two clauses, because an index knows a symbol two ways:** it has a `def` here,
-or it names a third-party package and carries an `extern` row. **Both are
+or it names a package and carries an `extern` row. **Both are
 claims and both suppress tier A.** Gating on `def` alone — the obvious reading
 of #56 — un-suppresses tier A at every reference into a dependency, which is
 the single worst place for it: on this project's own TypeScript fixture 14 of
@@ -957,12 +964,10 @@ is_test(F) :- file(F, _), match(F, "(^|/)(tests?|__tests__)/").
 is_test(F) :- file(F, _), match(F, "_test\\.(go|py|rs)$").
 is_test(F) :- file(F, _), match(F, "(^|/)(test_[^/]*|tests|conftest)\\.py$").
 is_test(F) :- file(F, _), match(F, "\\.(test|spec)\\.(ts|tsx|js|jsx)$").
-% The last clause is inert today: no indexer measured emits SymbolRole::Test
-% (0 rows of "test" in all four fixtures' SCIP), and scip.rs ranks read/write
-% above test, so a test+read occurrence reports `read`. It stays because it is
-% correct the day an indexer sets the bit; until then `scip_ref` hands this
-% rule nothing and `is_test` is path-only. § Role.
-is_test(F) :- scip_ref(_, F, _, _, _, "test").
+% Path only. A `scip_ref(.., "test")` clause could never fire -- no indexer
+% measured emits SymbolRole::Test, and scip.rs ranks read/write above it -- and
+% it made every `!is_test` query `no-scip` on a tier-A index over a complete
+% answer (#139). § Role.
 
 % --- orientation: everything about one symbol, in one round trip -------
 % Heterogeneous rows sharing a discriminator column. One query instead of
@@ -983,7 +988,7 @@ about(S, "extern",     P,   V,  0) :- extern(S, _, P, V).
 depends(F, G) :- ref(S, F, _, _, _, _, _), def(S, G, _, _), F != G.
 
 % --- the dex "34 methods", as rules ------------------------------------
-dead_export(S)   :- exported(S), def(S, F, _, _),
+dead_export(S)   :- exported(S), def(S, F, _, _), !visibility(S, "inherited"),
                     !ref_outside(S, F).
 % `def(S, F, _, _)` is what binds F. Without it F appears in the head and only
 % in a comparison, so the rule is not range-restricted and the engine rejects
@@ -1027,7 +1032,7 @@ form gates on provenance:
 
 ```prolog
 dead_export_exact(S) :- exported(S), resolved(S), def(S, F, _, _),
-                        !ref_outside_exact(S, F).
+                        !visibility(S, "inherited"), !ref_outside_exact(S, F).
 ref_outside_exact(S, F) :- def(S, F, _, _),
                            ref(S, G, _, _, _, _, "exact"), G != F.
 ```
@@ -1036,8 +1041,9 @@ ref_outside_exact(S, F) :- def(S, F, _, _),
 is unnecessary: `S` is exported and nothing outside its file references it. For
 a definition that can state a visibility, the edit is to narrow it. For an
 `inherited` one — a Rust enum variant, trait item or trait-impl method, a
-TypeScript interface or enum member — the grammar has no slot to narrow, so a
-row is listed with **no edit available**. Measured on this repository with
+TypeScript interface or enum member — the grammar has no slot to narrow, so it
+is **not an answer to the question** and both forms exclude it. Measured on
+this repository before the exclusion, with
 fresh SCIP (`scip coverage: 89 of 89`, `anchored: 2302/2796`): 98 rows of
 `dead_export_exact` over non-test files, 35 `inherited` (25 methods, 8
 variants, 2 type aliases), 63 `public`; plain `dead_export` 138 / 35 / 103. In
@@ -1046,9 +1052,12 @@ variants, 2 type aliases), 63 `public`; plain `dead_export` 138 / 35 / 103. In
 class is `!visibility(S, "inherited")`, **not** `visibility(S, "public")`: a
 TypeScript `export { x }` is `restricted` and exported through `name_export`,
 is narrowable, and `public` drops it (three rows on the TypeScript fixture:
-`outer`, `retries`, `sealed`). It is a filter the caller writes and not a rule:
-whether an unreferenced trait-impl method is a finding is a judgment the
-stdlib does not take, which is #111's reading of `entrypoint_exact`.
+`outer`, `retries`, `sealed`). It was a filter the caller wrote; it is now in
+the rule (#114), because it follows from the rule's own question rather than
+from a judgment about the code: an item whose visibility is its parent's is not
+an export anyone can narrow. Whether an unreferenced trait-impl method is
+*dead* is still not asked here — that is `entrypoint_exact`'s, and stays a
+caller's reading (#111).
 
 That distinction is the entire point of the `Prov` column. **Every rule that
 reads `calls` or `ref` is contaminated by it.** The roster of `_exact` twins is
@@ -1071,7 +1080,6 @@ absent from this list — was found:
 | `ref_outside/2` | `ref_outside_exact/2` |
 | `entrypoint/1` | `entrypoint_exact/1` |
 | `depends/2` | `depends_exact/2` |
-| `uses_package/2` | `uses_package_exact/2` |
 | `about/5` | **none, deliberately** |
 
 `about` is the one exclusion and it is a decision, not an omission. It is an
@@ -1085,13 +1093,15 @@ already answers directly, and the schema has a fixed character budget
 `about` — ask `calls_exact`, `impact_of_exact` or `reach_of_exact`.** `about`
 is for orienting, and orienting tolerates a `name`-tier row.
 
-The three twins whose shape is not obvious from their contaminated form:
+`uses_package/2` is not on the list because it is not contaminated: it is
+exact by construction (§ `extern`), so it has no twin (#117).
+
+The two twins whose shape is not obvious from their contaminated form:
 
 ```prolog
 entrypoint_exact(S)    :- def(S, _, K, _), callable(K), resolved(S),
                           !calls_exact(_, S).
 depends_exact(F, G)    :- ref(S, F, _, _, _, _, "exact"), def(S, G, _, _), F != G.
-uses_package_exact(F,P):- ref(S, F, _, _, _, _, "exact"), extern(S, _, P, _).
 ```
 
 `entrypoint` is the sharpest case and the reason this list is exhaustive rather
@@ -1144,25 +1154,33 @@ status can say so. The caveat rides on the schema lines of `impact_of*`,
 `reach_of*` and `about`, and in the cookbook. The caller's workaround is to
 seed both ends: the impl for `reach_of`, the trait method for `impact_of`.
 
-*Not done, and what it would cost.* An `impl_of(Method, TraitMethod)` rule
-(`implements` + `parent`, joined by name) is one clause and needs no new fact:
-#6 is closed, tier A already emits type-level `implements(.., "name")`, so #6 is
-not its blocker. Measured: 13 rows, none ambiguous, all five `Symbols::intern`
-impls among them. The costs are coverage (42 `name_impl` rows, 7 `implements`,
-because the trait must be a local `def`; 35 impls are of external traits and stay
-blind), grade (`scip_impl` is 0 for rust-analyzer, so every row is `name` and a
-closure seeded through it would blend provenance, which invariant 2 forbids, so
-it needs a separate head), identity (`parent` of an impl method is the type, not
-the impl block, so two traits with one method name on one type are ambiguous) and
-schema room (5,993 of 6,000 after the glosses). A new extractor fact is a
-relation, and the budget is 16 of 16. Both are owner decisions.
+`impl_of` names the other end (#116):
+
+```prolog
+impl_of(M, TM) :- def(M, _, "method", N), parent(M, Ty), implements(Ty, Tr, _),
+                  def(TM, _, "method", N), parent(TM, Tr), M != TM.
+```
+
+One clause, no new fact: tier A's type-level `implements(.., "name")` plus
+`parent`, matched by method name. Measured at 03b1ad8: 13 rows, none ambiguous,
+all five `Symbols::intern` impls among them. Its limits are stated, not fixed:
+**grade** — the method hop is a name join, so the rule carries no `_exact` and
+its doc line says "NAME-matched"; composing it with `impact_of_exact`
+(`impl_of(M, TM), impact_of_exact(TM, C)`) is the caller's visible choice, and
+no stdlib rule blends the two (invariant 2). **Coverage** — the trait must be a
+local `def`: 35 of 42 impls here are of std/extern traits and stay blind, the
+`implements` floor. **Identity** — `parent` of an impl method is the type, so
+one type implementing two traits with a same-named method lists both; none
+here. It was bought with the room `uses_package_exact` (#117) and the inherited
+caveat (#114) gave back. A per-method extractor fact stays out: the relation
+budget is 16 of 16.
 
 ### Row provenance — `tier/4`
 
 The promise is that every answer says which tier produced it. `ref/7`,
-`calls_at/5` and `implements/3` keep it: `Prov` is a column. The five
+`calls_at/5` and `implements/3` keep it: `Prov` is a column. The four
 contaminated rules above do not: `calls(From, S)`, `dead_export(S)`,
-`entrypoint(S)`, `depends(F, G)` and `uses_package(F, P)` carry **no `Prov` in
+`entrypoint(S)` and `depends(F, G)` carry **no `Prov` in
 their tuples**, so a wrong row from any of them could not say it was a guess,
 and the only defence was knowing to ask the `_exact` twin. Measured on the
 first scoreboard, calibration was 0.50 on fd and 0.4944 on tokio, and every row
@@ -1180,9 +1198,6 @@ tier("calls", A, B, "exact")        :- calls_exact(A, B).
 tier("calls", A, B, "name")         :- calls(A, B), !calls_exact(A, B).
 tier("depends", A, B, "exact")      :- depends_exact(A, B).
 tier("depends", A, B, "name")       :- depends(A, B), !depends_exact(A, B).
-tier("uses_package", A, B, "exact") :- uses_package_exact(A, B).
-tier("uses_package", A, B, "name")  :- uses_package(A, B),
-                                       !uses_package_exact(A, B).
 tier("dead_export", S, "", "exact") :- dead_export(S), dead_export_exact(S).
 tier("dead_export", S, "", "name")  :- dead_export(S), !dead_export_exact(S).
 tier("entrypoint", S, "", "exact")  :- entrypoint(S), entrypoint_exact(S).
@@ -1193,12 +1208,12 @@ Four properties, each load-bearing:
 
 1. **A tag, never a filter.** For each `Rel`, the `(A, B)` pairs in `tier` are
    exactly the rows of `Rel`. `tier` adds a column and removes nothing, so no
-   precision or recall figure moves. A test asserts the equality for all five.
+   precision or recall figure moves. A test asserts the equality for all four.
 2. **Two values, never blended.** A row is `exact` when its `_exact` twin also
    yields it, `name` otherwise. The two clauses partition: no row carries both.
    There is no third value and no number (invariant 2).
 3. **What `name` means differs per rule, and is the honest reading.** For
-   `calls`, `depends` and `uses_package` it is "no SCIP-resolved evidence for
+   `calls` and `depends` it is "no SCIP-resolved evidence for
    this edge". For `dead_export` and `entrypoint` it is "no evidence of use /
    of a caller, and `S` is not `resolved`" — the row is asserted on silence, not
    on a compiler's answer.

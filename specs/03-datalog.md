@@ -9,7 +9,8 @@ binding: no
 **no knowledge of code, symbols, files, or SCIP**. That seam is enforced: the
 crate's `Cargo.toml` must not depend on `facts` or `extract`.
 
-Target: ~1200 lines, zero dependencies. See
+Zero dependencies. Size is measured, not targeted:
+[00-overview.md](00-overview.md) § Layout. See
 [research.md](../docs/research.md) §4 for why we build rather than vendor.
 
 ---

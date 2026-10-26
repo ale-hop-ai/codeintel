@@ -21,7 +21,7 @@
 14	rust	?- entrypoint(S).
 15	rust	?- depends(F, G).
 16	rust	?- within(C, P).
-17	rust	?- uses_package_exact(F, P).
+17	rust	?- impl_of(M, TM).
 18	rust	?- def(S, _, "function", N), C = count{ X : calls(X, S) }.
 19	rust	?- import(F, M, _), prefix(F, "src/ui/"), contains(M, "db").
 20	go	?- def(S, F, K, N).

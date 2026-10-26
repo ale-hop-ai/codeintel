@@ -122,15 +122,6 @@ const PAIRS: &[Pair] = &[
         tier_goal: Some("?- tier(\"depends\", F, G, Prov)."),
     },
     Pair {
-        rule: "uses_package",
-        shape: "positive",
-        name_goal: "?- uses_package(F, P).",
-        exact_goal: "?- uses_package_exact(F, P).",
-        key: 2,
-        prov: None,
-        tier_goal: Some("?- tier(\"uses_package\", F, P, Prov)."),
-    },
-    Pair {
         rule: "ref",
         shape: "positive",
         name_goal: "?- ref(S, F, L, C, From, Role, Prov).",

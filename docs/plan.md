@@ -37,7 +37,8 @@ recovery. This plan budgeted ~900 LOC for nine. **Languages narrowed to four.**
 
 **3. The founding argument is stronger than `research.md` states it.** dex
 adopted the one-composable-verb thesis in 2026-08 and shipped it. Today dex has
-**20 registered MCP tools with `query` as the twentieth**, 34 store methods, and
+**20 registered MCP tools with `query` as the twentieth** — 19 of them behind
+`DEX_EXPERT`, so the default surface is one verb (#126) — 34 store methods, and
 84,887 non-test LOC — unchanged after ~9,500 lines of deliberate deletion, with
 its pipe grammar already accreting new stages. dex is not a strawman and not a
 refutation: **dex is the experiment, and the surface did not collapse.** The
@@ -810,7 +811,7 @@ there is no `@reference.call` at all. The whole query is ours. Two grammars
 
 ### What Go cost, and the one thing it changed
 
-**Shipped.** 9 kinds, 100% anchor rate against `scip-go` 0.2.7, 4 exact `calls`
+**Shipped.** 9 kinds, 100% anchor rate against `scip-go` 0.2.7 (at ship, 2026-09-12; current figures are in the README table), 4 exact `calls`
 edges on the fixture, 13 extractor tests and 9 end-to-end. Roughly 110 lines of
 query, one `lang.rs` row, and a fixture — under the ~1,000-LOC estimate, because
 the estimate was priced against dex's per-language *Rust*, and there is none
@@ -850,7 +851,7 @@ across both grammars — and extending it is adding a directory.
 
 ### What Python cost, and the one thing it changed
 
-**Shipped.** 5 kinds, 100% anchor rate against `scip-python` 0.6.6, 9 exact
+**Shipped.** 5 kinds, 100% anchor rate against `scip-python` 0.6.6 (at ship, 2026-09-13; current: README), 9 exact
 `calls` edges on the fixture, 12 extractor tests and 8 end-to-end. Roughly 80
 lines of query, one `lang.rs` row, and a fixture. The polyglot fixture is now
 Rust + Go + Python, and extending it was adding a directory, as promised.
@@ -896,7 +897,7 @@ two edges whose caller is a file; recorded in
 
 ### What TypeScript cost, and what it changed
 
-**Shipped.** 11 kinds, a 98.4% anchor rate against `scip-typescript` 0.4.0
+**Shipped.** 11 kinds, a 98.4% anchor rate (at ship, 2026-09-13; current: README) against `scip-typescript` 0.4.0
 (60 of 61, and the one miss is #21's), 17 exact `calls` edges (18 since
 #22 added `export default outer` to the fixture: one more module-scope
 reference), 4

@@ -902,6 +902,12 @@ mod tests {
         assert_eq!(kind_of(&info), "type");
         info.kind = Kind::Enum.into();
         assert_eq!(kind_of(&info), "enum");
+        // SCIP's generic `Type` is a `type`, not an alias (#126, 02-extraction
+        // § Kind map).
+        info.kind = Kind::Type.into();
+        assert_eq!(kind_of(&info), "type");
+        info.kind = Kind::TypeAlias.into();
+        assert_eq!(kind_of(&info), "typealias");
         // A kind we have no word for is `unknown`, not a guess.
         info.kind = Kind::Quasiquoter.into();
         assert_eq!(kind_of(&info), "unknown");
@@ -927,6 +933,12 @@ mod tests {
             format!("{p}`kinds.ts`/parse().(input)"),
             "local src/a.rs 4".to_string(),
             "nonsense".to_string(),
+            // `:` (Meta) is not read either (#129): scip-python writes each
+            // module as `.../__init__:` and scip-typescript writes a type
+            // literal scope as `...(props)typeLiteral0:`, so one suffix has two
+            // meanings and mapping it would be one indexer's convention.
+            "scip-python python fixture 0.1.0 kinds/__init__:".to_string(),
+            format!("{p}`row.tsx`/Row().(props)typeLiteral0:"),
         ] {
             assert_eq!(descriptor_kind(&symbol), "unknown", "{symbol}");
         }

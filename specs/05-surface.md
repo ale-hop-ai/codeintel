@@ -738,7 +738,7 @@ a worst-case census rather than a fixture tree** ([00-overview.md](00-overview.m
 § Surface budget, #42). `schema` embeds live per-kind and per-language counts,
 so a ceiling measured against the smallest possible index binds on nothing; the
 worst case is every relation, kind, role and shipped language at seven-digit
-counts, and it renders 5,919. If the assertion fires, the standard library is
+counts, and it renders 5,949. If the assertion fires, the standard library is
 too big — cut rules, not the catalogue.
 
 Two things pay for it, and only one is allowed to. Fixed-width padding is free
@@ -993,7 +993,9 @@ overlay is a `Symbols` implementation in this crate.
 A message with no `id` is a notification and gets no reply. There is no MCP SDK
 dependency: the protocol surface this server needs is `initialize`, `tools/list`,
 `tools/call` and `ping`, `serde_json` is already present for the response
-contract, and the whole transport is ~150 lines. Recorded in
+contract, and the whole transport is `mcp.rs` — 494 non-test lines measured
+2026-10-26 (it read "~150"; argument checking and the status taxonomy on the
+wire are most of the difference). Recorded in
 [research.md](../docs/research.md) §6.
 
 **A bad line is answered, and the session survives it.** A client that sent a

@@ -640,12 +640,13 @@ fn a_documents_own_symbol_is_a_module_not_an_unknown() {
     );
 }
 
-/// #114: the filter that makes `dead_export_exact` actionable is
-/// `!visibility(S, "inherited")`, not `visibility(S, "public")`. A TypeScript
-/// `export { x }` is `restricted` and exported through `name_export`; it can be
-/// narrowed, and `public` silently drops it.
+/// #114: `dead_export_exact` excludes `inherited` rows itself, and the clause
+/// is `!visibility(S, "inherited")`, not `visibility(S, "public")`. A
+/// TypeScript `export { x }` is `restricted` and exported through
+/// `name_export`; it can be narrowed, so it must list, and `public` would have
+/// silently dropped it.
 #[test]
-fn public_is_the_wrong_dead_export_filter_because_it_drops_name_exports() {
+fn the_rule_drops_inherited_rows_and_keeps_name_exports() {
     let dir = tree();
     index(dir.path());
     let names = |filter: &str| -> BTreeSet<String> {
@@ -660,18 +661,22 @@ fn public_is_the_wrong_dead_export_filter_because_it_drops_name_exports() {
     let narrowable = names(r#", !visibility(S, "inherited")"#);
     let public = names(r#", visibility(S, "public")"#);
 
+    // The rule already applies the filter, so the caller's copy is a no-op.
+    assert_eq!(all, narrowable);
     for inherited in ["Fast", "Slow"] {
-        assert!(all.contains(inherited), "{inherited} must list: {all:?}");
-        assert!(!narrowable.contains(inherited), "{narrowable:?}");
+        assert!(
+            !all.contains(inherited),
+            "{inherited} cannot be narrowed: {all:?}"
+        );
     }
     for exported_by_clause in ["outer", "retries", "sealed"] {
         assert!(
-            narrowable.contains(exported_by_clause),
-            "{exported_by_clause} is narrowable and must survive: {narrowable:?}"
+            all.contains(exported_by_clause),
+            "{exported_by_clause} is narrowable and must list: {all:?}"
         );
         assert!(
             !public.contains(exported_by_clause),
-            "if `public` keeps {exported_by_clause} the cookbook's warning is stale: {public:?}"
+            "if `public` keeps {exported_by_clause} the rule could use it: {public:?}"
         );
     }
 }

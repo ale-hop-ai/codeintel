@@ -10,12 +10,12 @@ id	fixture	status	rows	truncated	derived	demand	transformed
 9	rust	ok	3	false	526	nothing to seed: no derived literal has a bound argument	
 10	rust	ok	3	false	529	nothing to seed: no derived literal has a bound argument	
 11	rust	ok	16	false	190	nothing to seed: no derived literal has a bound argument	
-12	rust	ok	35	false	604	nothing to seed: no derived literal has a bound argument	
-13	rust	ok	26	false	586	nothing to seed: no derived literal has a bound argument	
+12	rust	ok	27	false	588	nothing to seed: no derived literal has a bound argument	
+13	rust	ok	18	false	570	nothing to seed: no derived literal has a bound argument	
 14	rust	ok	16	false	555	nothing to seed: no derived literal has a bound argument	
 15	rust	ok	13	false	547	nothing to seed: no derived literal has a bound argument	
 16	rust	ok	202	false	408	nothing to seed: no derived literal has a bound argument	
-17	rust	ok	11	false	588	nothing to seed: no derived literal has a bound argument	
+17	rust	ok	2	false	302	nothing to seed: no derived literal has a bound argument	
 18	rust	ok	8	false	533	nothing to seed: no derived literal has a bound argument	
 19	rust	ok	1	false	5	nothing to seed: no derived literal has a bound argument	
 20	go	ok	50	false	54	nothing to seed: no derived literal has a bound argument	

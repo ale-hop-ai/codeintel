@@ -34,13 +34,6 @@
       "exact_only": 0,
       "shape": "positive",
       "unconfirmed": 3109
-    },
-    "uses_package": {
-      "confirmation_rate": 1.0,
-      "confirmed": 2485,
-      "exact_only": 0,
-      "shape": "positive",
-      "unconfirmed": 0
     }
   },
   "corpus": {

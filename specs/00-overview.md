@@ -161,7 +161,7 @@ A hard ceiling, checked in CI (see [docs/plan.md](../docs/plan.md) M4):
   counts — the three axes this output grows along — derived from
   `facts::RELATIONS`, `KINDS`, `ROLES` and `LANGS` rather than listed, so a new
   relation or a tenth language raises the measured worst case instead of
-  slipping past it. That census renders **5,919 characters**, and 6,000 is the
+  slipping past it. That census renders **5,949 characters**, and 6,000 is the
   ceiling over it: a real index cannot exceed the worst case, so this binds
   everywhere rather than on the smallest input.
 
@@ -201,17 +201,33 @@ relations, that is the signal to think hard — not the signal to add a verb.
 
 ```
 crates/
-  datalog/     the engine. no knowledge of code. ~3000 LOC, zero deps.
-  facts/       interner, relations, segments, manifest. ~700 LOC.
-  extract/     tree-sitter tier + SCIP tier + the anchor join. ~1000 LOC per
-               language, plus ~600 shared. Four languages -> ~4600.
-  codeintel/   CLI + MCP. thin. ~500 LOC.
+  datalog/     the engine. no knowledge of code. zero deps.
+  facts/       interner, relations, segments, manifest.
+  extract/     tree-sitter tier + SCIP tier + the anchor join.
+  codeintel/   CLI + MCP.
 queries/       *.scm per language (tags, imports) -- AUTHORED, not vendored
 rules/         stdlib.dl — the shipped rule library
 specs/         these documents
 ```
 
-These numbers were revised after the 2026-09-12 review. The engine was budgeted
+**Measured, not budgeted, 2026-10-26** — non-test lines of `src/` (code only,
+no comments or blanks, in parentheses), test modules and `conformance.rs`
+excluded:
+
+| crate | lines | the budget it replaces |
+|---|---|---|
+| `datalog` | 4,764 (3,527) | ~3,000; ~1,200 before the review |
+| `facts` | 1,992 (1,251) | ~700 |
+| `extract` | 3,477 (2,189) | ~4,600 for four languages — the one under budget |
+| `codeintel` | 6,028 (4,043) | "thin, ~500" |
+
+Declared LOC figures are not repeated in the other documents: a budget that
+drifts 1.6–12× without anything noticing is a claim, not a measurement (#126).
+The thesis number is dex's, measured: 84,887 non-test lines of Go
+([docs/research.md](../docs/research.md) §1). Ours is ~16k across all four
+crates, and the comparison stands on that.
+
+The figures above were revised after the 2026-09-12 review. The engine was budgeted
 at ~1200 LOC, which describes `datafrog` plus a parser and omits eight safety
 checks with named diagnostics, stratification, demand transformation, limits and
 truncation. The extractor was budgeted at ~900 LOC for nine languages, against a
