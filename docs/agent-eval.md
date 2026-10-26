@@ -1500,3 +1500,35 @@ sessions, $7.90.
 ran without `code_query`, and the runner scored them anyway. The runner now
 voids a run whose arm was offered the wrong tool set (`run.py`, `broken`).
 That run is not evidence of anything.
+
+## Arm C: the instruction, not the description — declared 2026-10-26, before running
+
+The re-run above showed that the description alone does not send the agent
+to the tool. In real use the agent has more than the description: the
+user's CLAUDE.md says to reach for codeintel first. The eval's arms run with
+no settings, so that instruction has never been measured.
+
+**Arm C** is arm B (the same tools, MCP config, flags and caps) with one
+paragraph appended to the system prompt: the "Code search" guidance from the
+user's global CLAUDE.md, its three paragraphs copied verbatim (`run.py`,
+`GUIDANCE`). Three sentences are dropped, because they need a shell, which
+arm C does not have, or do not apply: running `codeintel index` on
+`no-index` (the index is prebuilt), `codeintel status`, and subagents. The treatment is that paragraph and nothing else. Its extra
+context is the treatment, not a confound.
+
+Tasks: **T1, T2 and T3**, which are the three structural tasks on the unseen
+corpus that cost the most. The arms are **B and C**, N = 4: 24 sessions,
+$0.558 a session, `--max-usd 13`. Arm A is not re-run; its numbers are the
+full run's.
+
+- **Primary: adoption.** The prediction is that arm C calls `code_query`
+  in at least 3 of 4 T2 sessions, against B's 0 and 1 of 4 in the two runs
+  so far. On T1 and T3, where B already used the tool 4 of 4, C should too.
+- **Secondary: outcome, C against B,** under the same per-task rule as
+  § The verdict rule. This is reported, not turned into a verdict.
+- **T2's solve count is not expected to move.** The static answer is 27 of
+  120 tests (case 2 of #152). If C adopts the tool on T2 and still scores
+  0/4, that is the expected result, and it makes case 2 the next fix.
+
+The runner gains `--arms` (default `AB`). Arm C is checked for its tool set
+by the same guard as B.

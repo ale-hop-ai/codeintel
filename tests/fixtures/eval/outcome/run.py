@@ -54,6 +54,30 @@ CORPORA = {
 SYSTEM = ("You are working in a code repository: the current directory. "
           "Answer the task with the tools you have.")
 
+# Arm C's treatment: the "Code search" guidance from the user's global
+# CLAUDE.md, verbatim, less three sentences that need a shell or do not
+# apply (docs/agent-eval.md § Arm C).
+GUIDANCE = """
+Code search: structural questions (where defined, who calls, what implements, \
+what imports, call graph, what breaks if I change this) → codeintel, not grep. \
+Discover the codeintel MCP `code_query` tool, request its schema with \
+`{"schema":true}`, then query. Grep/Read are for literal text search, or when \
+indexing genuinely fails.
+
+Reach for it earlier than feels natural. `innermost_at(F, Line, S)` turns a \
+stack frame, a diff hunk or a ripgrep hit into a symbol; `impact_of(S, C)` \
+answers "what breaks if I change this" in one query. Reading five files to \
+answer a structural question is the thing it exists to replace. A new question \
+is a Datalog rule in the query you write, not a reason to go back to grep.
+
+Read what it hands back. `status` is never decoration — `scip-stale`, `no-scip` \
+and `no-index` each mean a different answer is in front of you, and an `ok` \
+with zero rows is a real "no". Provenance is two values: `exact` is \
+compiler-resolved, `name` is text matching and misses most method calls, so \
+prefer the `_exact` rules when precision matters. `N = count{X:goal}` binds, \
+never compares, and groups by every variable bound outside it.
+"""
+
 PROMPT = """\
 {text}
 
@@ -80,7 +104,7 @@ FORMATS = {
 
 BASE = ["claude", "-p", "--output-format", "stream-json", "--verbose",
         "--disable-slash-commands", "--no-session-persistence",
-        "--strict-mcp-config", "--system-prompt", SYSTEM]
+        "--strict-mcp-config"]
 TOOLS = "Read,Grep,Glob"
 
 
@@ -156,13 +180,15 @@ def mcp_config(corpus):
 
 
 def command(arm, corpus, model, session_usd, safe_mode):
-    cmd = BASE + ["--model", model, "--max-budget-usd", str(session_usd), "--tools", TOOLS]
+    system = SYSTEM + "\n" + GUIDANCE if arm == "C" else SYSTEM
+    cmd = BASE + ["--system-prompt", system, "--model", model,
+                  "--max-budget-usd", str(session_usd), "--tools", TOOLS]
     cmd += ["--safe-mode"] if safe_mode else ["--setting-sources", ""]
     # Read, Grep and Glob are NOT pre-approved: a pre-approval covers every
     # path, and the probe read a canary outside the working directory with
     # it. Unapproved, they run inside the working directory and are denied
     # outside it, which is the sandbox both arms need.
-    if arm == "B":
+    if arm in "BC":
         cmd += ["--mcp-config", str(mcp_config(corpus)), "--allowedTools", TOOL]
     return cmd
 
@@ -275,9 +301,9 @@ def run(a, n, label):
     for corpus in {tasks[t]["corpus"] for t in ids}:
         if not copy_of(corpus).is_dir() or not index_dir(corpus).is_dir():
             die("run.py prepare first")
-    jobs = [(t, arm, rep) for t in ids for arm in "AB" for rep in range(1, n + 1)]
+    jobs = [(t, arm, rep) for t in ids for arm in a.arms for rep in range(1, n + 1)]
     random.Random(a.seed).shuffle(jobs)
-    print(f"{label}: {len(ids)} tasks x 2 arms x {n} = {len(jobs)} sessions on {a.model}, "
+    print(f"{label}: {len(ids)} tasks x {len(a.arms)} arms ({a.arms}) x {n} = {len(jobs)} sessions on {a.model}, "
           f"${a.session_usd}/session, stop launching at ${a.max_usd}; tree {git_head()}")
     if a.dry_run:
         return 0
@@ -298,7 +324,7 @@ def run(a, n, label):
         # An arm that did not get its tool set is not that arm. Safe mode
         # drops --mcp-config, and a run without --no-safe-mode once ran all
         # of arm B without code_query, scored it, and reported a tie.
-        if (TOOL in s["tools_offered"]) != (arm == "B"):
+        if (TOOL in s["tools_offered"]) != (arm in "BC"):
             broken.append(f"{tid} {arm} #{rep} offered {s['tools_offered']}")
         entries = answer_block(s["result"])
         s.update({"task": tid, "rep": rep, "answer": entries,
@@ -322,7 +348,7 @@ def run(a, n, label):
     (outdir / "report.txt").write_text(report + "\n")
     (outdir / "outcomes.json").write_text(json.dumps(
         {"seed": a.seed, "model": a.model, "n": n, "session_usd": a.session_usd,
-         "max_usd": a.max_usd, "tree": git_head(), "jobs": jobs,
+         "max_usd": a.max_usd, "arms": a.arms, "tree": git_head(), "jobs": jobs,
          "skipped": skipped}, indent=1))
     print(report)
     print(f"artifacts: {outdir}")
@@ -344,7 +370,7 @@ def rescore(a):
     meta = json.loads((run_dir / "outcomes.json").read_text())
     ids = [t for t in tasks if any(r["task"] == t for r in rows)]
     label = "pilot" if run_dir.name.endswith("pilot") else "run"
-    a.model, a.seed = meta["model"], meta["seed"]
+    a.model, a.seed, a.arms = meta["model"], meta["seed"], meta.get("arms", "AB")
     report = render(rows, ids, tasks, meta["n"], a, meta.get("skipped") or [], label)
     report = f"RESCORED against expected/ at tree {git_head()}\n" + report
     (run_dir / "report-rescored.txt").write_text(report + "\n")
@@ -361,46 +387,57 @@ def render(rows, ids, tasks, n, a, skipped, label):
            f"sessions {len(rows)} run, {len(skipped)} skipped by --max-usd; "
            f"cost ${sum(r['usd'] for r in rows):.2f}",
            "",
-           "task  lane corpus             | A solved  med$   med turns | B solved  med$   med turns | B code_query calls",
+           "task  lane corpus             | "
+           + " | ".join(f"{arm} solved  med$   med turns" for arm in a.arms)
+           + "".join(f" | {arm} code_query calls" for arm in a.arms if arm in "BC"),
            ]
     per = {}
     for tid in ids:
         t = tasks[tid]
-        cells = []
-        for arm in "AB":
+        cells, calls = [], []
+        for arm in a.arms:
             rs = [r for r in rows if r["task"] == tid and r["arm"] == arm]
             per[(tid, arm)] = (sum(r["solved"] for r in rs), med([r["usd"] for r in rs]), len(rs))
             cells.append(f"{per[(tid, arm)][0]}/{len(rs)}  ${med([r['usd'] for r in rs]):.3f}  "
                          f"{med([r['turns'] or 0 for r in rs]):>5}")
-        calls = [r["tool_calls"].get(TOOL, 0) for r in rows if r["task"] == tid and r["arm"] == "B"]
-        out.append(f"{tid:<5} {t['lane']:<4} {t['corpus']:<18} | {cells[0]:<26} | {cells[1]:<26} | "
-                   f"{calls}")
+            if arm in "BC":
+                calls.append(str([r["tool_calls"].get(TOOL, 0) for r in rs]))
+        out.append(f"{tid:<5} {t['lane']:<4} {t['corpus']:<18} | "
+                   + " | ".join(f"{c:<26}" for c in cells)
+                   + "".join(f" | {c}" for c in calls))
     out.append("")
-    for arm in "AB":
+    for arm in a.arms:
         rs = [r for r in rows if r["arm"] == arm]
         out.append(f"arm {arm}: solved {sum(r['solved'] for r in rs)}/{len(rs)}, "
                    f"median ${med([r['usd'] for r in rs]):.3f}/session, total ${sum(r['usd'] for r in rs):.2f}, "
                    f"cap hit {sum(r['subtype'] == 'error_max_budget_usd' for r in rs)}, "
                    f"unparsed {sum(not r['parsed'] for r in rs)}, errors {sum(r['is_error'] for r in rs)}, "
                    f"denials {sum(r['denials'] for r in rs)}")
-    if label == "run":
+    if label == "run" and a.arms == "AB":
         out += ["", verdict(per, ids, tasks)]
+    elif label == "run" and a.arms == "BC":
+        # docs/agent-eval.md § Arm C: the per-task rule, reported, no verdict.
+        out += ["", "C against B (per-task rule, reported, not a verdict):"]
+        out += [f"  {tid}: " + ("C" if wins(per, "C", "B", tid) else "B" if wins(per, "B", "C", tid)
+                                else "tie") for tid in ids]
     if skipped:
         out.append(f"TRUNCATED: --max-usd stopped the run; {len(skipped)} session(s) never ran")
     return "\n".join(out)
 
 
+def wins(per, x, y, tid):
+    """docs/agent-eval.md § The verdict rule: arm x beats arm y on one task."""
+    sx, cx, _ = per[(tid, x)]
+    sy, cy, _ = per[(tid, y)]
+    return sx - sy >= 2 or (sx == sy >= 3 and cx <= 0.75 * cy)
+
+
 def verdict(per, ids, tasks):
     """docs/agent-eval.md § The verdict rule, as declared before the run."""
-    def wins(x, y, tid):
-        sx, cx, _ = per[(tid, x)]
-        sy, cy, _ = per[(tid, y)]
-        return sx - sy >= 2 or (sx == sy >= 3 and cx <= 0.75 * cy)
-
     lines, core = [], [t for t in ("T1", "T2", "T3", "T4") if t in ids]
     side = {}
     for tid in ids:
-        side[tid] = "B" if wins("B", "A", tid) else "A" if wins("A", "B", tid) else "tie"
+        side[tid] = "B" if wins(per, "B", "A", tid) else "A" if wins(per, "A", "B", tid) else "tie"
         lines.append(f"  {tid}: {side[tid]}")
     b_core = sum(side[t] == "B" for t in core)
     a_core = sum(side[t] == "A" for t in core)
@@ -418,11 +455,11 @@ def verdict(per, ids, tasks):
 # --- probe ---------------------------------------------------------------------
 
 def probe(a):
-    """Per arm: the tools offered (A has no code_query, B has it), no CLAUDE.md
+    """Per arm: the tools offered (A has no code_query, B and C have it), no CLAUDE.md
     in context (a canary in one), and no read outside the working directory
     (a canary there)."""
     ok_all = True
-    for arm in "AB":
+    for arm in "ABC":
         canary_in = "CANARY-IN-" + os.urandom(5).hex()
         canary_out = "CANARY-OUT-" + os.urandom(5).hex()
         cwd = Path(tempfile.mkdtemp(prefix="probe-"))
@@ -439,8 +476,8 @@ def probe(a):
         servers = {m.get("name"): m.get("status") for m in s["mcp_servers"]}
         checks = {
             "session ran": not s["is_error"],
-            f"tools offered {s['tools_offered']}": (TOOL in s["tools_offered"]) == (arm == "B"),
-            f"mcp servers {servers}": (servers == {"codeintel": "connected"}) if arm == "B" else not servers,
+            f"tools offered {s['tools_offered']}": (TOOL in s["tools_offered"]) == (arm in "BC"),
+            f"mcp servers {servers}": (servers == {"codeintel": "connected"}) if arm in "BC" else not servers,
             "no shell tool": not any(t in s["tools_offered"] for t in ("Bash", "PowerShell")),
             "CLAUDE.md canary not in context": canary_in not in s["result"],
             "outside-cwd canary not read": canary_out not in s["result"],
@@ -460,6 +497,8 @@ def main():
     ap.add_argument("--model", default="claude-opus-5-5")
     ap.add_argument("--n", type=int, default=4, help="sessions per arm per task (run)")
     ap.add_argument("--tasks", default="", help="comma-separated subset")
+    ap.add_argument("--arms", default="AB", choices=["AB", "BC"],
+                    help="BC: arm B against arm C, B plus the CLAUDE.md guidance")
     ap.add_argument("--session-usd", type=float, default=1.0)
     ap.add_argument("--max-usd", type=float, default=8.0)
     ap.add_argument("--jobs", type=int, default=3)
