@@ -1,0 +1,13 @@
+run  tree a394623548b5  model claude-opus-5-5  N 4  seed 1
+sessions 16 run, 0 skipped by --max-usd; cost $7.73
+
+task  lane corpus             | A solved  med$   med turns | B solved  med$   med turns | B code_query calls
+T2    3    codeintel-981f795  | 0/4  $0.563   18.5         | 0/4  $0.497   19.5         | [0, 0, 0, 0]
+T6    3    fd                 | 3/4  $0.456   22.5         | 3/4  $0.420   21.5         | [0, 0, 0, 0]
+
+arm A: solved 3/8, median $0.511/session, total $4.07, cap hit 3, unparsed 3, errors 3, denials 0
+arm B: solved 3/8, median $0.458/session, total $3.66, cap hit 0, unparsed 0, errors 0, denials 0
+
+verdict: NO EFFECT (B wins 0 of 1 unseen lane-3 tasks, A wins 0, A wins 0 control(s); T5/T6 reported, not counted)
+  T2: tie
+  T6: tie
