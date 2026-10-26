@@ -1175,14 +1175,14 @@ and running each test alone with a marker at `read`'s entry gives 120. On fd,
 every test spawns `fd`, so static test reach is empty for every function.
 
 The answer is `ok`, for the reason given above: nothing the index lacks
-decided it. A note on each answer would need the host to know that the goal
-reaches `is_test`. `Stats::depends` names only base relations, and
-`is_test`'s closure is `file`, which every query over a definition reaches,
-so the host cannot see the difference from a call. The caveat therefore
-rides on `is_test`'s schema line ("Calls stop at spawned binaries"), which
-every test-reach query names, and here. The schema budget had 2 characters
-to spare, so the line is terse and `documented_file`'s copy gave the rest.
-Making it a note on each answer is an engine change, and it is open on #152.
+decided it. The caveat rides on three things: `is_test`'s schema line
+("Calls stop at spawned binaries"), this paragraph, and a note on every
+answer whose closure reaches both `is_test` and `calls_at`
+([05-surface.md](05-surface.md) § "One note says what the call graph cannot
+see"). `Stats::depends` could not carry that note: it names only base
+relations, and `is_test`'s closure is `file`, which every query over a
+definition reaches. `Stats::rules` names the derived predicates
+([03-datalog.md](03-datalog.md)).
 
 `impl_of` names the other end (#116):
 

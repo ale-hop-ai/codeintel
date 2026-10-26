@@ -265,6 +265,14 @@ impl Engine {
             .map(|(name, _)| name.to_string())
             .filter(|name| closure.contains(name))
             .collect();
+        let rules: Vec<String> = plain
+            .rules
+            .iter()
+            .map(|rule| rule.head.name.clone())
+            .filter(|name| closure.contains(name))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
 
         // Demand transformation is a performance step, never a legality one:
         // the program above is already safe and already stratified. If the
@@ -308,6 +316,7 @@ impl Engine {
             transformed,
             demand: why,
             depends,
+            rules,
             empty_at: None,
             recursive,
         };

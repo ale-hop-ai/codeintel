@@ -274,6 +274,14 @@ that means; it is what lets the layer above distinguish "your code does not do
 this" from "this index could not see it" without parsing the query text
 ([05-surface.md](05-surface.md) § Status, `no-scip`).
 
+**`stats.rules` names the derived predicates the same closure reaches**,
+sorted, from the same plain program. `depends` alone cannot tell a goal that
+reads `is_test` from one that reads `file`: `is_test`'s closure is `file`,
+and every query over a definition reaches `file` anyway. A host that has to
+know which rules an answer was built from, and not only which facts, reads
+this field (#152). Like `depends`, it is a set of names, and the engine
+attaches no meaning to any of them.
+
 **An aborted evaluation carries its stats.** `timeout` and `budget-exceeded`
 happen after `depends`, `transformed` and `demand` were decided and while
 `derived` and the clock were running, so `Diagnostic::stats` holds all of them as

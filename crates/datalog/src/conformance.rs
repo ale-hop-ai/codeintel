@@ -555,6 +555,31 @@ fn a_budget_abort_carries_the_stats_it_measured() {
     assert_eq!(seen.transformed, done.stats.transformed);
 }
 
+/// `rules` names the derived predicates the goal's closure reaches and no
+/// others: `depends` is the same `edge` for both goals, which is the reason
+/// the field exists (#152).
+#[test]
+fn rules_names_the_derived_predicates_the_goal_reaches() {
+    let mut e = chain(3);
+    e.load_rules("start(X) :- edge(X, _).")
+        .expect("the rule loads");
+    let deep = e
+        .query(
+            "hop(X, Y) :- reaches(X, Y). ?- hop(X, Y).",
+            &Limits::default(),
+        )
+        .expect("completes");
+    assert_eq!(
+        deep.stats.rules,
+        vec!["hop".to_string(), "reaches".to_string()]
+    );
+    let shallow = e
+        .query("?- start(X).", &Limits::default())
+        .expect("completes");
+    assert_eq!(shallow.stats.rules, vec!["start".to_string()]);
+    assert_eq!(deep.stats.depends, shallow.stats.depends);
+}
+
 #[test]
 fn a_timeout_carries_the_stats_it_measured() {
     // About 8M tuples of closure against a 20 ms clock: derived in the debug

@@ -399,6 +399,26 @@ gate in a repository unanswerable.
   ...`. Not asked when SCIP is absent or matched nothing (`no-scip` says that),
   and not counted on an answer whose closure never reaches SCIP.
 
+**One note says what the call graph cannot see (#152).** When
+`stats.rules` holds both `is_test` and `calls_at`, the goal joined tests to
+a call graph. The hint gains: `tests are found through calls only; a test
+that runs a built binary or another process is not followed, so tests may
+be missing`. In this repository at 981f795, `impact_of_exact` of
+`Ingest::read` plus `is_test` lists 27 tests, and 120 execute it. 93 of them
+reach it through `Command::new(env!("CARGO_BIN_EXE_codeintel"))`. On fd,
+every test does that. The status stays `ok`, for the reason
+[01-facts.md](01-facts.md) § "What the `calls` closures see" gives: nothing
+the index lacks decided it. It is not a count, so `stats` has no field for
+it. It does not fail `--expect-empty`, for the reason `stats.unread` does
+not. It fires on any goal whose closure holds both, `about` among them,
+whatever `Rel` is bound to. That closure is syntactic, and an `about` answer
+with `Rel` free does carry `test` rows. The note is a statement about how
+the rows were found, so it is true wherever it fires, including on an
+answer that lists no tests. Bridging the edge instead, from a test that
+launches binary P to P's `main`, would derive a call from a naming
+convention (`CARGO_BIN_EXE_<name>`, a `subprocess` path). That is
+inference, which invariant 1 forbids, and per-language code.
+
 MCP always refreshes; the flag is not exposed there. An agent editing files is
 the assumed case, not the exception.
 
