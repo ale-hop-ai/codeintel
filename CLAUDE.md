@@ -153,6 +153,11 @@ Non-negotiable, per milestone in [docs/plan.md](docs/plan.md):
 - **Idempotence:** index twice → identical segments. Shuffle file order →
   identical facts.
 - **Surface budget:** asserted in CI.
+- **Size:** `tests/loc.rs` pins non-test LOC per crate in
+  `tests/fixtures/loc.tsv`, using the counting rule in
+  [specs/00-overview.md](specs/00-overview.md) § Layout. It is not a cap: a
+  move is fine, but an unexplained one is not. Refresh it with `UPDATE_GOLDEN=1`
+  and give the reason in the commit message (#149).
 - **Cost:** `tests/counters.rs` pins `derived`, `demand` and `transformed` for a
   fixed query set over the fixtures. `tests/corpus_counters.rs` pins `status`,
   `truncated`, `rows`, `derived`, `demand` and a digest of the rows for the
