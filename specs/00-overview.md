@@ -228,6 +228,24 @@ excluded:
 
 Declared LOC figures are not repeated in the other documents: a budget that
 drifts 1.6–12× without anything noticing is a claim, not a measurement (#126).
+The table is frozen at its date. **The current figures are pinned**, in
+`tests/fixtures/loc.tsv`, by `crates/codeintel/tests/loc.rs`, which is in the gate
+(#149). There is no cap. A move is allowed, but an unexplained move is not:
+the test fails, you refresh it with `UPDATE_GOLDEN=1`, and the commit message
+says why the number moved. The counting rule, mechanical so that two runs agree:
+
+- **Counted:** every `crates/*/src/**/*.rs`. Benches, examples and `tests/`
+  are not counted.
+- **Test code is excluded.** A `#[cfg(test)]` line drops itself and the item
+  after it, at any indent. When that item ends its first line with `;`, the
+  item is that one line, and a `mod NAME;` also drops the file it names
+  (`conformance.rs`). Otherwise the item runs through the next line that is
+  the attribute's own indent followed by `}`.
+- **Two columns.** `lines` is every remaining line. `code` leaves out blank
+  lines and lines whose first non-blank characters are `//`. Doc comments are
+  in `lines` and not in `code`. Block comments are not recognised; no source
+  uses them.
+
 The thesis number is dex's, measured: 84,887 non-test lines of Go
 ([docs/research.md](../docs/research.md) §1). Ours is ~16k across all four
 crates, and the comparison stands on that.
