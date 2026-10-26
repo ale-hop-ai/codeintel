@@ -467,8 +467,9 @@ fn schema(
 /// field the client reads.
 fn failed(status: Status, text: &str, structured: bool) -> serde_json::Value {
     if structured {
+        // Text in `content` too, as every error result carries (#144).
         serde_json::json!({
-            "content": [],
+            "content": [{ "type": "text", "text": format!("status={status}\nhint: {text}") }],
             "structuredContent": { "status": status.as_str(), "hint": text },
             "isError": true,
         })

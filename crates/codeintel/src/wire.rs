@@ -268,8 +268,17 @@ pub fn tool_result(answer: &Answer, structured: bool, raw: bool) -> serde_json::
     // "The query never ran", as the CLI's exit 2 (#135).
     let is_error = !answer.ran();
     if structured {
+        // An error also carries its text in `content`: a client that renders
+        // an `isError` result from `content` showed "Unknown error" for every
+        // invalid query (#144). An error has no rows, so the second copy is a
+        // status and a hint, not the answer twice.
+        let content = if is_error {
+            serde_json::json!([{ "type": "text", "text": text(answer, raw) }])
+        } else {
+            serde_json::json!([])
+        };
         serde_json::json!({
-            "content": [],
+            "content": content,
             "structuredContent": json(answer, raw),
             "isError": is_error,
         })

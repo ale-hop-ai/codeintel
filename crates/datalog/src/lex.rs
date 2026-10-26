@@ -302,7 +302,15 @@ impl Lexer<'_> {
             _ => {
                 self.at += 1;
                 let c = String::from_utf8_lossy(self.slice(from)).into_owned();
-                return Err(self.err(from, format!("unexpected character `{c}`")));
+                // `;` is Prolog's "or", and the most common reason to type it
+                // here (#144).
+                let why = if c == ";" {
+                    ": there is no disjunction. write one rule per alternative, all with \
+                     the same head, or `match/2` for alternatives on one string"
+                } else {
+                    ""
+                };
+                return Err(self.err(from, format!("unexpected character `{c}`{why}")));
             }
         };
         self.at += len;

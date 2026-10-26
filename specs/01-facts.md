@@ -455,6 +455,19 @@ are load-bearing:
    reasonably want to tighten or loosen. In `stdlib.dl` it is four readable
    rules; in Rust it is a decision nobody can see.
 
+**What "a position the grammar calls a reference" is, today: a call site and
+nothing else.** Every `name_ref` row comes from an `@reference.call` capture in
+`queries/*/tags.scm` (and `queries/typescript/jsx.scm`): a function or method
+call, a `new`, a macro invocation, a capitalised JSX element. A property read
+(`obj.field`), a plain identifier read and a type annotation leave no row. So
+`name_ref` on a field's name is empty wherever the field is only read, and that
+empty is not "no one reads it" — the empty-result hint says so when the name is
+a `field` definition's (#145). Capturing reads is deferred, not refused: without
+a role column a captured `obj.f` is indistinguishable from the `x.f` inside
+`x.f()`, and `ref` would resolve it by name into a `calls` edge to any method
+`f`. A `Role` on `name_ref` is the way to do it, and that is an ABI change
+(invariant 4) waiting for a second reason.
+
 ### `scip_impl(S, T)`
 `S` implements, satisfies, or overrides `T`, as the **compiler** said so: from
 SCIP `Relationship.is_implementation`. Covers interface impls, trait impls,

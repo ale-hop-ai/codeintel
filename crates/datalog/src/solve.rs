@@ -199,10 +199,11 @@ impl Solver<'_> {
         if self.derived.get() > self.limits.max_derived_tuples {
             return Err(Diagnostic::whole(
                 Status::BudgetExceeded,
+                // What fired and at what value. What to change depends on
+                // the program's shape, which `Stats::recursive` reports and
+                // the host words (#138).
                 format!(
-                    "derived more than {} tuples (max_derived_tuples). bind an argument of the \
-                     recursive goal to a constant, so evaluation grows outward from that seed \
-                     instead of deriving every pair",
+                    "derived more than {} tuples (max_derived_tuples)",
                     self.limits.max_derived_tuples
                 ),
             ));
@@ -213,11 +214,7 @@ impl Solver<'_> {
         if elapsed >= self.limits.max_time_ms.saturating_mul(1_000) {
             return Err(Diagnostic::whole(
                 Status::Timeout,
-                format!(
-                    "exceeded max_time_ms ({} ms). Add a literal that binds an argument earlier in \
-                     the body, or raise the limit",
-                    self.limits.max_time_ms
-                ),
+                format!("exceeded max_time_ms ({} ms)", self.limits.max_time_ms),
             ));
         }
         Ok(())

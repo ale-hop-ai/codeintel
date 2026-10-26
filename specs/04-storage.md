@@ -362,6 +362,15 @@ span two inputs. It is carried forward on a refresh that does not parse, like
 the per-input counts, and is `0` with no inputs. A manifest written before the
 field existed reads `0` until its next ingest.
 
+**`scip_root_suggestions` is the `--scip-root` candidates of an ingest that
+matched nothing** — the directories that re-base every document onto an indexed
+file, as `index` prints them. Top-level for the same reason as
+`scip_collisions`, carried forward on a refresh that does not parse, and absent
+(not `[]`) when documents matched or no directory fits. It exists so a query's
+`no-scip` hint can name the command (`specs/05-surface.md` § Status taxonomy,
+#142): the caller on that path is usually an agent that never saw `index`'s
+output. Additive, so no `schema_version` bump, as with `skipped`.
+
 **`extractor_fingerprint` is blake3 over the binary version, the source of
 `crates/extract/src`, the locked versions of the grammar and SCIP crates, every
 vendored and authored `.scm` byte, every field of every `lang.rs` row, and the

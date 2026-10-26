@@ -1029,15 +1029,36 @@ fn fit_hint(answer: &mut Answer, budget: usize, mut measure: impl FnMut(&mut Ans
 /// fixes it here. The engine names the failure in its own terms and knows no
 /// verb and no rule, which is invariant 6; the sentence that says `codeintel
 /// schema` or `impact_of` belongs to the crate that has them.
-fn host_hint(diagnostic: &datalog::Diagnostic) -> &'static str {
-    match diagnostic.status {
+fn host_hint(diagnostic: &datalog::Diagnostic) -> String {
+    // The engine says which limit fired; what to change depends on whether
+    // the goal recursed, which it reports and this words (#138). A cross
+    // product has nothing to seed, and naming a seed for it sent the caller
+    // after a goal they did not have.
+    let recursive = diagnostic.stats.as_ref().is_some_and(|s| s.recursive);
+    let advice = match diagnostic.status {
         datalog::Status::InvalidQuery if diagnostic.message.starts_with("no relation or rule") => {
-            ". check the spelling against `codeintel schema`"
+            ". check the spelling against `codeintel schema`".to_string()
         }
-        datalog::Status::BudgetExceeded => {
-            ". a seeded form such as `impact_of(Seed, C)` explores the reachable subgraph"
+        datalog::Status::BudgetExceeded | datalog::Status::Timeout if recursive => {
+            ". bind an argument of the recursive goal to a constant, so evaluation grows outward \
+             from that seed instead of deriving every pair: `impact_of(Seed, C)`, not \
+             `impact_of(S, C)`"
+                .to_string()
         }
-        _ => "",
+        datalog::Status::BudgetExceeded | datalog::Status::Timeout => {
+            ". no literal is recursive: the body multiplies relations faster than it narrows \
+             them. join the literals on a shared variable, or bind one to a constant"
+                .to_string()
+        }
+        _ => String::new(),
+    };
+    // The limits are fixed: a context window should not wait on them. The one
+    // flag a caller can reach for, `--limit`, moves the row cap and nothing
+    // else, and advising it here returns the same timeout (the #27 shape).
+    if diagnostic.status == datalog::Status::Timeout {
+        advice + ". no flag raises max_time_ms; `--limit` caps rows, not time"
+    } else {
+        advice
     }
 }
 
@@ -1085,9 +1106,10 @@ fn empty_hint(
             return format!("`{text}` matched 0 rows; {column}");
         }
         return format!(
-            "`{text}` matched 0 rows; the index holds {held} `{name}` row(s){}{}",
+            "`{text}` matched 0 rows; the index holds {held} `{name}` row(s){}{}{}",
             preceding(at, ". "),
-            integer_hint(at, engine)
+            integer_hint(at, engine),
+            property_read_hint(at, name, relations, engine)
         );
     }
     format!(
@@ -1155,6 +1177,42 @@ fn string_constants(at: &EmptyAt, engine: &Engine) -> Vec<(usize, String)> {
 /// integer is a different atom from the integer and can never match it; that
 /// is the one case where naming the replacement is a statement about the atom
 /// space, not a guess about the code.
+/// Tier A's `name_ref` is call sites only (every `@reference.call` in
+/// `queries/*/tags.scm`), so `name_ref` on a field's
+/// name is empty wherever the field is only read, and that empty read as "no
+/// one reads it" (#145). Said only when the name is a `field` definition's, so
+/// the note never fires on a misspelling.
+fn property_read_hint(
+    at: &EmptyAt,
+    relation: &str,
+    relations: &BTreeMap<&str, Relation>,
+    engine: &Engine,
+) -> String {
+    if relation != "name_ref" {
+        return String::new();
+    }
+    let Some((_, bare)) = string_constants(at, engine)
+        .into_iter()
+        .find(|(i, _)| *i == 0)
+    else {
+        return String::new();
+    };
+    let is_field = relations.get("def").is_some_and(|defs| {
+        defs.iter().any(|row| {
+            row.get(2).copied().and_then(|a| engine.resolve(a)) == Some("field")
+                && row.get(3).copied().and_then(|a| engine.resolve(a)) == Some(bare.as_str())
+        })
+    });
+    if !is_field {
+        return String::new();
+    }
+    format!(
+        ". `{bare}` is a field, and tier A's `name_ref` holds call sites only — no property \
+         reads (`obj.{bare}`) — so empty here is not \"no one reads it\". a SCIP index \
+         resolves the reads as `scip_ref`"
+    )
+}
+
 fn integer_hint(at: &EmptyAt, engine: &Engine) -> String {
     for (_, bare) in string_constants(at, engine) {
         if bare.parse::<i64>().is_ok() {
@@ -1344,6 +1402,12 @@ pub struct ScipState {
     /// document did. Empty when SCIP is absent or matched nothing: `no-scip`
     /// says that, whole (#132).
     pub uncovered: Vec<String>,
+    /// When nothing matched: the `--scip-root` candidates `index` computed,
+    /// the inputs it read, and the root, so the hint can be the command
+    /// (#142).
+    pub suggestions: Vec<String>,
+    inputs: Vec<String>,
+    root: String,
 }
 
 impl ScipState {
@@ -1378,12 +1442,47 @@ impl ScipState {
             absent: false,
             matched,
             uncovered,
+            suggestions: manifest.scip_root_suggestions.clone(),
+            inputs: manifest.scip.iter().map(|i| i.path.clone()).collect(),
+            root: manifest
+                .roots
+                .first()
+                .cloned()
+                .unwrap_or_else(|| ".".to_string()),
             stale: manifest
                 .files
                 .iter()
                 .filter(|(_, entry)| entry.scip_stale(newest))
                 .map(|(path, _)| path.clone())
                 .collect(),
+        }
+    }
+
+    /// What fixes a SCIP index none of whose documents matched (#142): the
+    /// command when one directory re-bases them all, the candidates when
+    /// several do, and the likelier cause when none does. A runnable chain
+    /// only when it is the whole answer — never a pick among candidates.
+    fn reroot(&self) -> String {
+        let scip: String = self
+            .inputs
+            .iter()
+            .flat_map(|p| [" --scip ", p.as_str()])
+            .collect();
+        match self.suggestions.as_slice() {
+            [one] => format!(
+                "its paths are relative to {one}/. run: codeintel index {}{scip} --scip-root {one}",
+                self.root
+            ),
+            [] => "no single directory re-bases its paths onto indexed files; check that it was \
+                   built from this tree"
+                .to_string(),
+            many => format!(
+                "its paths are relative to a subdirectory, and {} would each re-base all of them \
+                 ({}): re-run `codeintel index {}{scip}` with the right one as --scip-root",
+                many.len(),
+                many.join(", "),
+                self.root
+            ),
         }
     }
 
@@ -1434,8 +1533,8 @@ impl ScipState {
                 format!(
                     "this query depends on {wanted}, and the SCIP index that was ingested \
                      populated none of it: 0 of {documents} document(s) matched an indexed \
-                     file. its paths are relative to some other directory — `codeintel index` \
-                     names the one to pass as --scip-root"
+                     file. {}",
+                    self.reroot()
                 ),
             ));
         }
@@ -1704,6 +1803,27 @@ fn refresh(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #138: the advice follows the cause. Recursion: seed it. No recursion:
+    /// there is nothing to seed. A timeout never says "raise the limit".
+    #[test]
+    fn limit_advice_follows_whether_the_goal_recursed() {
+        let aborted = |status, recursive| {
+            let mut stats = datalog::Stats::default();
+            stats.recursive = recursive;
+            let mut d = datalog::Diagnostic::whole(status, "x");
+            d.stats = Some(Box::new(stats));
+            host_hint(&d)
+        };
+        let seeded = aborted(datalog::Status::BudgetExceeded, true);
+        assert!(seeded.contains("recursive goal"), "{seeded}");
+        let product = aborted(datalog::Status::BudgetExceeded, false);
+        assert!(product.contains("no literal is recursive"), "{product}");
+        assert!(!product.contains("seed"), "{product}");
+        let slow = aborted(datalog::Status::Timeout, false);
+        assert!(slow.contains("no flag raises max_time_ms"), "{slow}");
+        assert!(!slow.contains("raise the limit"), "{slow}");
+    }
 
     /// The shapes a composed hint can take, as #102/#104 are weighing them.
     ///

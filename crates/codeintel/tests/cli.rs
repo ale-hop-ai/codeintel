@@ -1630,3 +1630,41 @@ fn an_aborted_query_reports_what_it_measured_not_defaults() {
         "the demand decision was made and is not the default"
     );
 }
+
+/// #148: a query body with its `?-` left off was told "expected `.` to end a
+/// rule" — advice that turns it into a fact. The hint names `?-` and offers
+/// the query; a real rule with a syntax error keeps its parser message.
+#[test]
+fn a_query_without_its_ask_is_told_to_add_it() {
+    let dir = tree();
+    index(dir.path());
+    for (program, suggestion) in [
+        (
+            "def(S, F, _, \"x\"), calls(C, S).",
+            "?- def(S, F, _, \"x\"), calls(C, S).",
+        ),
+        ("def(S, F, _, \"x\")", "?- def(S, F, _, \"x\")."),
+        (
+            "N = count{S: def(S, _, _, _)}",
+            "?- N = count{S: def(S, _, _, _)}.",
+        ),
+    ] {
+        let out = run(dir.path(), &["query", program]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("status=invalid-query"),
+            "{program}: {stderr}"
+        );
+        assert!(
+            stderr.contains("a query starts with `?-`"),
+            "{program}: {stderr}"
+        );
+        assert!(stderr.contains(suggestion), "{program}: {stderr}");
+    }
+    let out = run(dir.path(), &["query", "foo(X) :- def(X, _, _, _)"]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !stderr.contains("did you mean"),
+        "a rule is not a query: {stderr}"
+    );
+}
