@@ -1,0 +1,5 @@
+crates/codeintel/src/query.rs
+crates/codeintel/tests/go.rs
+crates/codeintel/tests/indexers.rs
+crates/codeintel/tests/scip.rs
+specs/05-surface.md

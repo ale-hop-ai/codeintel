@@ -622,7 +622,7 @@ unchanged.
 
 **Done when**
 - `tests/fixtures/eval/outcome/tasks.tsv`, each task's expected answer, and
-  each oracle's recipe are committed, and `oracle.sh <task>` regenerates every
+  each oracle's recipe are committed, and `oracle.py <task>` regenerates every
   expected answer byte for byte.
 - The isolation probe passes for both arms. Arm A has no `code_query`, arm B
   has it, and neither sees a CLAUDE.md, memory or hooks.

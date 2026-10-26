@@ -1,0 +1,3 @@
+test_and_pattern_with_forward_slash_is_rejected
+test_multi_file_with_missing
+test_pattern_with_forward_slash_is_rejected

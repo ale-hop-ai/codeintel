@@ -1155,7 +1155,7 @@ Both corpora are Rust, so every lane-3 oracle can use the compiler.
 
 **The oracle never uses codeintel.** Each one makes a deliberate edit to a
 scratch copy of the corpus, then lets the compiler or the test runner say what
-moved. `oracle.sh <task>` holds that recipe. Its output, normalised to one
+moved. `oracle.py <task>` holds that recipe. Its output, normalised to one
 `path::function` per line and sorted, is the committed expected answer.
 
 **Targets are picked by a declared rule**, so nobody hand-picks a task that
@@ -1257,7 +1257,7 @@ finding.
 
 `tests/fixtures/eval/outcome/`:
 - **Committed with the runner:** `tasks.tsv` (id, corpus, revision, task text,
-  target, the selection query), `expected/<id>.txt`, `oracle.sh`.
+  target, the selection query), `expected/<id>.txt`, `oracle.py`, `run.py`.
 - **One directory per run:** `runs/<utc>/`, holding `report.txt`,
   `sessions.jsonl` (one row per session: the reply's answer block and its
   usage, but no transcript) and `outcomes.json`. Every run is committed whole,
@@ -1274,3 +1274,65 @@ finding.
   first.
 - **Stability across days.** It is one run, and model behaviour drifts. A
   second run compares distributions, not totals.
+
+## Amendments made while building, before the pilot — 2026-10-26
+
+Building the runner and the oracles turned up the following. Each item says
+what changed and why. **None of it was decided after seeing a session's
+answer.** The pilot had not run when this list was written.
+
+1. **The oracle uses `#[deprecated]`, not a compile error.** `cargo check`
+   stops at the first crate that fails, so breaking `X` in `facts` would hide
+   every use of it in `codeintel`. A deprecation keeps the build green, and
+   rustc warns at every use in every crate and target. Lints are capped with
+   `--cap-lints=warn`. T3 tags each candidate with its own
+   `#[deprecated(note = "OE<n>")]`, so one build answers for every item where
+   the per-item design needed one build each. The recipes are in `oracle.py`.
+   This doc said `oracle.sh` before.
+2. **T3 reads "names or calls".** A deprecation fires where code *names* an
+   item. A type that only flows through inferred types is never named, and
+   the task now says so; without that, an agent could reasonably count such
+   a type as used.
+3. **T5 is `print_error`, not `sanitize_for_terminal`.** The selection query
+   counted callers inside `#[cfg(test)]` modules, which the task excludes.
+   Counted the way the task counts, through the oracle:
+   - `sanitize_for_terminal` has 1 non-test caller;
+   - `new@36` has 1;
+   - `print_error` has 8, the first candidate in order inside 5–15.
+
+   T6 follows T5's target, as declared. The rule is unchanged; it is now
+   applied with the count it states. The oracle now accepts
+   `path::name@line`, for a name defined twice in one file.
+4. **T2 and T4 tie-breaks.** For T2, the most tests reached, ties broken by
+   name, the same as T1. For T4, "workspace trait" excludes std traits
+   (`Display`, `Debug`, `Error`).
+5. **T2's answer is 121 tests.** Most of the CLI tests run the binary over a
+   SCIP fixture, so they really do execute `Ingest::read`. An exact match on
+   121 names is close to unreachable for either arm, so T2 will probably tie
+   and be separated only by precision and recall. It is kept: re-picking a
+   target after seeing its answer is the thing the selection rule exists to
+   prevent.
+6. **Fallback flags.** The probe showed that `--safe-mode` drops an explicit
+   `--mcp-config`: arm B was offered no `code_query`. Both arms therefore run
+   the declared fallback, `--setting-sources ""` with `--strict-mcp-config`.
+   A trivial prompt measures 3,197 input tokens under both `--safe-mode` and
+   the fallback, so the fallback loads no extra context, the user's global
+   CLAUDE.md included.
+7. **Reads outside the working directory.** The probe's first run read a
+   canary outside the working directory in both arms, because pre-approving
+   `Read` (`--allowedTools`) covers every path. `Read`, `Grep` and `Glob` are
+   no longer pre-approved. Unapproved, they work inside the working directory
+   and are denied outside it. The probe now checks this for both arms, and
+   only `code_query` is pre-approved, in arm B.
+8. **One pristine copy per corpus, not one per session.** Neither arm can
+   write, so a shared read-only copy is the same thing. Arm B's index is built
+   from that copy with `--scip`, from the SCIP files the pinned corpus's
+   indexers wrote. Re-running rust-analyzer would leave a `target/` in B's copy
+   that A's lacks.
+9. **The oracle's scratch copies are stamped now.** The first generation ran
+   with copies that kept the corpus's mtimes. Every copy shares one cargo
+   target directory, and cargo shares artifacts between copies of one
+   workspace. An old-mtime copy therefore looked older than the previous
+   recipe's edited build, cargo reused that build, and a baseline test run
+   carried the last task's `panic!()` (T6: 12 `sanitize` tests "failed before
+   the edit"). Every expected answer was regenerated after the fix.
