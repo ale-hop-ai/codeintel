@@ -689,10 +689,13 @@ exported would make `dead_export` demand documentation for unreachable code.
 % contributes names that these rules resolve against the whole-repo def set.
 
 % An occurrence is a resolution only if its target is a symbol the index can
-% describe: it has a definition here, or it names a package (`extern`). See
-% § Tier precedence below.
+% describe: it has a definition here, or it names a package (`extern`) -- or
+% SCIP defined it as a document-scoped local, which keeps `resolved` and no
+% `def` (#128). Not the `local ` prefix: an unbound placeholder is `local N`
+% too and defines nothing (#56). See § Tier precedence.
 scip_claim(F, L, C) :- scip_ref(S, F, L, C, _, _), def(S, _, _, _).
 scip_claim(F, L, C) :- scip_ref(S, F, L, C, _, _), extern(S, _, _, _).
+scip_claim(F, L, C) :- scip_ref(S, F, L, C, _, _), resolved(S).
 
 ref(S, F, L, C, From, Role, "exact") :-
     scip_ref(S, F, L, C, From, Role), def(S, _, _, _).

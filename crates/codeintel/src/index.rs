@@ -765,6 +765,7 @@ fn add(into: &mut tier_b::Counts, counts: tier_b::Counts) {
     into.refs += counts.refs;
     into.resolved += counts.resolved;
     into.only += counts.only;
+    into.locals += counts.locals;
     into.collided += counts.collided;
 }
 
