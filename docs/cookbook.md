@@ -233,20 +233,21 @@ what it claims** ([plan.md](plan.md) M3); that figure is the entire argument
 for tier B and for keeping the two provenances apart rather than averaging
 them.
 
-- Use `calls_exact`, `impact_of_exact`, `dead_export_exact`, `entrypoint_exact`,
-  `depends_exact` and `uses_package_exact` when precision matters.
+- Use `calls_exact`, `impact_of_exact`, `dead_export_exact`, `entrypoint_exact`
+  and `depends_exact` when precision matters. `uses_package` is exact already:
+  it only ever joins SCIP's `extern`.
 - Check `codeintel status` for whether a SCIP index is present and fresh. A
   query whose dependency closure reaches a SCIP-only relation returns
   `status: no-scip` when there is none — it never silently returns zero rows.
 - `dead_export` **over**-reports on `name` provenance: an unresolved call is an
   invisible call, so a symbol can look unreferenced when it is not.
-- A `dead_export` row means the *export* is unnecessary, and for an `inherited`
-  definition (a Rust enum variant, trait item or trait-impl method; a TypeScript
-  interface or enum member) there is no slot to narrow, so the row has no edit
-  (#114). On this repository 35 of 98 `dead_export_exact` rows are those. The
-  filter is `!visibility(S, "inherited")`; `visibility(S, "public")` is wrong,
-  it also drops a TypeScript `export { x }`, which is narrowable:
-  `?- dead_export_exact(S), def(S, F, _, N), !is_test(F), !visibility(S, "inherited").`
+- A `dead_export` row means the *export* is unnecessary — an export you can
+  narrow. An `inherited` definition (a Rust enum variant, trait item or
+  trait-impl method; a TypeScript interface or enum member) has no slot to
+  narrow, so both forms exclude it (#114; on this repository that was 35 of 98
+  `dead_export_exact` rows). A TypeScript `export { x }` is `restricted`,
+  narrowable, and still listed:
+  `?- dead_export_exact(S), def(S, F, _, N), !is_test(F).`
 - `entrypoint` **inverts**: a callable looks like an entrypoint precisely when
   its callers were not resolved.
 - `entrypoint_exact` is a **candidate list, not a dead-code list**, and `_exact`
@@ -351,7 +352,7 @@ ones that answer zero (#58). It is not DefinitelyTyped-specific either: on
 | does this file declare a dependency on `react`? | `?- import(F, "react", _).` |
 | …in Rust, where the specifier is a path? | `?- import(F, M, _), prefix(M, "tokio").` |
 | which dependency did this *symbol* come from? | `?- extern(S, _, P, V).` |
-| which files touch any third-party symbol? | `?- uses_package(F, P).` |
+| which files touch a symbol no indexed document defines? | `?- uses_package(F, P).` — std and first-party included, see below |
 
 `uses_package` is truthful about what it states; it is the wrong question for
 "does F use X", and a zero there means "no `extern` row says so", never "no".
@@ -360,6 +361,30 @@ per-language specifier and not a package name: `"std::collections::HashMap"` in
 Rust, `"fmt"` in Go, `"../db/conn"` in TypeScript. Rewriting either name
 into the other is the extractor guess
 [02-extraction.md](../specs/02-extraction.md) § Name matching forbids.
+
+### The dependency split: what `extern` holds besides dependencies
+
+`extern` is "a SCIP symbol whose string names a package and that no indexed
+document defines" (#118), which is wider than third-party. On this repository
+`uses_package` was 399 rows: 251 the standard library, 58 this workspace's own
+crates (impl blocks and tuple fields tier A has no `def` for), 90 actual
+dependencies.
+
+The standard library is separable, from data the indexer supplied:
+rust-analyzer writes its `Version` as a `rust-lang/rust` library URL.
+
+```
+?- extern(S, _, P, V), prefix(V, "https://github.com/rust-lang/rust/library").   the std family
+?- uses_package(F, P), extern(S, _, P, V), prefix(V, "https://github.com/rust-lang/rust/library").
+```
+
+That is a per-indexer convention, not a grammar: it says nothing for Go, Python
+or TypeScript, and "everything but std" cannot be written as `!prefix` (a
+builtin cannot be negated). Name the std packages instead when you need the
+complement: `uses_package(F, P), P != "core", P != "alloc", P != "std"`.
+First-party rows are **not** separable today — `def`'s symbol carries no
+package — and a query that names your own crate (`P != "mycrate"`) is the
+honest workaround.
 
 ### Two artifacts this fixture shows, and what they mean
 

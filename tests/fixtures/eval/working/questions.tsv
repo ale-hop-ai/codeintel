@@ -70,6 +70,6 @@
 70	A,B	Which definitions override "scip demo store/Backend#get()."? Bind the overriding definition's file to A and its name to B.	?- about("scip demo store/Backend#get().", "implementor", A, B, _).
 71	A,B	Which definitions span more than 60 lines? Bind the symbol id to A and the length to B.	?- def_lines(A, B), B > 60.
 72	A	In which files does an occurrence the indexer marked as a test appear? Bind the path to A.	?- scip_ref(_, A, _, _, _, "test").
-73	A,B	Which third-party packages does each file use, counting only compiler-resolved references? Bind the file to A and the package to B.	?- uses_package_exact(A, B).
+73	A,B	Which third-party packages does each file use, counting only compiler-resolved references? Bind the file to A and the package to B.	?- uses_package(A, B).
 74	A	local_def pairs a file with a NAME, not with a symbol id. Which names have a definition in src/core/store.rs? Bind the name to A.	?- local_def("src/core/store.rs", A).
 75	A,B	Which exported definitions are referenced from a file other than the one that defines them? Bind the symbol id to A and its defining file to B.	?- ref_outside(A, B), exported(A).

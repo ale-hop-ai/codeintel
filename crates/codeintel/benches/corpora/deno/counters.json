@@ -60,12 +60,12 @@
     },
     {
       "demand": "nothing to seed: no derived literal has a bound argument",
-      "derived": 442898,
-      "digest": "ccd733ee6b8222edbb00569eb63d9ce3c32b1a163aef87f7ffaf9a485a54f621",
+      "derived": 432328,
+      "digest": "e3cab8c43776e57c2083a4d71fe72f33a33226e97496addbf843b22d65061c97",
       "id": "7",
-      "rows": 1000,
+      "rows": 824,
       "status": "no-scip",
-      "truncated": true
+      "truncated": false
     },
     {
       "demand": "nothing to seed: no derived literal has a bound argument",

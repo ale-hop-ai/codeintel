@@ -130,7 +130,7 @@ Today:
 
 | | |
 |---|---:|
-| MCP tools registered in `internal/mcp/server_register.go` | **20**, with `query` as the twentieth |
+| MCP tools registered in `internal/mcp/server_register.go` | **20**, with `query` as the twentieth; 19 behind `DEX_EXPERT` (`internal/mcp/verbs.go:27`), so the default surface is one verb (#126) |
 | `func (s *Store)` methods in `store_graph.go` | **34** |
 | non-test Go LOC | **84,887**, unchanged after ~9,500 lines of deliberate deletion |
 | pipe grammar | already accreting: `#210` selector seeds, `#219` `since:`/`diff:` seeds |
@@ -295,7 +295,9 @@ and `tree-sitter-python/queries/tags.scm` adds `@reference.call`.
 
 So adding a language is: vendor two `.scm` files, add one grammar crate, add one
 row to a table. **No per-language Rust code.** That is the difference between
-dex's 10,146-line `internal/graph` and our ~400-line extractor.
+dex's 10,146-line `internal/graph` and our extractor — "~400-line" when this was
+written; 3,477 non-test lines for four languages measured 2026-10-26, none of
+them per-language.
 
 `tags.scm` gives definitions and (sometimes) call references. It does not give
 imports or containment. We add:
@@ -324,7 +326,11 @@ Verified 2026-09-12:
 | **DDlog** | archived by VMware | Dead. |
 | **DataFusion** | healthy | SQL, not Datalog. Recursive CTEs would technically work; the dialect is wrong for the stated goal and the dependency is enormous. |
 
-**Decision: write our own, ~1200 LOC, zero dependencies.** Rationale:
+**Decision: write our own, zero dependencies.** (This read "~1200 LOC"; the
+engine measured 4,764 non-test lines on 2026-10-26 — safety checks,
+stratification, demand and limits were what the estimate omitted.
+[specs/00-overview.md](../specs/00-overview.md) § Layout holds the
+measurement.) Rationale:
 
 - Runtime query strings are non-negotiable; only a hand-rolled evaluator or Cozo
   provides them, and Cozo is dead.
@@ -473,8 +479,9 @@ model backend.
   and `ping`; `serde_json` is already a dependency for the response contract;
   and there is exactly **one tool**, so none of what an SDK offers — routing
   across many tools, schema derivation, capability negotiation beyond a single
-  flag — is load-bearing here. The whole transport is ~150 lines in
-  `crates/codeintel/src/mcp.rs`. Revisit if a second transport is needed, or if
+  flag — is load-bearing here. The whole transport is
+  `crates/codeintel/src/mcp.rs`, 494 non-test lines measured 2026-10-26 (this
+  read "~150"). Revisit if a second transport is needed, or if
   the protocol revision this server pins (`2024-11-05`) starts costing more to
   track than an SDK would.
 - **Still no `tracing`, re-checked at M4.** The revisit trigger recorded above

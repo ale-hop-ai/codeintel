@@ -138,8 +138,8 @@ Non-negotiable, per milestone in [docs/plan.md](docs/plan.md):
   in context ([specs/02-extraction.md](specs/02-extraction.md) § Validation 2).
   This read "re-slicing and re-parsing", which names a check that is not run and
   cannot be: a method, a field, an enum variant and a TypeScript constructor are
-  nodes only inside their parent, so 59 of 167 fixture definitions fail the
-  slice-alone parse with exact spans (#98).
+  nodes only inside their parent, so 39 of 167 fixture definitions fail the
+  slice-alone parse (`root.has_error()`) with exact spans (#98, #126).
 - **Determinism:** every query byte-identical across repeated runs, with the
   count justified where it is paid. The engine's conformance suite runs 100
   over four synthetic programs (`crates/datalog/src/conformance.rs:342`); the

@@ -48,8 +48,10 @@ work:
 | java | 1 | `@reference.call` attaches to the *arguments* node, so recorded positions point at `(args)` |
 
 So: **we author `tags.scm` and `imports.scm` per language.** Upstream is a
-reference to start from, not a dependency to vendor. Budget ~1,000 LOC of query
-and mapping per language — the same order as
+reference to start from, not a dependency to vendor. This budgeted ~1,000 LOC
+of query and mapping per language; measured 2026-10-26 it is 97–207 lines of
+`.scm` per language (Go 123, Python 97, Rust 127, TypeScript 207, `jsx.scm`
+included) and no per-language Rust — the same order of *work* as
 `~/projects/dex/internal/graph/sitter_rust_tags.go` and its siblings, which
 spend ~6,177 LOC across five languages doing exactly this. That reprices M5 and
 is why the language set is four, not nine.
@@ -680,18 +682,20 @@ Struct                                           -> struct
 Interface Protocol                               -> interface
 Trait TypeClass Concept                          -> trait
 Enum                                             -> enum
-Union                                            -> type
+Union Type                                       -> type
 Field Property StaticField StaticProperty
   StaticDataMember Key                           -> field
 Constant EnumMember                              -> constant
 Variable StaticVariable Value Object Instance    -> variable
 Module Namespace Package PackageObject File      -> module
-Type TypeAlias TypeFamily DataFamily
-  AssociatedType                                 -> typealias
+TypeAlias TypeFamily DataFamily AssociatedType   -> typealias
 everything else                                  -> unknown
 ```
 
-`Union` maps to `type`, not to `enum`. An earlier draft collapsed the two, which
+`Type` maps to `type`: SCIP's generic "a type" says nothing about being an
+alias, and the code has mapped it so since the first commit (486c682); the
+table read `typealias` until #126, and nothing pinned either. `Union` maps to
+`type`, not to `enum`. An earlier draft collapsed the two, which
 made a Rust `union` and a Rust `enum` produce identical rows — a smaller version
 of the upstream `tags.scm` defect that `docs/plan.md` M2's kind-fidelity test
 exists to catch, and the same class of extractor guess invariant 1 forbids. Both
@@ -715,6 +719,17 @@ That mattered because of what reads `Kind`. `calls_at` refuses a caller whose
 kind is `module` ([01-facts.md](01-facts.md) § Derived relations), and with the
 document symbol typed `unknown` the refusal could not see the one definition it
 exists to exclude (#75).
+
+**`:` (Meta) is not read, and a Python module stays `unknown` (#129).**
+`scip-python` 0.6.6 writes each file's own module symbol with a Meta suffix —
+`kinds/__init__:` — so on the Python fixture 8 modules are `unknown` rows named
+`__init__`, beside three real `__init__` methods. The obvious mapping, Meta →
+`module`, has a counterexample in our own fixtures: `scip-typescript` writes a
+type-literal scope as ``ui/`row.tsx`/Row().(props)typeLiteral0:``. `/` has one
+meaning in the grammar and `:` has at least two, so mapping it would make one
+indexer's convention outrank the grammar (invariant 1). Separate the two by
+`Kind` (`method` vs `unknown`). A test pins both symbols as `unknown`, so
+reading Meta is a deliberate spec change, not a drift.
 
 ### Hover blocks are not doc comments
 
@@ -1034,8 +1049,10 @@ hand-written golden fact file.
    **In context, not the slice alone.** Parsing `src[start_byte..end_byte]` by
    itself was the first wording, and it cannot be asserted: a method, a field, an
    enum variant and a TypeScript constructor are nodes only inside their parent,
-   so on the four fixtures 59 of 167 definitions fail it with exact spans. That
-   check is not run. **The kind is not asserted here** either: that a node is a
+   so on the four fixtures 39 of 167 definitions fail it with exact spans —
+   counted as `root.has_error()` on the slice parsed alone: Rust 8, Go 11,
+   Python 0, TypeScript 20 (#126). This read 59, by a criterion that was never
+   recorded and so could not be re-run. That check is not run. **The kind is not asserted here** either: that a node is a
    `struct` and not a `type` is `Kind fidelity`'s job and the golden file's, and
    restating it from the same query would agree with the query by construction.
 3. **Anchor coverage.** On a fixture with both tiers, assert the **exact set**
