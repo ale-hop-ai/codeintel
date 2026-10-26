@@ -164,15 +164,23 @@ resolving an atom to a string is two loads and a slice.
 
 **Read, not mapped.** An earlier design mapped them. The mapping bought nothing
 measurable: `validate` scans every byte before `open` returns, and `by_text`
-copies every string to the heap, so both of an mmap's advantages — paying only
+(eager, then) copied every string to the heap, so both of an mmap's advantages — paying only
 for the pages touched, and sharing them between processes — were already
 forfeited by the time the first lookup happened. Segment data, which is larger
 and hotter, was read with `fs::read` throughout. Dropping it removed the one
 `unsafe` block in `crates/facts` and one dependency (#44).
 
-In-memory, the indexer additionally holds a `HashMap<String, Atom>` for dedup
-during a run. The query path never needs it — queries compare
-atoms, and only materialize strings when formatting output.
+**The string-to-atom map is built on first use, not at open (#28).** Interning
+needs it — the indexer's dedup during a run — and so does a query, once, for
+the string literals in its program (`lookup`, through the loaded engine's
+interner). This read "the query path never needs it", which was wrong twice:
+the code built it on every query-path open, and the query path does look up
+literals. What it does not need is the map at **open**: a warm call opens the
+store, finds the manifest unchanged and drops it, and on deno building the map
+there was 23.8 of the 27.7 ms the open cost, with nothing reading it. It is a
+`OnceLock` inside the interner, built from every string on disk and pending
+the first time `lookup` or `intern` asks. Queries compare atoms, and
+materialize strings only when formatting output; neither needs the map.
 
 **Every string goes through the dedup map, including doc comments.** An earlier
 draft bypassed it for strings over 256 bytes. Measured, hashing ~120 MB of doc

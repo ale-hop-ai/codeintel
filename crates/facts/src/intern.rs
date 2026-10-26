@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::{Error, Result, Write};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use datalog::atom::{Atom, STR_MIN};
 use datalog::symbols::Symbols;
@@ -33,9 +34,10 @@ const IDX: &str = "dict.idx";
 /// A dictionary on disk, read into memory.
 ///
 /// Read rather than mapped. The mapping bought nothing measurable: `validate`
-/// scans every byte before `open` returns, and `by_text` copies every string
-/// to the heap, so both of an mmap's advantages — paying only for what is
-/// touched, and sharing pages — were forfeited before the first lookup.
+/// scans every byte before `open` returns, and `by_text` (eagerly, then) copied
+/// every string to the heap, so both of an mmap's advantages — paying only for
+/// what is touched, and sharing pages — were forfeited before the first lookup.
+/// `by_text` is lazy now (#28); `validate` still reads every byte, on purpose.
 /// `Store::load` already reads the larger and hotter segment data with
 /// `fs::read`; the dictionary was the small path, and the only thing holding
 /// an `unsafe` block and a dependency (#44).
@@ -207,7 +209,12 @@ pub struct Interner {
     dir: PathBuf,
     dict: Option<Dict>,
     added: Vec<String>,
-    by_text: HashMap<String, Atom>,
+    /// Every string, on disk and pending, to its atom: the `intern`/`lookup`
+    /// direction. Built on first use, not at open (#28): a warm query call
+    /// opens a store, finds its manifest unchanged, and drops it, and building
+    /// this map was 23.8 of the 27.7 ms that open cost on deno with nothing
+    /// ever reading it. `OnceLock`, so `Interner` stays `Sync`.
+    by_text: OnceLock<HashMap<String, Atom>>,
     /// Extents the files are cut back to before the next append, when this
     /// interner was opened against a manifest's record of them.
     trusted: Option<(u64, u64)>,
@@ -237,20 +244,20 @@ impl Interner {
             Some((bin_len, idx_len)) => Dict::open_to(&dir, bin_len, idx_len)?,
             None => Dict::open(&dir)?,
         };
-        let mut by_text = HashMap::new();
-        if let Some(d) = &dict {
-            for (i, text) in d.iter().enumerate() {
-                let Some(atom) = atom_at(i) else {
-                    return Err(corrupt("the dictionary is larger than the atom space"));
-                };
-                by_text.insert(text.to_string(), atom);
-            }
+        // Checked here, where it can still be an error: the map that would
+        // have found it is built later, on a path that cannot fail.
+        if let Some(d) = &dict
+            && d.len()
+                .checked_sub(1)
+                .is_some_and(|last| atom_at(last).is_none())
+        {
+            return Err(corrupt("the dictionary is larger than the atom space"));
         }
         let mut out = Self {
             dir,
             dict,
             added: Vec::new(),
-            by_text,
+            by_text: OnceLock::new(),
             trusted,
         };
         // `01-facts.md`: the empty string is the missing-value atom, and it is
@@ -297,19 +304,42 @@ impl Interner {
     /// Returns `None` only when the atom space is exhausted — 3.8 billion
     /// distinct strings.
     pub fn intern(&mut self, s: &str) -> Option<Atom> {
-        if let Some(atom) = self.by_text.get(s) {
-            return Some(*atom);
+        if let Some(atom) = self.lookup(s) {
+            return Some(atom);
         }
         let atom = atom_at(self.len())?;
         self.added.push(s.to_string());
-        self.by_text.insert(s.to_string(), atom);
+        // `lookup` above built the map, so this always finds it.
+        if let Some(map) = self.by_text.get_mut() {
+            map.insert(s.to_string(), atom);
+        }
         Some(atom)
     }
 
     /// The atom for `s` if the dictionary already has it, without appending.
     #[must_use]
     pub fn lookup(&self, s: &str) -> Option<Atom> {
-        self.by_text.get(s).copied()
+        self.map().get(s).copied()
+    }
+
+    /// The string-to-atom map, built from every string held on first use.
+    fn map(&self) -> &HashMap<String, Atom> {
+        self.by_text.get_or_init(|| {
+            let on_disk = self.dict.iter().flat_map(Dict::iter);
+            on_disk
+                .chain(self.added.iter().map(String::as_str))
+                .enumerate()
+                // `open_with` checked that every index has an atom.
+                .filter_map(|(i, text)| Some((text.to_string(), atom_at(i)?)))
+                .collect()
+        })
+    }
+
+    /// True once the string-to-atom map exists. For the test that pins it
+    /// staying unbuilt on an open nothing asks of.
+    #[cfg(test)]
+    fn map_built(&self) -> bool {
+        self.by_text.get().is_some()
     }
 
     /// The string behind a string atom.
@@ -442,4 +472,56 @@ fn corrupt(message: impl AsRef<str>) -> Error {
         "the string dictionary is corrupt: {}",
         message.as_ref()
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A dictionary on disk holding `words`, flushed, and its extents.
+    fn on_disk(words: &[&str]) -> (tempfile::TempDir, (u64, u64)) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut interner = Interner::open(dir.path()).expect("opens");
+        for w in words {
+            interner.intern(w).expect("interns");
+        }
+        interner.flush().expect("flushes");
+        let extents = interner.extents();
+        (dir, extents)
+    }
+
+    /// #28: opening against a manifest builds no map. The warm no-change call
+    /// opens, compares manifests and drops the store; the map was most of that
+    /// open's cost and nothing read it.
+    #[test]
+    fn an_open_that_is_never_asked_builds_no_map() {
+        let (dir, (bin, idx)) = on_disk(&["alpha", "beta"]);
+        let interner = Interner::open_to(dir.path(), bin, idx).expect("opens");
+        assert!(!interner.map_built());
+        // Resolving goes the other way and does not need it either.
+        assert_eq!(interner.resolve(STR_MIN + 1), Some("alpha"));
+        assert!(!interner.map_built());
+    }
+
+    /// The lazy map answers exactly what the eager one did: every string on
+    /// disk to its own atom, a pending string to the atom `intern` gave it,
+    /// an unknown string to nothing — before and after a flush.
+    #[test]
+    fn the_lazy_map_agrees_with_the_dictionary() {
+        let words = ["", "alpha", "beta", "gamma"];
+        let (dir, (bin, idx)) = on_disk(&words[1..]);
+        let mut interner = Interner::open_to(dir.path(), bin, idx).expect("opens");
+        for (i, w) in words.iter().enumerate() {
+            let atom = STR_MIN + u32::try_from(i).expect("small");
+            assert_eq!(interner.lookup(w), Some(atom), "{w:?}");
+            assert_eq!(interner.resolve(atom), Some(*w));
+        }
+        assert_eq!(interner.lookup("delta"), None);
+        let delta = interner.intern("delta").expect("interns");
+        assert_eq!(interner.intern("delta"), Some(delta), "interned once");
+        assert_eq!(interner.lookup("delta"), Some(delta));
+        interner.flush().expect("flushes");
+        assert_eq!(interner.lookup("delta"), Some(delta), "after a flush");
+        assert_eq!(interner.lookup("alpha"), Some(STR_MIN + 1));
+    }
 }
