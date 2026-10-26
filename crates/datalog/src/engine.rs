@@ -229,7 +229,12 @@ impl Engine {
         demand: bool,
     ) -> Result<QueryResult> {
         let start = Instant::now();
-        let program = parse(src, self.syms.as_mut())?;
+        let program = parse(src, self.syms.as_mut()).map_err(|mut d| {
+            if let Some(note) = missing_ask(src, &d.message) {
+                d.message = format!("{}. {note}", d.message);
+            }
+            d
+        })?;
         let Some(goal) = program.query.clone() else {
             return Err(Diagnostic::whole(
                 Status::InvalidQuery,
@@ -284,6 +289,13 @@ impl Engine {
         // timeout on a 1,070-definition repository.
         let strata = strata.restrict(&reachable(&combined));
 
+        let recursive = strata.order.iter().any(|stratum| {
+            combined.rules.iter().any(|rule| {
+                stratum.contains(&rule.head.name)
+                    && !recursive_positions(&rule.body, stratum).is_empty()
+            })
+        });
+
         let patterns = self.compile_patterns(&combined)?;
         let derived = Cell::new(0u64);
         let mut store = Db::new();
@@ -297,6 +309,7 @@ impl Engine {
             demand: why,
             depends,
             empty_at: None,
+            recursive,
         };
 
         let run = Run {
@@ -757,4 +770,30 @@ fn literal_count(body: &[Literal]) -> usize {
             _ => 1,
         })
         .sum()
+}
+
+/// The likeliest reading of a source with no `?-` that failed to parse as
+/// rules: a query body with its `?-` left off (#148).
+///
+/// The parser reads `def(S, F, K, N), calls(A, B).` as a rule head and stops at
+/// the comma — "expected `.` to end a rule" — and `N = count{...}` as a head
+/// that is not a relation. Both describe the rule grammar, and following the
+/// first turns the query into a fact. Only the query path asks this: a rule
+/// file has no `?-` by design, and its parse errors mean what they say. A
+/// source with `:-` is a rule someone wrote, so it is left alone too.
+fn missing_ask(src: &str, message: &str) -> Option<String> {
+    if src.contains("?-") || src.contains(":-") {
+        return None;
+    }
+    let shaped = message.starts_with("expected `.` to end a rule")
+        || message.starts_with("expected a relation name");
+    if !shaped {
+        return None;
+    }
+    let body = src.trim().trim_end_matches('.').trim_end();
+    Some(if body.len() <= 200 {
+        format!("a query starts with `?-` — did you mean: ?- {body}.")
+    } else {
+        "a query starts with `?-` and ends with `.`".to_string()
+    })
 }

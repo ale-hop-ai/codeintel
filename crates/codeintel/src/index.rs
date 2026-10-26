@@ -254,6 +254,7 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
         &seen,
         scip.reingest,
         store.manifest().scip_matched,
+        &store.manifest().scip_root_suggestions.clone(),
         &mut report,
     );
 
@@ -317,6 +318,10 @@ fn record(
     store.manifest_mut().scip = scip.inputs;
     store.manifest_mut().scip_collisions = scip.scip_collisions;
     store.manifest_mut().scip_matched = report.scip_matched;
+    store
+        .manifest_mut()
+        .scip_root_suggestions
+        .clone_from(&report.scip_root_suggestions);
     // A refresh that changed nothing writes nothing. `query` refreshes before
     // every answer, and committing the same manifest again is an fsync per
     // read. Every write this run made lands in the manifest, so equality is
@@ -638,10 +643,12 @@ fn measure_coverage(
     seen: &BTreeSet<String>,
     reingest: bool,
     known: Option<u64>,
+    known_roots: &[String],
     report: &mut Report,
 ) {
     if !reingest {
         report.scip_matched = known;
+        report.scip_root_suggestions = known_roots.to_vec();
         return;
     }
     let matched = ingest.docs.keys().filter(|p| seen.contains(*p)).count() as u64;

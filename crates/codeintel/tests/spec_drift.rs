@@ -389,3 +389,30 @@ fn every_base_relation_has_a_spec_section_of_the_right_arity() {
         );
     }
 }
+
+/// #147: the binding spec named `callers` and `impact`, which no stdlib clause
+/// defines — `callers` left at schema 2, `impact` was always `impact_of`. An
+/// agent writing its first query from the document it is told to read first
+/// got `invalid-query`. Every rule name the Scope bullet offers must be a head.
+#[test]
+fn the_overview_names_only_rules_the_stdlib_defines() {
+    const OVERVIEW: &str = include_str!("../../../specs/00-overview.md");
+    let line = OVERVIEW
+        .lines()
+        .find(|l| l.contains("A small standard library of rules"))
+        .expect("00-overview.md § Scope has the stdlib bullet");
+    let heads: BTreeSet<String> = clause_heads(STDLIB).into_iter().map(|(n, _)| n).collect();
+    let named: Vec<&str> = line
+        .split('`')
+        .skip(1)
+        .step_by(2)
+        .filter(|n| is_predicate_name(n))
+        .collect();
+    assert!(!named.is_empty(), "the bullet names no rule: {line}");
+    for name in named {
+        assert!(
+            heads.contains(name),
+            "`{name}` is not a stdlib rule: {line}"
+        );
+    }
+}

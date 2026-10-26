@@ -717,3 +717,32 @@ fn partial_scip_coverage_is_counted_and_fails_an_empty_gate() {
     assert!(stderr.contains("status=ok"), "{stderr}");
     assert_eq!(gate.status.code(), Some(2), "{stderr}");
 }
+
+/// #145: `name_ref` holds call sites only, so a field that is only read has
+/// no row and the empty answer read as "no one reads it". The hint says why
+/// when the name is a field's, and stays quiet for a misspelling.
+#[test]
+fn an_empty_name_ref_on_a_field_says_property_reads_are_not_recorded() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        dir.path().join("a.ts"),
+        "export interface Profile { usesTarget: boolean }\n\
+         export function go(p: Profile) { if (p.usesTarget) { run(); } }\n\
+         function run() {}\n",
+    )
+    .expect("write");
+    index(dir.path());
+    let hint_of = |program: &str| {
+        let out = run(dir.path(), &["query", program, "--format", "json"]);
+        let answer: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+        assert_eq!(answer["status"], "ok", "{answer}");
+        answer["hint"]
+            .as_str()
+            .expect("an empty answer has a hint")
+            .to_string()
+    };
+    let field = hint_of("?- name_ref(\"usesTarget\", F, L, _, From).");
+    assert!(field.contains("no property reads"), "{field}");
+    let typo = hint_of("?- name_ref(\"usesTargt\", F, L, _, From).");
+    assert!(!typo.contains("property reads"), "{typo}");
+}

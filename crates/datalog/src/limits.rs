@@ -218,4 +218,11 @@ pub struct Stats {
     /// no base relation at all, and answering `ok` with zero rows would be a
     /// lie it has no way to detect.
     pub depends: Vec<String>,
+    /// True when a rule the goal reaches has a recursive body position, i.e.
+    /// evaluation iterated to a fixpoint rather than running each rule once.
+    ///
+    /// A fact, not advice: the host words what to do about a limit, and the
+    /// right advice differs — seed the recursive goal, or join a cross
+    /// product — on exactly this bit (#138).
+    pub recursive: bool,
 }

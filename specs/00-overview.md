@@ -46,7 +46,7 @@ In:
 - A persistent, incrementally-updatable fact store.
 - A Datalog engine that evaluates queries supplied at runtime.
 - A CLI and a single-tool MCP server over that engine.
-- A small standard library of rules (`callers`, `impact`, `reaches`, ...)
+- A small standard library of rules (`calls`, `impact_of`, `reaches`, ...)
   written in Datalog, not in Rust.
 
 Out — and these are **non-goals, not backlog items**:

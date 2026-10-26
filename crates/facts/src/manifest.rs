@@ -58,6 +58,13 @@ pub struct Manifest {
     /// (`specs/05-surface.md` § Status taxonomy).
     #[serde(default)]
     pub scip_matched: Option<u64>,
+    /// When `scip_matched` is zero: the directories that would re-base every
+    /// document onto an indexed file, as `--scip-root` candidates. Kept so the
+    /// `no-scip` hint a query gets can name the fix, rather than send the
+    /// caller to re-run an index whose output it never saw (#142). Absent when
+    /// documents matched or no candidate exists.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scip_root_suggestions: Vec<String>,
     /// Indexed files, keyed by repo-relative path with `/` separators.
     pub files: BTreeMap<String, FileEntry>,
     /// Files in a supported language the walk reached and the indexer did
@@ -352,6 +359,7 @@ impl Manifest {
             scip: Vec::new(),
             scip_collisions: 0,
             scip_matched: None,
+            scip_root_suggestions: Vec::new(),
             files: BTreeMap::new(),
             skipped: BTreeMap::new(),
         }

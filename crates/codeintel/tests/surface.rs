@@ -1743,3 +1743,38 @@ fn the_text_schema_carries_the_status_and_hint_like_the_text_query() {
         .expect("text");
     assert!(text.ends_with("\nstatus=ok\n"), "{text}");
 }
+
+/// #144: an invalid query over MCP is an error result whose text is in
+/// `content` as well as `structuredContent`. A client that renders an error
+/// from `content` showed every grammar error as a bare "Unknown error", and an
+/// agent retried five variants and reported a working rule as broken.
+#[test]
+fn an_mcp_error_carries_its_text_where_every_client_reads_it() {
+    let dir = tree();
+    run(dir.path(), &["index", "."]);
+    let out = rpc_structured(
+        dir.path(),
+        &[
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+                "name":"code_query",
+                "arguments":{"query":"?- def(S, F, K, N), (N = \"a\" ; N = \"b\")."}}}),
+            serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
+                "name":"code_query",
+                "arguments":{"query":"?- def(S, F, K, N)."}}}),
+        ],
+    );
+    let bad = &out[0]["result"];
+    assert_eq!(bad["isError"], true, "{bad}");
+    assert_eq!(bad["structuredContent"]["status"], "invalid-query", "{bad}");
+    let text = bad["content"][0]["text"].as_str().expect("text in content");
+    assert!(text.contains("status=invalid-query"), "{text}");
+    assert!(
+        text.contains("no disjunction"),
+        "names the missing operator: {text}"
+    );
+
+    // A good answer is still one body.
+    let good = &out[1]["result"];
+    assert_eq!(good["isError"], false);
+    assert_eq!(good["content"], serde_json::json!([]), "{good}");
+}

@@ -28,7 +28,7 @@ guessing what an empty result means.
 | `truncated` | query ran, a cap fired | which cap (`max_result_rows` / `max_result_bytes`), and its value |
 | `no-index` | no index for this root, and none was adopted — **or** the index holds 0 files (#140) — **or** a pinned index (`--index-dir`, `CODEINTEL_INDEX_DIR`) was built for another root (#141) | one line that indexes it, tier B included (§ The no-index hint); plus any index found nearby (§ The nearest index). For 0 files: that, and that `codeintel status` lists the extensions no grammar covers. For another root: both roots, and the command that indexes this one into its own directory |
 | `stale` | sources changed and auto-refresh was skipped, exceeded `max_refresh_ms`, or `schema_version` mismatched | `run: codeintel index .` — names the N files |
-| `no-scip` | the goal's **relation-dependency closure** reaches a relation only SCIP populates, and none was ingested — **or** an index was ingested and not one of its documents matched an indexed file, which leaves those relations just as empty | which relations, and the indexer command for the languages present. When documents were ingested and none matched, the hint says so, with the count and the `--scip-root` that would fix it |
+| `no-scip` | the goal's **relation-dependency closure** reaches a relation only SCIP populates, and none was ingested — **or** an index was ingested and not one of its documents matched an indexed file, which leaves those relations just as empty | which relations, and the indexer command for the languages present. When documents were ingested and none matched, the hint says so, with the count and the `--scip-root` that would fix it: a `run:` line re-indexing with it when one directory fits, the candidates when several do — never a pick among them (#142) |
 | `scip-stale` | an indexed file holds bytes `index.scip` did not see ([04-storage.md](04-storage.md) § Manifest, `scip_hash`) | which files, and the indexer command |
 | `invalid-query` | parse or safety failure | the rule, the variable, the violated rule |
 | `unstratified` | negation cycle | the cycle |
@@ -1306,7 +1306,11 @@ Three rules follow, and they supersede the earlier drafts named at each site:
    nothing — gets `content`. Sending both made `format` and `raw` inert for
    every client that prefers structured content — the parameters were
    advertised and did nothing — and cost 3717 bytes to deliver a 1131-byte
-   answer.
+   answer. **The one exception is an error** (`isError: true`): it carries its
+   text in `content` as well. A client that renders an error result from
+   `content` showed every `invalid-query` as a bare "Unknown error", and an
+   agent retried five variants and then reported a working rule as broken
+   (#144). An error has no rows, so the copy is a status and a hint.
 3. **The schema is a budget, not an inventory.** It is read once per session
    before any question is asked, so its bytes are charged to every session
    including the ones that ask one question. It was 5,776 bytes on this repository on 2026-10-21 (tier A only).

@@ -1214,3 +1214,55 @@ fn an_empty_scip_file_is_refused_like_any_non_index() {
         "{stderr}"
     );
 }
+
+/// #142: a SCIP index whose paths are relative to a subdirectory matches
+/// nothing. The `no-scip` hint a query gets — usually by an agent that never
+/// saw `index`'s output — carries the command that fixes it, the command
+/// works, and it survives a refresh that does not re-read the protobuf.
+#[test]
+fn the_no_scip_hint_for_a_wrong_root_is_the_command_that_fixes_it() {
+    let outer = tempfile::tempdir().expect("tempdir");
+    let sub = outer.path().join("sub");
+    copy(tree().path(), &sub);
+    let root = outer.path();
+    let out = run(root, &["index", ".", "--scip", "sub/index.scip"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let hint_of = || {
+        let out = run(
+            root,
+            &["query", "?- calls_exact(A, B).", "--format", "json"],
+        );
+        let answer = stdout_json(&out);
+        assert_eq!(answer["status"], "no-scip", "{answer}");
+        answer["hint"].as_str().expect("hint").to_string()
+    };
+    let hint = hint_of();
+    let chain = hint
+        .split("run: ")
+        .nth(1)
+        .unwrap_or_else(|| panic!("a runnable tail: {hint}"));
+    assert!(
+        chain.contains("--scip sub/index.scip --scip-root sub"),
+        "{chain}"
+    );
+    assert_eq!(hint_of(), hint, "carried forward on a refresh");
+
+    // The chain is the fix: run it as written, minus the binary's name.
+    let args: Vec<&str> = chain.split_whitespace().skip(1).collect();
+    let out = run(root, &args);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let out = run(
+        root,
+        &["query", "?- calls_exact(A, B).", "--format", "json"],
+    );
+    assert_eq!(stdout_json(&out)["status"], "ok");
+}

@@ -473,10 +473,30 @@ fn max_derived_tuples_aborts_with_budget_exceeded() {
         diagnostic.message.contains("max_derived_tuples"),
         "{diagnostic}"
     );
+    // What fired, and the fact the host words its advice from (#138).
+    let stats = diagnostic.stats.expect("an aborted evaluation has stats");
+    assert!(stats.recursive, "reaches/2 recursed");
+}
+
+/// #138: a limit on a program with no recursion says so. The advice "seed
+/// the recursive goal" was attached to every budget abort, including a cross
+/// product with nothing to seed.
+#[test]
+fn a_cross_product_abort_reports_no_recursion() {
+    let limits = Limits {
+        max_derived_tuples: 50,
+        ..Limits::default()
+    };
+    let diagnostic = chain(40)
+        .query("?- edge(A, B), edge(C, D), edge(E, F).", &limits)
+        .expect_err("aborts");
+    assert_eq!(diagnostic.status, crate::diag::Status::BudgetExceeded);
     assert!(
-        diagnostic.message.contains("seed"),
-        "the hint names the fix: {diagnostic}"
+        !diagnostic.message.contains("recursive"),
+        "the engine states what fired, not a cause it did not see: {diagnostic}"
     );
+    let stats = diagnostic.stats.expect("an aborted evaluation has stats");
+    assert!(!stats.recursive, "no rule recursed");
 }
 
 #[test]
