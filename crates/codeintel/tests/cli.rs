@@ -884,6 +884,29 @@ fn expect_empty_is_clean_only_when_ok_and_empty() {
     assert_eq!(plain.status.code(), Some(0));
 }
 
+/// A goal that joins tests to the call graph says the graph stops at a
+/// process boundary; a goal over either alone does not (#152). A test that runs
+/// the built binary executes code no call edge reaches, and the answer is `ok`.
+#[test]
+fn test_reach_over_calls_notes_the_process_boundary() {
+    let dir = tree();
+    index(dir.path());
+    let note = "a test that runs a built binary or another process is not followed";
+    let hint = |query: &str| {
+        let out = run(dir.path(), &["query", query]);
+        assert_eq!(out.status.code(), Some(0), "{query}");
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    let joined = hint("?- calls(C, S), file_of(C, F), is_test(F).");
+    // This tree has no SCIP, so the status is `no-scip`; the note composes
+    // behind whatever condition is there.
+    assert!(joined.contains(note), "{joined}");
+    for alone in ["?- calls(C, S).", "?- is_test(F)."] {
+        let stderr = hint(alone);
+        assert!(!stderr.contains(note), "{alone}: {stderr}");
+    }
+}
+
 #[test]
 fn rule_files_add_clauses_and_the_query_shadows_them() {
     // A predicate is the union of its clauses, so a `--rules` file defining

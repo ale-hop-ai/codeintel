@@ -660,6 +660,15 @@ fn evaluate(
         status = scip_status;
         hint = Some(scip_hint);
     }
+    // Test reach stops at a process boundary (#152): the status stays, and
+    // the note says how the rows were found. Ahead of the coverage note,
+    // which is about the index rather than this answer's question.
+    if let Some(note) = process_note(&result.stats.rules) {
+        hint = Some(match hint {
+            Some(condition) => compose(&condition, note, ". also: "),
+            None => note.to_string(),
+        });
+    }
     // Partial coverage: the exact tier is blind in the files no document
     // covered, on any answer, empty or not (#132). The status stays; the count
     // is the structural signal.
@@ -1638,6 +1647,21 @@ fn uncovered_note(uncovered: &[String], files: usize) -> Option<String> {
             name_list(uncovered)
         )
     })
+}
+
+/// The note for a goal that joined tests to the call graph, or `None`.
+///
+/// A test that runs the built binary reaches code through a process no call
+/// edge crosses, so `impact_of` + `is_test` lists 27 of the 120 tests that
+/// execute `Ingest::read` (`specs/05-surface.md` § "One note says what the
+/// call graph cannot see"). Bridging the edge would be inference; saying so is
+/// not.
+fn process_note(rules: &[String]) -> Option<&'static str> {
+    let reaches = |name: &str| rules.iter().any(|rule| rule == name);
+    (reaches("is_test") && reaches("calls_at")).then_some(
+        "tests are found through calls only; a test that runs a built binary or \
+         another process is not followed, so tests may be missing",
+    )
 }
 
 /// The first five of `names`, comma-joined, with `...` when there are more.

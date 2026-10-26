@@ -218,6 +218,13 @@ pub struct Stats {
     /// no base relation at all, and answering `ok` with zero rows would be a
     /// lie it has no way to detect.
     pub depends: Vec<String>,
+    /// The **derived** predicates the same closure reaches, sorted.
+    ///
+    /// `depends` cannot tell a goal over a rule from one over the facts the
+    /// rule reads: the rule's closure is those facts, which other goals reach
+    /// too. A host that words a caveat about how rows were derived needs the
+    /// rule names themselves (`specs/03-datalog.md`).
+    pub rules: Vec<String>,
     /// True when a rule the goal reaches has a recursive body position, i.e.
     /// evaluation iterated to a fixpoint rather than running each rule once.
     ///
