@@ -1450,3 +1450,27 @@ large where the agent reaches for `code_query` (T1, T3). The agent did not
 reach for it on the one lane-3 question it never tried (T2, test reach), and
 nothing in the MCP tool's description points it there. That gap is filed
 against the tool. The eval does not change.
+
+## Re-run: the description names test reach — declared 2026-10-26, before running
+
+The fix for case 1 of #152 changes only `code_query`'s description
+(`crates/codeintel/src/mcp.rs`, [05-surface.md](../specs/05-surface.md) § MCP):
+it now lists questions, "which tests reach X" among them. Everything else is
+the full run's: model, prompt, corpora, oracles, caps ($0.558 a session), and
+N = 4. Arm A is re-run as a same-day control, because its inputs are
+unchanged.
+
+Tasks: **T2 and T6 only**, 16 sessions, `--max-usd 10`.
+
+- **T2 asks whether adoption moves.** The prediction is that arm B calls
+  `code_query` in at least 3 of 4 sessions, where it called it in 0 of 4
+  before. The solve count is not expected to move, because the static answer
+  is 27 of 120 tests, labelled `ok` (case 2 of #152, still open). A T2 solve
+  would therefore mean the agent went past the tool's answer.
+- **T6 asks whether the description now hurts.** On fd, every test runs the
+  binary, so static test reach is empty, and `ok`. If arm B takes that
+  answer, it drops below its 4/4. **A drop of one or more solves on T6 is a
+  regression**, and it makes case 2 a blocker rather than a follow-up.
+
+The full run's verdict is not recomputed from this. The re-run covers two
+tasks, so it is a probe of one change, and is reported as one.
