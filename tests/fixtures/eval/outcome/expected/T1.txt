@@ -1,0 +1,9 @@
+crates/codeintel/src/census.rs::of
+crates/codeintel/src/query.rs::path_hint
+crates/codeintel/src/query.rs::property_read_hint
+crates/codeintel/src/query.rs::vocabulary
+crates/codeintel/src/render.rs::of
+crates/datalog/src/engine.rs::finish
+crates/datalog/src/relation.rs::minus
+crates/facts/src/segment.rs::encode
+crates/facts/src/store.rs::load

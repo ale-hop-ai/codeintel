@@ -1155,7 +1155,7 @@ Both corpora are Rust, so every lane-3 oracle can use the compiler.
 
 **The oracle never uses codeintel.** Each one makes a deliberate edit to a
 scratch copy of the corpus, then lets the compiler or the test runner say what
-moved. `oracle.sh <task>` holds that recipe. Its output, normalised to one
+moved. `oracle.py <task>` holds that recipe. Its output, normalised to one
 `path::function` per line and sorted, is the committed expected answer.
 
 **Targets are picked by a declared rule**, so nobody hand-picks a task that
@@ -1257,7 +1257,7 @@ finding.
 
 `tests/fixtures/eval/outcome/`:
 - **Committed with the runner:** `tasks.tsv` (id, corpus, revision, task text,
-  target, the selection query), `expected/<id>.txt`, `oracle.sh`.
+  target, the selection query), `expected/<id>.txt`, `oracle.py`, `run.py`.
 - **One directory per run:** `runs/<utc>/`, holding `report.txt`,
   `sessions.jsonl` (one row per session: the reply's answer block and its
   usage, but no transcript) and `outcomes.json`. Every run is committed whole,
@@ -1274,3 +1274,179 @@ finding.
   first.
 - **Stability across days.** It is one run, and model behaviour drifts. A
   second run compares distributions, not totals.
+
+## Amendments made while building, before the pilot — 2026-10-26
+
+Building the runner and the oracles turned up the following. Each item says
+what changed and why. **None of it was decided after seeing a session's
+answer.** The pilot had not run when this list was written.
+
+1. **The oracle uses `#[deprecated]`, not a compile error.** `cargo check`
+   stops at the first crate that fails, so breaking `X` in `facts` would hide
+   every use of it in `codeintel`. A deprecation keeps the build green, and
+   rustc warns at every use in every crate and target. Lints are capped with
+   `--cap-lints=warn`. T3 tags each candidate with its own
+   `#[deprecated(note = "OE<n>")]`, so one build answers for every item where
+   the per-item design needed one build each. The recipes are in `oracle.py`.
+   This doc said `oracle.sh` before.
+2. **T3 reads "names or calls".** A deprecation fires where code *names* an
+   item. A type that only flows through inferred types is never named, and
+   the task now says so; without that, an agent could reasonably count such
+   a type as used.
+3. **T5 is `print_error`, not `sanitize_for_terminal`.** The selection query
+   counted callers inside `#[cfg(test)]` modules, which the task excludes.
+   Counted the way the task counts, through the oracle:
+   - `sanitize_for_terminal` has 1 non-test caller;
+   - `new@36` has 1;
+   - `print_error` has 8, the first candidate in order inside 5–15.
+
+   T6 follows T5's target, as declared. The rule is unchanged; it is now
+   applied with the count it states. The oracle now accepts
+   `path::name@line`, for a name defined twice in one file.
+4. **T2 and T4 tie-breaks.** For T2, the most tests reached, ties broken by
+   name, the same as T1. For T4, "workspace trait" excludes std traits
+   (`Display`, `Debug`, `Error`).
+5. **T2's answer is 121 tests.** Most of the CLI tests run the binary over a
+   SCIP fixture, so they really do execute `Ingest::read`. An exact match on
+   121 names is close to unreachable for either arm, so T2 will probably tie
+   and be separated only by precision and recall. It is kept: re-picking a
+   target after seeing its answer is the thing the selection rule exists to
+   prevent.
+6. **Fallback flags.** The probe showed that `--safe-mode` drops an explicit
+   `--mcp-config`: arm B was offered no `code_query`. Both arms therefore run
+   the declared fallback, `--setting-sources ""` with `--strict-mcp-config`.
+   A trivial prompt measures 3,197 input tokens under both `--safe-mode` and
+   the fallback, so the fallback loads no extra context, the user's global
+   CLAUDE.md included.
+7. **Reads outside the working directory.** The probe's first run read a
+   canary outside the working directory in both arms, because pre-approving
+   `Read` (`--allowedTools`) covers every path. `Read`, `Grep` and `Glob` are
+   no longer pre-approved. Unapproved, they work inside the working directory
+   and are denied outside it. The probe now checks this for both arms, and
+   only `code_query` is pre-approved, in arm B.
+8. **One pristine copy per corpus, not one per session.** Neither arm can
+   write, so a shared read-only copy is the same thing. Arm B's index is built
+   from that copy with `--scip`, from the SCIP files the pinned corpus's
+   indexers wrote. Re-running rust-analyzer would leave a `target/` in B's copy
+   that A's lacks.
+9. **The oracle's scratch copies are stamped now.** The first generation ran
+   with copies that kept the corpus's mtimes. Every copy shares one cargo
+   target directory, and cargo shares artifacts between copies of one
+   workspace. An old-mtime copy therefore looked older than the previous
+   recipe's edited build, cargo reused that build, and a baseline test run
+   carried the last task's `panic!()` (T6: 12 `sanitize` tests "failed before
+   the edit"). Every expected answer was regenerated after the fix.
+10. **The pilot found two answer-key defects, and the agents were right in
+    both.** The answer-key changes went in before the full run, and the
+    pilot is re-scored, not re-run.
+    - **T6 (and T2) count execution directly.** "Fails when `X` panics" misses
+      every test that asserts a failure: a panicking binary still fails, so
+      fd's `assert_failure` tests pass. Both pilot arms named two such tests,
+      and the old key called them wrong. The recipe now writes a marker at
+      `X`'s entry (`ORACLE_TRACE`) and runs each test alone. A test counts if
+      its marker appears, whether it passes or fails. T6 went from 3 to 5 tests:
+      exactly the five both arms named. T2 went from 121 to 120. The dropped
+      test, `non_test_loc_is_what_the_golden_says`, had failed only because
+      the injected line changed the LOC it pins. That was a false positive of
+      the old method.
+    - **T3 ignores inherited field deprecation.** A deprecated struct's fields
+      inherit the deprecation, so `contended.pid` warned as a use of
+      `Contended` while naming nothing. Three types (`Contended`,
+      `FileEntry`, `Rel`) return to the key, and both pilot arms had named all
+      three.
+
+## Pilot — 2026-10-26
+
+`runs/20261026T141745Z-pilot/`: 16 sessions on `claude-opus-5-5`, **$4.16**.
+No cap hits, denials, errors or unparsed answers. `report.txt` is the
+pilot's report as recorded, against the defective key. `report-rescored.txt`
+re-scores the same answers against the corrected key: arm A 7/8, arm B 7/8,
+and both missed T2. **n = 1 per cell, so this is not a result.** The pilot
+exists for the numbers below.
+
+| Pilot measure | A | B |
+|---|---|---|
+| median cost/session | $0.279 | $0.112 |
+| priciest session | $0.637 (T2) | $0.636 (T2) |
+| `code_query` used in | — | T1, T3, T5 (not T2, T4, T6, C1, C2) |
+
+**Decisions, applying § Sample size and budget to those numbers:**
+- **Exchange rate:** EUR/USD **1.118**, the lowest of the same-day quotes
+  (the last dated close was 1.1202 on 2026-10-23). €50 = $55.90.
+- **Per-session cap:** 2 × arm A's median = **$0.558**. That is under the
+  per-session limit of $55.90 ÷ 64 = $0.873, so the model is
+  **`claude-opus-5-5`**.
+- **`--max-usd 54`.** It stops new launches only, and the 3 sessions in
+  flight can each add up to the per-session cap: $54 + 3 × $0.558 = $55.67,
+  which is under €50.
+- **Expected cap hits.** The cap sits below the pilot's priciest sessions
+  ($0.57–$0.64, on T2, T3 and T6 in both arms), so it will cut some of them
+  short. That follows the declared rule; the rule was not retuned after
+  seeing costs. Cap hits are counted per arm in the report.
+
+## Full run — 2026-10-26: MIXED
+
+`runs/20261026T142803Z-run/`, tree `28ee3517be56`, `claude-opus-5-5`,
+N = 4, seed 1, using the fallback flags (amendment 6). **64 of 64 sessions
+ran, none were skipped, and the cost was $14.27** (≈ €12.76 at 1.118).
+
+| task | lane | corpus | A solved | A median $ | A median turns | B solved | B median $ | B median turns | B used `code_query` | rule |
+|---|---|---|---|---|---|---|---|---|---|---|
+| T1 callers | 3 | unseen | 4/4 | $0.467 | 17 | 4/4 | **$0.084** | 6 | 4 of 4 | **B** |
+| T2 tests reaching X | 3 | unseen | 0/4 | $0.515 | 16.5 | 0/4 | $0.569 | 16 | 0 of 4 | tie |
+| T3 unused `pub` | 3 | unseen | 3/4 | $0.516 | 14 | 4/4 | $0.295 | 10 | 4 of 4 | tie |
+| T4 impls | 3 | unseen | 4/4 | $0.047 | 4.5 | 4/4 | **$0.031** | 4 | 1 of 4 | **B** |
+| T5 callers | 3 | seen | 4/4 | $0.052 | 3 | 4/4 | $0.063 | 4.5 | 4 of 4 | tie |
+| T6 tests reaching X | 3 | seen | 4/4 | $0.418 | 20 | 4/4 | $0.424 | 21.5 | 0 of 4 | tie |
+| C1 grep (control) | 1 | unseen | 4/4 | $0.021 | 4.5 | 4/4 | **$0.008** | 2 | 0 of 4 | **B** |
+| C2 by description (control) | 2 | unseen | 4/4 | $0.038 | 3 | 4/4 | $0.034 | 3 | 0 of 4 | tie |
+
+| totals | arm A | arm B |
+|---|---|---|
+| solved | 27/32 | 28/32 |
+| median cost per session | $0.236 | $0.076 |
+| total cost | $8.26 | $6.01 |
+| sessions stopped by the per-session cap | 1 (T2) | 2 (T2) |
+
+**Verdict under § The verdict rule: MIXED.** B wins 2 of the 4 unseen lane-3
+tasks (T1, T4), A wins none of them, and A wins no control. "Effect" needed 3
+of 4.
+
+What the table says, and what it does not:
+
+- **Where arm B used the tool, it did the same work for less.** On T1 it
+  used `code_query` in all 4 sessions: the same 4/4 solved, at 18% of A's
+  median cost and a third of A's turns. On T3 it used the tool in all 4 and
+  solved 4/4 against A's 3/4, at 57% of A's median cost. **T3 is still a tie
+  under the rule**: one more solve is under the declared threshold of 2, and
+  the cost clause applies only when the solve counts are equal. The rule was
+  fixed before the run and is applied as written.
+- **Where arm B did not use the tool, it was arm A.** On T2, T6, C1 and C2,
+  B made no `code_query` call, and its cost and outcome track A's.
+- **T6 is right not to use it.** fd's tests run the `fd` binary, a path no
+  static call graph follows. Both arms traced it by reading, and both solved
+  4/4.
+- **T2 is the miss.** "Which tests execute `Ingest::read`" is
+  `impact_of_exact` plus `is_test`, which is the question `impact_of`
+  exists for. No arm B session tried it, and both arms failed all 4
+  sessions, with recall 0–0.56 against a 120-test answer. Three T2 sessions
+  (1 in A, 2 in B) hit the $0.558 cap before writing an answer. The rule's
+  cap did bind, and it bound slightly harder on B.
+- **The win on T4 and C1 is cost on tasks that are already cheap.** Their
+  medians differ by 1 to 2 cents. They pass the rule's 0.75× cost clause, but
+  carry little weight.
+- **Memorisation split.** On the seen corpus (fd), both arms solved
+  everything, and B used the tool on T5 without saving anything. There, the
+  task was easy enough by grep that the tool had nothing to add. It is not
+  evidence of memorisation either way.
+
+**Known defect in the report: `code_query` status counts.** They are parsed
+with a regex over the tool result, which also matches status names quoted
+in schema and hint text, so they are not reported. The index arm B read
+answered `status: ok` when checked directly after the run.
+
+**Takeaway for the tool, not the eval.** The measured benefit is real and
+large where the agent reaches for `code_query` (T1, T3). The agent did not
+reach for it on the one lane-3 question it never tried (T2, test reach), and
+nothing in the MCP tool's description points it there. That gap is filed
+against the tool. The eval does not change.

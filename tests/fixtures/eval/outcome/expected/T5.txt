@@ -1,0 +1,8 @@
+src/cli.rs::search_paths
+src/exec/command.rs::handle_cmd_error
+src/exec/job.rs::batch
+src/exec/job.rs::job
+src/main.rs::main
+src/walk.rs::build_walker
+src/walk.rs::poll
+src/walk.rs::print
