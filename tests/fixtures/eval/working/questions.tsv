@@ -25,25 +25,25 @@
 25	A	Which types implement the trait "scip demo store/Backend#"? Bind each implementor's NAME to A.	?- about("scip demo store/Backend#", "implementor", _, A, _).
 26	A	Some impl headers resolve to no implements row at all. Which implemented-type names, as written in an impl header, got no name-provenance implements row? Bind the written type name to A.	?- name_impl(F, A, _, _), def(S, F, _, A), !implements(S, _, "name").
 27	A,B	Which definition calls which, on either provenance? Bind the caller to A and the callee to B.	?- calls(A, B).
-28	A,B	The same call graph, counting only compiler-resolved evidence. Bind the caller to A and the callee to B.	?- calls_exact(A, B).
+28	A,B	Which definition calls which, counting only compiler-resolved evidence? Bind the caller to A and the callee to B.	?- calls_exact(A, B).
 29	A,B	Which call edges exist only because identifier text matched? Bind the caller to A and the callee to B.	?- calls(A, B), !calls_exact(A, B).
 30	A,B	Where is "scip demo cache/hash()." called from? Bind the calling definition to A and the call site's line to B.	?- calls_at(A, "scip demo cache/hash().", _, B, _).
 31	A	If "scip demo store/Store#put()." changed, what could be affected, transitively? Bind each affected symbol id to A.	?- impact_of("scip demo store/Store#put().", A).
-32	A	The same blast radius for "scip demo store/Store#put()." but counting only compiler-resolved evidence. Bind each affected symbol id to A.	?- impact_of_exact("scip demo store/Store#put().", A).
+32	A	If "scip demo store/Store#put()." changed, what could be affected, transitively, counting only compiler-resolved evidence? Bind each affected symbol id to A.	?- impact_of_exact("scip demo store/Store#put().", A).
 33	A	What does "scip demo lib/init()." call, directly or transitively? Bind each callee to A.	?- reach_of("scip demo lib/init().", A).
-34	A	The same, for "scip demo lib/init().", counting only compiler-resolved evidence. Bind each callee to A.	?- reach_of_exact("scip demo lib/init().", A).
+34	A	What does "scip demo lib/init()." call, directly or transitively, counting only compiler-resolved evidence? Bind each callee to A.	?- reach_of_exact("scip demo lib/init().", A).
 35	A	Which definitions sit on a call cycle? Bind the symbol id to A.	?- recursive(A).
 36	A	Which definitions sit on a call cycle the compiler confirms? Bind the symbol id to A.	?- recursive_exact(A).
 37	A	What is reachable from "scip ts app/boot()." through calls? Bind each reachable symbol id to A.	?- reaches("scip ts app/boot().", A).
 38	A	Which call cycles exist only on name-matched edges? Bind each symbol on such a cycle to A.	?- recursive(A), !recursive_exact(A).
 39	A	Which callable definitions are called by nothing at all? Bind the symbol id to A.	?- entrypoint(A).
-40	A	The same question, counting only compiler-resolved calls. Bind the symbol id to A.	?- entrypoint_exact(A).
+40	A	Which callable definitions are called by nothing at all, counting only compiler-resolved calls? Bind the symbol id to A.	?- entrypoint_exact(A).
 41	A	entrypoint INVERTS on name provenance. Which definitions does the exact form call an entrypoint while the name-tolerant form does not? Bind the symbol id to A.	?- entrypoint_exact(A), !entrypoint(A).
-42	A	Which exported definitions are never referenced outside the file that defines them? Bind the symbol id to A.	?- dead_export(A).
-43	A	The same question, counting only compiler-resolved references. Bind the symbol id to A.	?- dead_export_exact(A).
+42	A	Which exported definitions that state their own visibility are never referenced outside the file that defines them? Bind the symbol id to A.	?- dead_export(A).
+43	A	Which exported definitions that state their own visibility are never referenced outside the file that defines them, counting only compiler-resolved references? Bind the symbol id to A.	?- dead_export_exact(A).
 44	A	Which definitions does the exact form call a dead export while the name-tolerant form does not? Bind the symbol id to A.	?- dead_export_exact(A), !dead_export(A).
 45	A,B	Which files reference something defined in another file? Bind the referencing file to A and the defining file to B.	?- depends(A, B).
-46	A,B	The same file-level dependency, counting only compiler-resolved references. Bind the referencing file to A and the defining file to B.	?- depends_exact(A, B).
+46	A,B	Which files reference something defined in another file, counting only compiler-resolved references? Bind the referencing file to A and the defining file to B.	?- depends_exact(A, B).
 47	A,B	Which file-level dependencies rest on identifier text alone? Bind the referencing file to A and the defining file to B.	?- depends(A, B), !depends_exact(A, B).
 48	A,B	Conformance: no module under src/ui/ may import anything naming db. Report each violation, binding the file to A and the imported module to B.	?- import(A, B, _), prefix(A, "src/ui/"), contains(B, "db").
 49	A,B	Conformance: no module under src/db/ may import anything naming ui. Report each violation, binding the file to A and the imported module to B.	?- import(A, B, _), prefix(A, "src/db/"), contains(B, "ui").
@@ -69,7 +69,7 @@
 69	A,B	What does the orientation relation report about the external symbol "scip npm @types/react 18.2.0 react/useState()."? Bind the package to A and the version to B.	?- about("scip npm @types/react 18.2.0 react/useState().", "extern", A, B, _).
 70	A,B	Which definitions override "scip demo store/Backend#get()."? Bind the overriding definition's file to A and its name to B.	?- about("scip demo store/Backend#get().", "implementor", A, B, _).
 71	A,B	Which definitions span more than 60 lines? Bind the symbol id to A and the length to B.	?- def_lines(A, B), B > 60.
-72	A	In which files does an occurrence the indexer marked as a test appear? Bind the path to A.	?- scip_ref(_, A, _, _, _, "test").
+72	A	In which files does an occurrence the indexer marked as a write appear? Bind the path to A.	?- scip_ref(_, A, _, _, _, "write").
 73	A,B	Which third-party packages does each file use, counting only compiler-resolved references? Bind the file to A and the package to B.	?- uses_package(A, B).
 74	A	local_def pairs a file with a NAME, not with a symbol id. Which names have a definition in src/core/store.rs? Bind the name to A.	?- local_def("src/core/store.rs", A).
 75	A,B	Which exported definitions are referenced from a file other than the one that defines them? Bind the symbol id to A and its defining file to B.	?- ref_outside(A, B), exported(A).

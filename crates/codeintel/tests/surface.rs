@@ -295,10 +295,18 @@ fn the_rule_list_matches_the_rules() {
     //                   it back; no existing head changes
     //                   (specs/01-facts.md § Row provenance).
     //
+    //   42 -> 42 (fix/stdlib-budget-impl-of) `impl_of` in, `uses_package_exact`
+    //                   out (#116, #117).
+    //
+    //   42 -> 43 (eval/bank-r2) `documented_file`, the helper that lets
+    //                   `undocumented_export` follow a `mod x;` to its file
+    //                   (#115), re-landed once the bank loader declared every
+    //                   base relation (#125).
+    //
     // This is the DRIFT tripwire, not the budget: the rule-count cap was
     // dropped in favour of the byte ceiling asserted by
     // `the_schema_fits_its_size_budget_with_the_rule_list_complete`.
-    assert_eq!(advertised.len(), 42, "the rule count moved: {advertised:?}");
+    assert_eq!(advertised.len(), 43, "the rule count moved: {advertised:?}");
 }
 
 #[test]

@@ -26,8 +26,8 @@ __pycache__/
 # what it was scored from. ~10 KB a run, and runs are rare and deliberate --
 # four in two months.
 #
-# `agents.jsonl` is not: it is the agents' raw transcripts, it is the bulk of
-# the 60 KB, and whether transcripts belong in a committed record is a
-# question about privacy and size rather than about provenance. Nothing on
-# the page is verified from it, so excluding it costs no checkability (#112).
-tests/fixtures/eval/artifacts/**/agents.jsonl
+# `agents.jsonl` is committed too (#112, decided 2026-10-26). Measured, it is
+# one summary row per agent — its reply and its usage, nothing from the prompt
+# or the system reminder — about 23 KB a full run, the smaller share, and it is
+# the only record of per-agent cost, turns and denials that the page's cost
+# and ANOMALY lines cite.

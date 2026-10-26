@@ -51,19 +51,11 @@ const REFERENTIAL: &[&str] = &["The same", "The other", "Likewise", "Again,"];
 
 /// Questions that open referentially and are kept as they are.
 ///
-/// Not an excuse list — a record of six that a scored run has already been
-/// measured against (#88). Rewording one changes what a recorded run was asked,
-/// which `docs/agent-eval.md` § Rescored has already withdrawn a score for, so
-/// the six are the owner's call and this list is what stops a seventh arriving
-/// silently. Each is named with the question it refers to.
-const WORKING_REFERENTIAL: &[&str] = &[
-    "28", // -> Q27, the call graph on either provenance.
-    "32", // -> Q31, the blast radius of `Store#put()`.
-    "34", // -> Q33, what `init()` calls directly or transitively.
-    "40", // -> Q39, callable definitions called by nothing.
-    "43", // -> Q42, exported definitions never referenced outside their file.
-    "46", // -> Q45, files referencing something defined in another file.
-];
+/// Empty since bank revision 2 (#91): the six it held — Q28, Q32, Q34, Q40,
+/// Q43, Q46 — were reworded to carry their own subject, with the before/after
+/// declared in `docs/agent-eval.md` § Bank revision 2. A new entry here is a
+/// question that opens "The same…" on purpose; name its referent beside it.
+const WORKING_REFERENTIAL: &[&str] = &[];
 const HELDOUT_REFERENTIAL: &[&str] = &[];
 
 #[test]
