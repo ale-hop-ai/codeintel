@@ -418,8 +418,18 @@ def_lines(S, N) :- def_span(S, A, B, _, _), H = B - A, N = H + 1.
 % Its own doc line said to use `def_lines` instead, and a threshold nobody can
 % change is copy in the one output with a size budget.
 
+% A `mod x;` declaration and the file `x.rs` are two `def` rows. Visibility lands
+% on the declaration, the `//!` doc and every reference on the file, and tier A
+% cannot join them: that is a path computation. SCIP can -- the declaration's
+% name token is an occurrence of the file's symbol -- so the join is exact-only.
+% A declaration SCIP did not anchor has no link and is not guessed at, and lists
+% (#115). One helper rather than a `mod_file` relation: the schema budget is
+% spent, and this is the one question the join serves.
 %% undocumented_export(S)  exported with no doc comment.
-undocumented_export(S) :- exported(S), !def_doc(S, _).
+undocumented_export(S) :- exported(S), !def_doc(S, _), !documented_file(S).
+%% documented_file(D)  helper for the rule above.
+documented_file(D) :- def(D, F, "module", _), def_name(D, L, C),
+                      scip_ref(M, F, L, C, _, _), M != D, def_doc(M, _).
 
 % P is `extern`'s Pkg: the package the INDEXER attributed the symbol to, not
 % the specifier the source wrote. An npm package typed through DefinitelyTyped

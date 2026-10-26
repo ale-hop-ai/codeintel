@@ -15,10 +15,10 @@
 15	4	scip demo cache/|scip demo cache/Cache#|scip demo cache/Cache#warm().|scip demo cache/hash().
 16	2	scip demo store/|src/core/store.rs
 17	30	local cmd/server/main.go Server#|local cmd/server/main.go Server#Start().|local py/pipeline.py Pipeline#|local py/pipeline.py Pipeline#run().|local py/pipeline.py load().|scip demo cache/|scip demo cache/Cache#|scip demo cache/Cache#warm().|scip demo conn/Conn#|scip demo conn/connect().|scip demo kinds/Error#|scip demo kinds/Mode#|scip demo kinds/Mode#Fast.|scip demo kinds/Mode#Slow.|scip demo lib/|scip demo lib/init().|scip demo render/Page#|scip demo render/render().|scip demo store/|scip demo store/Backend#|scip demo store/Backend#get().|scip demo store/Store#|scip demo store/Store#get().|scip demo store/Store#put().|scip demo store/open().|scip ts app/|scip ts app/App#|scip ts app/App#render().|scip ts app/boot().|scip ts util/retry().
-18	6	local py/pipeline.py Pipeline#run().|scip demo kinds/Mode#Fast.|scip demo kinds/Mode#Slow.|scip demo store/Backend#get().|scip ts app/App#render().|scip ts util/retry().
+18	4	scip demo kinds/Mode#Fast.|scip demo kinds/Mode#Slow.|scip demo store/Backend#get().|scip ts util/retry().
 19	1	scip ts util/retry().
-20	19	local cmd/server/main.go main().|local cmd/server/main.go serve().|local cmd/server/main_test.go TestServe().|local py/pipeline.py Pipeline#run().|local py/test_pipeline.py test_run().|local src/legacy.rs Entry#|local src/legacy.rs migrate().|scip demo cache/hash().|scip demo kinds/Mode#Fast.|scip demo kinds/Mode#Slow.|scip demo smoke/smoke_open().|scip demo store/Backend#get().|scip demo store/Store#evict().|scip demo tests/test_get().|scip demo tests/test_put().|scip ts app/App#render().|scip ts apptest/test_render().|scip ts util/retry().|scip ts util/sleep().
-21	5	local py/pipeline.py Pipeline#run(). local py/pipeline.py Pipeline#|scip demo kinds/Mode#Fast. scip demo kinds/Mode#|scip demo kinds/Mode#Slow. scip demo kinds/Mode#|scip demo store/Backend#get(). scip demo store/Backend#|scip ts app/App#render(). scip ts app/App#
+20	17	local cmd/server/main.go main().|local cmd/server/main.go serve().|local cmd/server/main_test.go TestServe().|local py/test_pipeline.py test_run().|local src/legacy.rs Entry#|local src/legacy.rs migrate().|scip demo cache/hash().|scip demo kinds/Mode#Fast.|scip demo kinds/Mode#Slow.|scip demo smoke/smoke_open().|scip demo store/Backend#get().|scip demo store/Store#evict().|scip demo tests/test_get().|scip demo tests/test_put().|scip ts apptest/test_render().|scip ts util/retry().|scip ts util/sleep().
+21	3	scip demo kinds/Mode#Fast. scip demo kinds/Mode#|scip demo kinds/Mode#Slow. scip demo kinds/Mode#|scip demo store/Backend#get(). scip demo store/Backend#
 22	2	scip demo cache/Cache# name|scip demo store/Store# name
 23	1	scip demo store/Store#get(). scip demo store/Backend#get().
 24	2	scip demo cache/Cache# scip demo store/Backend#|scip demo store/Store# scip demo store/Backend#
@@ -69,7 +69,7 @@
 69	1	@types/react 18.2.0
 70	1	src/core/store.rs get
 71	3	local src/legacy.rs migrate(). 80|scip demo store/ 110|scip demo store/Store# 87
-72	1	qa/smoke.rs
+72	3	src/core/store.rs|src/db/conn.rs|tests/store_test.rs
 73	3	src/core/store.rs serde|src/db/conn.rs libpq|web/app.ts @types/react
 74	7	Backend|Store|evict|get|open|put|store
 75	13	local cmd/server/main.go Server#Start(). cmd/server/main.go|local py/pipeline.py Pipeline# py/pipeline.py|local py/pipeline.py Pipeline#run(). py/pipeline.py|scip demo cache/Cache#warm(). src/core/cache.rs|scip demo conn/Conn# src/db/conn.rs|scip demo conn/connect(). src/db/conn.rs|scip demo kinds/Mode# src/kinds.rs|scip demo store/Store#get(). src/core/store.rs|scip demo store/Store#put(). src/core/store.rs|scip demo store/open(). src/core/store.rs|scip ts app/App#render(). web/app.ts|scip ts app/boot(). web/app.ts|scip ts util/retry(). web/util.ts

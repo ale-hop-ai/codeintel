@@ -283,7 +283,7 @@ visibility("local src/legacy.rs Entry#", "restricted").
 visibility("local src/legacy.rs migrate().", "restricted").
 visibility("scip ts app/", "public").
 visibility("scip ts app/App#", "public").
-visibility("scip ts app/App#render().", "inherited").
+visibility("scip ts app/App#render().", "public").
 visibility("scip ts app/boot().", "public").
 visibility("scip ts util/retry().", "restricted").
 visibility("scip ts util/sleep().", "restricted").
@@ -294,7 +294,7 @@ visibility("local cmd/server/main.go serve().", "restricted").
 visibility("local cmd/server/main.go main().", "restricted").
 visibility("local cmd/server/main_test.go TestServe().", "restricted").
 visibility("local py/pipeline.py Pipeline#", "public").
-visibility("local py/pipeline.py Pipeline#run().", "inherited").
+visibility("local py/pipeline.py Pipeline#run().", "public").
 visibility("local py/pipeline.py load().", "public").
 visibility("local py/test_pipeline.py test_run().", "restricted").
 
@@ -419,7 +419,7 @@ scip_ref("scip demo store/Store#get().", "src/ui/render.rs", 22, 16, "scip demo 
 scip_ref("scip demo conn/Conn#", "src/ui/render.rs", 24, 20, "scip demo render/render().", "read").
 scip_ref("scip demo store/Store#get().", "tests/store_test.rs", 9, 13, "scip demo tests/test_get().", "read").
 scip_ref("scip demo store/Store#put().", "tests/store_test.rs", 20, 13, "scip demo tests/test_put().", "write").
-scip_ref("scip demo store/open().", "qa/smoke.rs", 7, 9, "scip demo smoke/smoke_open().", "test").
+scip_ref("scip demo store/open().", "qa/smoke.rs", 7, 9, "scip demo smoke/smoke_open().", "read").
 scip_ref("scip ts app/App#render().", "web/app.ts", 52, 10, "scip ts app/boot().", "read").
 scip_ref("scip ts util/retry().", "web/app.ts", 26, 12, "scip ts app/App#render().", "read").
 scip_ref("scip ts util/sleep().", "web/util.ts", 8, 6, "scip ts util/retry().", "read").

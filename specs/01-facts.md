@@ -1011,7 +1011,13 @@ entrypoint(S)    :- def(S, _, K, _), callable(K), !calls(_, S).
 % `def_lines(S, N), N > 80.`
 def_lines(S, N)  :- def_span(S, A, B, _, _), H = B - A, N = H + 1.
 
-undocumented_export(S) :- exported(S), !def_doc(S, _).
+% A `mod x;` declaration and `x.rs` are two `def` rows: visibility on the first,
+% the `//!` doc on the second (#115). The declaration's name token is a SCIP
+% occurrence of the file's symbol, so the join is exact-only; tier A would need a
+% path computation and a guess. Without SCIP the declaration lists, undocumented.
+undocumented_export(S) :- exported(S), !def_doc(S, _), !documented_file(S).
+documented_file(D)     :- def(D, F, "module", _), def_name(D, L, C),
+                          scip_ref(M, F, L, C, _, _), M != D, def_doc(M, _).
 
 uses_package(F, P) :- ref(S, F, _, _, _, _, _), extern(S, _, P, _).
 ```

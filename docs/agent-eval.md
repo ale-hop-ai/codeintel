@@ -656,8 +656,9 @@ cost per agent, wall time split into agents and scoring, and an extrapolated
 cost for the full bank, labelled an estimate. Artifacts, in
 `tests/fixtures/eval/artifacts/<bank>/<utc>/` (#112): `report.txt`,
 `agents.jsonl` (raw replies and usage), `outcomes.json`, `schema.txt` and
-`answers.tsv`. Everything but `agents.jsonl` is committed; the transcripts are
-git-ignored. The runs below predate that: they wrote to `target/eval/`, and
+`answers.tsv`. All five are committed (#112): `agents.jsonl` is one summary
+row per agent — its reply and its usage, nothing from the prompt — and the only
+record behind the cost and `ANOMALY` lines. The runs below predate that: they wrote to `target/eval/`, and
 `cargo clean` deleted them (see **Provenance** at the top of § Tier 3). Any agent that took
 more than one turn, hit a permission denial or errored is flagged `ANOMALY`.
 
@@ -1045,3 +1046,54 @@ cosmetic). What I saw while pricing was my own continuation line containing a
 trap, but a guarded one: `the_rule_list_matches_the_rules` fails loudly
 (`... is advertised but not defined at that arity`), reproduced by appending
 `(see about)` to `about`'s continuation. Not filed: nothing ships wrong.
+
+# Bank revision 2 — 2026-10-26, declared before any run
+
+The working and held-out banks change once, here, rather than across four
+separate commits that would each break comparability on their own (#125, #91,
+#117, #115, and the rule changes of #114, #128, #139). **No agent was run for
+this revision.** It is declared in advance, per § Rescored, so the next paid
+run is compared against a stated "before" and not a silently different bank.
+
+## What changed, and which questions it touches
+
+| change | cause | questions whose reference moved | question text changed |
+|---|---|---|---|
+| `bank.dl:286`, `:297` `inherited` → `public` (a TS class member and a Python method state `public`; neither extractor emits `inherited` there) | #125 option V | working Q18 6→4, Q20 19→17, Q21 5→3; held-out Q7 5→3 | no |
+| `bank.dl:422` `scip_ref` role `test` → `read` (no measured indexer emits `SymbolRole::Test`) | #139 finding, #125 class | held-out Q17 (moved with #139's rule change, regenerated there) | no |
+| Q72 retargeted from the `test` role (now empty) to `write` | follows the row above | Q72 | **yes** |
+| Q28, Q32, Q34, Q40, Q43, Q46 reworded to carry their own subject | #91 option A (the diff on #91) | none — reference queries unchanged | **yes** |
+| Q42 and Q43 say "exported definitions **that state their own visibility**" | #114: `dead_export*` now excludes `inherited` rows | Q42, Q43 (moved with #114) | **yes** |
+| q73's reference is `uses_package`, not the deleted `_exact` twin | #117 | none — same answer | no |
+| the bank loader declares every base relation from `facts::RELATIONS`, empty if absent | #125, #115 | none — the bank holds the same facts; `documented_file` (#115) loads | no |
+
+## What a run against revision 2 is comparable to
+
+The recorded working-bank series (210 → 216 → 221 of 225) is **[UNBACKED]** —
+its artifacts are lost (#112) — and the schema page moved since (#85's glosses,
+then pieces 1–5 of #127). So no run is a replay of 221/225 regardless.
+
+- **Same question, same reference, comparable per question** with the recorded
+  per-question outcomes: every question not in the table above.
+- **Different question**: Q28, Q32, Q34, Q40, Q42, Q43, Q46, Q72 — 8 of 75,
+  24 of 225 samples. Not compared; reported as new.
+- **Same question, different reference**: Q18, Q20, Q21 (and held-out Q7,
+  Q17). Q18, Q20 and H7 passed before only by agreeing with the phantom
+  `inherited` rows; a pass now is not the same claim, and a fail is not a
+  regression. Reported separately.
+
+**#85's Q34 prediction (2/3 → 3/3) is superseded, not tested.** Q34 now says
+"directly or transitively", which removes the `calls_exact` reading on
+purpose; its own analysis called the expected movement noise.
+
+## Fixture-only questions
+
+**Q65** ("definitions with no recorded signature") is zero rows on every real
+index measured — every `def` carries a `def_sig` — and 25 on `bank.dl` only
+because the hand-written bank omits signatures. **Q70** ("which definitions
+override `Backend#get()`") is answerable only through a hand-written
+`scip_impl` row; rust-analyzer emits none, and `implements` is a documented
+floor (#120). Both stay in the bank as tests of the rule layer, and are
+labelled here: a score on them says nothing about a real repository.
+
+Artifacts of the next run are committed whole, `agents.jsonl` included (#112).

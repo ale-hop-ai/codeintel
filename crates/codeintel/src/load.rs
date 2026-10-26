@@ -81,6 +81,18 @@ pub fn load_facts(engine: &mut Engine, src: &str) -> Result<usize> {
         }
         engine.insert_relation(name, relation);
     }
+    // Every base relation exists, with or without rows. A fact file holds what
+    // its author wrote down; a relation it never mentions is "no rows", not an
+    // unknown name — otherwise a stdlib rule reading `def_name` failed the whole
+    // library to load against a bank that carries no `def_name`, and the rule
+    // had to be reverted (#115, #125). The host does the same for an index
+    // (`query::Loaded::of`).
+    let present: Vec<String> = engine.relations().map(|(n, _)| n.to_string()).collect();
+    for rel in facts::RELATIONS {
+        if !present.iter().any(|n| n == rel.name) {
+            engine.insert_relation(rel.name, Relation::new(rel.arity));
+        }
+    }
     Ok(count)
 }
 

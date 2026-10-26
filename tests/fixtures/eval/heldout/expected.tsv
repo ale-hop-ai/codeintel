@@ -4,7 +4,7 @@
 4	3	scip ts app/|scip ts app/App#|scip ts app/App#render().
 5	2	scip ts app/|web/app.ts
 6	5	scip ts app/|scip ts app/App#|scip ts app/App#render().|scip ts app/boot().|scip ts util/retry().
-7	5	local py/pipeline.py Pipeline#run().|scip demo kinds/Mode#Fast.|scip demo kinds/Mode#Slow.|scip demo store/Backend#get().|scip ts app/App#render().
+7	3	scip demo kinds/Mode#Fast.|scip demo kinds/Mode#Slow.|scip demo store/Backend#get().
 8	1	scip demo store/Backend# name
 9	1	scip demo store/Store#get(). scip demo store/Backend#get().
 10	6	scip demo conn/connect(). scip demo store/Store#put().|scip demo lib/init(). scip demo store/open().|scip demo render/render(). scip demo store/Store#get().|scip demo smoke/smoke_open(). scip demo store/open().|scip demo tests/test_get(). scip demo store/Store#get().|scip demo tests/test_put(). scip demo store/Store#put().

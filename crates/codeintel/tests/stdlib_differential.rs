@@ -32,7 +32,14 @@ use datalog::{Engine, Limits, Strings};
 
 /// Heads with no rows over `bank.dl`, so only the unseeded goal is run. Each
 /// needs a fact shape the bank does not have; none is a head nobody asks.
-const NO_ROWS: &[&str] = &[];
+const NO_ROWS: &[&str] = &[
+    // Joins `def_name`, which `bank.dl` does not carry: a hand-written bank has
+    // no token positions to invent, and an invented one lining up with a
+    // `scip_ref` would make the rule fire spuriously (#115, #125). The rust
+    // fixture exercises it (`stdlib.rs`,
+    // `undocumented_export_follows_a_mod_declaration_to_its_file`).
+    "documented_file",
+];
 
 fn bank() -> String {
     std::fs::read_to_string(
