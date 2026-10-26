@@ -124,8 +124,11 @@ fn repo_index() -> &'static Path {
         let lock = std::fs::File::create(home.join("lock")).expect("a lock file");
         lock.lock().expect("takes the lock");
         let index = home.join("index");
+        // Tier A, as every documented query here was measured: this
+        // repository has no `index.scip`, and `index` would otherwise run its
+        // indexers.
         let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
-            .args(["index", "."])
+            .args(["index", ".", "--no-scip"])
             .current_dir(root())
             .env("CODEINTEL_INDEX_DIR", &index)
             .output()

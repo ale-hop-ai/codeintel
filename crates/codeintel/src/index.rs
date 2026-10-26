@@ -72,8 +72,6 @@ pub struct Report {
     pub scip_counts: tier_b::Counts,
     /// Tier-A definitions that adopted a SCIP identity.
     pub anchored: usize,
-    /// Languages found in the tree, so `index` can name the indexer for each.
-    pub langs: BTreeSet<String>,
     /// SCIP inputs ingested.
     pub scip: Vec<ScipInput>,
     /// Symbols defined in more than one document across the merged inputs.
@@ -192,7 +190,6 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
 
     for candidate in wanted {
         seen.insert(candidate.path.clone());
-        report.langs.insert(candidate.lang.name.to_string());
         if plan.deadline.is_some_and(|d| Instant::now() >= d) {
             report.stale.push(candidate.path);
             continue;
@@ -359,7 +356,12 @@ pub fn discard(dir: &Path) -> Result<u64> {
         // unlinked one (`specs/04-storage.md` § Concurrency).
         for entry in std::fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
             let path = entry?.path();
-            if path.file_name().is_some_and(|n| n == facts::lock::LOCK) {
+            // And the indexers' outputs: they ran before the lock, for this
+            // very run (`specs/04-storage.md` § Layout).
+            if path
+                .file_name()
+                .is_some_and(|n| n == facts::lock::LOCK || n == crate::indexers::DIR)
+            {
                 continue;
             }
             if path.is_dir() {

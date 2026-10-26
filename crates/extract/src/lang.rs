@@ -210,15 +210,42 @@ pub struct Lang {
     /// a child's kind without enumerating every other kind the child could be,
     /// so the rule lives in the extractor once and the kinds live here.
     pub function_values: &'static [&'static str],
-    /// The canonical SCIP indexer command, verbatim and copy-pasteable.
+    /// The SCIP indexer `codeintel index` runs for this language.
     ///
-    /// `index` prints it for every language it found. Not "no SCIP index
-    /// found" — the literal line, because the gap between tier A and tier B is
-    /// the difference between a symbol map and a call graph and a user must
-    /// never have to go looking for how to close it
+    /// The only program `index` ever executes, and only from this table
     /// (`specs/02-extraction.md` § Acquisition). It is **not** part of
     /// [`crate::fingerprint`]: it changes no fact.
-    pub indexer: &'static str,
+    pub indexer: Indexer,
+}
+
+/// A SCIP indexer, as data: what to run, where it writes, and what it needs.
+///
+/// A row picks values; nothing in the runner matches on a language's name
+/// (`specs/02-extraction.md` § Acquisition, "The table is data").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Indexer {
+    /// The program, looked up on `PATH`. Also the name of its output and log
+    /// in the store, so two languages sharing one program run it once.
+    pub program: &'static str,
+    /// Its arguments, before the output flag.
+    pub args: &'static [&'static str],
+    /// The flag that names the output file.
+    pub output: &'static str,
+    /// A file that must exist at the root for the indexer to index the tree
+    /// from there. Checked for existence, never read.
+    pub needs: Option<&'static str>,
+}
+
+impl std::fmt::Display for Indexer {
+    /// `<program> <args>`: the command as the evidence table names it, without
+    /// the output flag `index` supplies.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.program)?;
+        for arg in self.args {
+            write!(f, " {arg}")?;
+        }
+        Ok(())
+    }
 }
 
 impl Lang {
@@ -262,7 +289,14 @@ pub const LANGS: &[Lang] = &[
         keyword_kinds: &["const", "var", "type"],
         sig_stops: &['{', '='],
         function_values: &[],
-        indexer: "scip-go",
+        // `go.mod` because `scip-go` elsewhere exits 0 over an empty index
+        // (#109).
+        indexer: Indexer {
+            program: "scip-go",
+            args: &["index"],
+            output: "-o",
+            needs: Some("go.mod"),
+        },
     },
     Lang {
         name: "python",
@@ -292,7 +326,14 @@ pub const LANGS: &[Lang] = &[
         // does not count.
         sig_stops: &[':', '='],
         function_values: &[],
-        indexer: "scip-python index .",
+        // `--project-version` because 0.6.8 crashes outside a git repository
+        // without one.
+        indexer: Indexer {
+            program: "scip-python",
+            args: &["index", ".", "--project-version", "0"],
+            output: "--output",
+            needs: None,
+        },
     },
     Lang {
         name: "rust",
@@ -339,7 +380,12 @@ pub const LANGS: &[Lang] = &[
         keyword_kinds: &[],
         sig_stops: &['{', ';', '='],
         function_values: &[],
-        indexer: "rust-analyzer scip .",
+        indexer: Indexer {
+            program: "rust-analyzer",
+            args: &["scip", "."],
+            output: "--output",
+            needs: Some("Cargo.toml"),
+        },
     },
     TYPESCRIPT,
     // TSX is TypeScript's row with its own grammar and JSX appended to the tag
@@ -409,7 +455,14 @@ const TYPESCRIPT: Lang = Lang {
         "function_expression",
         "generator_function",
     ],
-    indexer: "scip-typescript index --infer-tsconfig",
+    // Not `--infer-tsconfig`: with no `tsconfig.json` it writes one into the
+    // tree.
+    indexer: Indexer {
+        program: "scip-typescript",
+        args: &["index"],
+        output: "--output",
+        needs: Some("tsconfig.json"),
+    },
 };
 
 /// The language for a path, by extension.

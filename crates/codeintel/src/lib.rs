@@ -22,6 +22,7 @@ pub const STDLIB: &str = include_str!("../../../rules/stdlib.dl");
 pub mod census;
 pub mod discover;
 pub mod index;
+pub mod indexers;
 pub mod load;
 pub mod mcp;
 pub mod overlay;

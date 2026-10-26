@@ -493,49 +493,142 @@ was the best of 2, 3, 4, 6 and 8 on all three pinned corpora.
 
 ### Acquisition
 
-By default `codeintel` reads `index.scip` if present, at `--scip <path>` or the
-default `./index.scip`. It does not produce one.
+**`codeintel index` builds tier B itself.** With no `--scip` and no
+`./index.scip`, it runs the SCIP indexer of every language the walk found,
+writes each one's output into the store, and ingests it in the same run. One
+command, both tiers (D2 in [docs/onboarding.md](../docs/onboarding.md) §7,
+reopened 2026-10-26).
 
-**`codeintel index --run-indexers` is not built** ([docs/plan.md](../docs/plan.md)
-M3, § Explicitly deferred). The command printed today is each registered
-language's `indexer` field in `crates/extract/src/lang.rs`. The table and the
-rules below are the design, kept for when it is built: detect the
-languages present, look up the canonical indexer in a static table, check the
-binary is on `PATH`, and shell out. The whole feature would be a table, a
-`which`, and a subprocess.
+Which SCIP input a run reads, first match wins:
 
-| Language | Command | Needs |
-|---|---|---|
-| Rust | `rust-analyzer scip .` | a cargo workspace. Measured 2026-10-20 on fd and tokio: the role bitset is `Definition` or empty — every reference is `unknown`, so `Role` carries nothing — and no `Relationship` is written, so `scip_impl` is empty and `implements/3` is name-only |
-| TypeScript/TSX | `scip-typescript index --infer-tsconfig` | `node_modules` installed, for anything beyond the project's own sources. `scip-typescript` 0.4.0 writes no `kind`, no `display_name`, no `Document.language`, an empty role bitset on every reference, and no position encoding while counting UTF-16 (§ Position normalization). It does write `is_implementation` for `implements`, so `implements/3` has TypeScript rows |
-| Python | `scip-python index .` | an environment with deps. No `--project-name`: it defaults to empty, which upstream says supports repository-local navigation only — all tier B uses — and no name in the tree licenses a guess. The command is pasted verbatim, so it holds no `<placeholder>` (a redirect in `sh`); `--output` already defaults to `index.scip` |
-| Go | `scip-go` | a buildable module. Measured on a 116-package module: `is_implementation` is written (476 relationships), so `scip_impl` has rows. Every reference carries `ReadAccess` and nothing else — the indexer hard-codes it (`internal/visitors/visitor_file.go`, `newReference`), so `read` means "is a reference" and `write`/`import`/`test` never occur. Installed from `github.com/scip-code/scip-go/cmd/scip-go` — the project moved out of the `sourcegraph` org, and the old path now fails `go install` with a module-path conflict rather than a 404 |
-| Java/Scala/Kotlin | `scip-java index` | a working build |
-| C / C++ | `scip-clang --compdb-path compile_commands.json` | a compilation database |
-| Ruby | `scip-ruby` | a Sorbet-typechecked project |
+1. `--no-scip` — none. Nothing is run and nothing is read: tier A only. It
+   conflicts with `--scip` and `--scip-root`.
+2. `--scip FILE`... — those files, with `--scip-root` (§ Document paths). Nothing
+   is run.
+3. `./index.scip` in the root — that file. Nothing is run. An index the user
+   built by hand is never second-guessed, and never overwritten.
+4. Otherwise — the indexers below, run by `index`.
+
+The indexers are the `Lang.indexer` field of each row in
+`crates/extract/src/lang.rs`, and that table is the only thing `index` ever
+executes:
+
+| Language | Program | Arguments | Output flag | Needs at the root |
+|---|---|---|---|---|
+| Rust | `rust-analyzer` | `scip .` | `--output` | `Cargo.toml` |
+| Go | `scip-go` | `index` | `-o` | `go.mod` |
+| Python | `scip-python` | `index . --project-version 0` | `--output` | — |
+| TypeScript, TSX | `scip-typescript` | `index` | `--output` | `tsconfig.json` |
+
+The full command is `<program> <arguments> <output flag> <store>/scip/<program>.scip`,
+run with the repository root as the working directory. TypeScript and TSX share
+a program, so it runs once.
+
+What each one writes, measured:
+
+- **Rust.** Measured 2026-10-20 on fd and tokio: the role bitset is
+  `Definition` or empty — every reference is `unknown`, so `Role` carries
+  nothing — and no `Relationship` is written, so `scip_impl` is empty and
+  `implements/3` is name-only.
+- **TypeScript/TSX.** Needs `node_modules` installed for anything beyond the
+  project's own sources. `scip-typescript` 0.4.0 writes no `kind`, no
+  `display_name`, no `Document.language`, an empty role bitset on every
+  reference, and no position encoding while counting UTF-16 (§ Position
+  normalization). It does write `is_implementation` for `implements`, so
+  `implements/3` has TypeScript rows.
+- **Python.** Needs an environment with the project's dependencies for anything
+  beyond its own sources. No `--project-name`: it defaults to empty, which
+  upstream says supports repository-local navigation only — all tier B uses —
+  and no name in the tree licenses a guess. `--project-version 0` because
+  0.6.8 exits 1 with a `TypeError` in `normalizeNameOrVersion` outside a git
+  repository when it is not given (measured 2026-10-26); inside one, the value
+  only reaches the symbol's version field.
+- **Go.** Needs a buildable module. Measured on a 116-package module:
+  `is_implementation` is written (476 relationships), so `scip_impl` has rows.
+  Every reference carries `ReadAccess` and nothing else — the indexer hard-codes
+  it (`internal/visitors/visitor_file.go`, `newReference`), so `read` means "is a
+  reference" and `write`/`import`/`test` never occur. Installed from
+  `github.com/scip-code/scip-go/cmd/scip-go` — the project moved out of the
+  `sourcegraph` org, and the old path now fails `go install` with a module-path
+  conflict rather than a 404.
+
+Java, C/C++ and Ruby have SCIP indexers (`scip-java`, `scip-clang`, `scip-ruby`)
+and no row, because they have no grammar here ([docs/plan.md](../docs/plan.md)
+M5).
 
 Rules that keep this from becoming a build system:
 
-- **Never implicit.** Without the flag, nothing is executed. An indexer can run
-  arbitrary build code; that needs an explicit opt-in every time.
-- **No environment management.** We do not install indexers, create virtualenvs,
-  run `npm install`, or repair builds. A missing binary or a failing indexer is
-  reported with its stderr and the exact command, and indexing continues with
-  tier A only. It is never fatal.
-- **The table is data.** Adding a language adds a row, not a code path.
-- **Timeout, default 600 s**, after which the child is killed and reported.
-
-Without the flag, `index` and `status` still **print the exact command** for
-each detected language. Not "no SCIP index found" — the literal, copy-pasteable
-line. The gap between tier A and tier B is the difference between a symbol map
-and a call graph, and a user must never have to go looking for how to close it.
+- **The table is all it runs.** Never a build, a test, a task runner, a package
+  install or a project script — the non-goal in
+  [00-overview.md](00-overview.md) stands, with this one carve-out. The
+  indexer itself may run build code (`rust-analyzer` runs build scripts and
+  proc macros; `scip-go` loads packages through the Go toolchain). That is the
+  cost of the default, and `--no-scip` is the way out of it.
+- **The table is data.** Adding a language adds a row, not a code path. A `match`
+  on the language's name in the runner is the thing this forbids.
+- **`codeintel` writes nothing into the tree.** Output goes to
+  `<store>/scip/<program>.scip` and the child's stdout and stderr to
+  `<store>/scip/<program>.log`. A flag that makes an indexer write a project
+  file is not passed: `scip-typescript --infer-tsconfig` writes a
+  `tsconfig.json` into the root when there is none (measured 2026-10-26,
+  0.5.2), so the row carries no such flag and needs `tsconfig.json` instead.
+  **The indexer's own build is another matter, and it is not redirected:**
+  `rust-analyzer scip` runs `cargo check`, which creates `target/` on a tree
+  that had none (measured 2026-10-26) — the build directory every cargo project
+  already ignores, and the one whose warm cache makes the second run cheap.
+  Pointing `CARGO_TARGET_DIR` into the store would keep the tree untouched at
+  the price of a cold, duplicate build per repository; that is the worse
+  trade.
+- **"Needs" is checked, never read.** An indexer whose project file is not at
+  the root is not run, and the summary says so: `scip-go: skipped — no go.mod at
+  the root`. `scip-go` there exits 0 over an empty index (#109), and
+  `rust-analyzer` with no workspace fails, so running them would only cost time
+  to say the same thing less clearly. The check is that the file exists; nothing
+  in it is read. A project whose module lives in a subdirectory runs its indexer
+  there and passes the output with `--scip` and `--scip-root`
+  (§ Document paths).
+- **No environment management.** `index` never installs an indexer, creates a
+  virtualenv, runs `npm install`, or repairs a build. A program not on `PATH` is
+  skipped and reported: `rust-analyzer: skipped — not on PATH; install it, then
+  re-run`. A host that wants them declares them; this project's own hosts do so
+  through `provision`.
+- **A failing indexer is a degradation, never an error.** A non-zero exit, a
+  timeout, or an output that is missing or empty is reported with the command,
+  the exit status and the log path. Tier A stands, `index` still exits 0, and
+  the program's previous output, if it has one, is kept and ingested — its
+  files then answer `scip-stale`, which is the truth about them.
+- **Timeout, 600 s per program,** wall clock. The child is killed and the summary
+  says `timed out after 600 s`.
+- **Progress up front.** Before a program starts, `index` prints the command it
+  runs and the log it writes to. An agent that waits on `index` can then tell a
+  slow indexer from a hung one, which was the objection that kept this opt-in.
+- **Only what is stale re-runs.** A program runs when its output is missing,
+  its last run did not succeed, `--rebuild` was given, or a walked file of one
+  of its languages has an mtime newer than its output. Otherwise its output is
+  ingested as it stands. mtime is the cheap direction: a `git checkout` that
+  touches a file re-runs an indexer that did not need it, never the reverse. A
+  deleted file is not seen by this test, and `--rebuild` re-runs everything.
+- **Atomic, and outside the lock.** Each output is written under a temporary
+  name in the same directory and renamed only on success, so no reader ever
+  ingests half a file. The programs run before `index` takes the writer lock,
+  so queries keep answering from the index as it stands while an indexer runs,
+  and `--rebuild`'s discard keeps `<store>/scip/`.
+- **Never on the query path.** `query` and `mcp` refresh tier A and re-read the
+  outputs the manifest names; they never run a program (05 § The no-index hint).
+- **`--lang` restricts the programs** as it restricts the grammars.
+- **Recorded.** The manifest's `indexers` lists every program `index` considered
+  and what happened to it ([04-storage.md](04-storage.md) § Manifest). `status`
+  prints it, and the `no-scip` hint reads it, so an answer can say "`scip-go`
+  was skipped: no `go.mod` at the root" instead of telling an agent to re-run a
+  command that will skip it again.
 
 `codeintel status` reports SCIP presence, the emitting tool from
 `Metadata.tool_info`, file coverage (`documents` matched against indexed files),
 and staleness (index mtime vs. newest source mtime).
 
 Multiple `index.scip` files (polyglot repos, one per language) are supported:
-`--scip a.scip --scip b.scip`. They are ingested independently; symbol strings
+`--scip a.scip --scip b.scip`, and the outputs `index` produces itself are such
+a set, one per program, each relative to the root. They are ingested independently; symbol strings
 are unique across indexes by construction so no merge logic is needed. Within
 one index they are not always unique across *documents* — rust-analyzer keys by
 package, not cargo target, so `crate/` and `main().` are defined once per
@@ -615,38 +708,35 @@ whole fix in practice, and it costs the facts nothing.
 
 ### Indexer evidence
 
-`codeintel` prints a command for four programs it does not own. A printed
-command reads as verified whether or not anyone ran it, and three bugs came
-from that: a flag nobody had run (#93), a chain that cannot be written without
-each indexer's real flag spelling (#102), and an indexer that exits 0 over an
-empty index (#109). The audit is #122.
+`codeintel` runs four programs it does not own. A command in a table reads as
+verified whether or not anyone ran it, and three bugs came from that while the
+commands were only printed: a flag nobody had run (#93), a chain that cannot be
+written without each indexer's real flag spelling (#102), and an indexer that
+exits 0 over an empty index (#109). The audit is #122. Now that `index` runs
+them, an unverified row is a command shipped to every user's machine on faith.
 
-The honest place for the difference is **this table, not the hint.** "Never run
-by us" is a fact about the project's knowledge, not about the repository: it
+The honest place for the difference is **this table, not the output.** "Never
+run by us" is a fact about the project's knowledge, not about the repository: it
 traces to no byte range and no SCIP field (invariant 1), it is constant per
-language, and it changes only when someone runs an indexer. Carried in output it
-would ride every `no-scip` and `scip-stale` answer, cannot sit inside the
-runnable chain (`scip-python index . (unverified)` is a syntax error in `sh`,
-and `# unverified` comments out the `&&` tail), and gives the reader — who
-cannot verify either — a caveat with no action. What *did* run is reported where
-it is knowable: `index` prints `scip: <path> (<tool> <version>) — N documents`.
+language, and it changes only when someone runs an indexer. What *did* run on
+the user's machine is reported where it is knowable: `index` prints each
+program's outcome, and `scip: <path> (<tool> <version>) — N documents` for each
+output it ingested.
 
 Two classes and no gradient: **executed** — run, with tool version and date —
 and **unverified**, which is everything else, a README included.
-`crates/codeintel/tests/indexer_evidence.rs` fails when a `Lang.indexer` string
-has no row, when a row names a command nothing emits, or when `executed` has no
-version and date. Changing a command is changing its row, in the same commit.
+`crates/codeintel/tests/indexer_evidence.rs` fails when a `Lang.indexer` has no
+row, when a row names a command nothing runs, or when `executed` has no version
+and date. The command column is `<program> <arguments>`; the output flag and
+path are `index`'s own and are not part of it. Changing a command is changing
+its row, in the same commit.
 
 | Command | Class | Evidence |
 |---|---|---|
-| `rust-analyzer scip .` | executed | 1.98.1, 2026-10-21, from the repository root of a copy of `tests/fixtures/rust`: exit 0, writes `./index.scip`. Also fd and tokio, 2026-10-20 (§ Acquisition) |
-| `scip-go` | executed | 0.2.7, 2026-10-21, **only with `go.mod` in the working directory**: exit 0, `./index.scip`. With `go.mod` one level down it exits 0 too, warns `No go.mod file found`, writes a 172-byte index, and `codeintel index` ingests `0 documents` (#109), so the chain's `&&` does not stop it |
-| `scip-python index .` | unverified | not installed on this host. `scip-python` 0.6.6 produced the committed fixture, on another worktree, with a command line nobody recorded (`Metadata.tool_info` has no arguments); its symbols name package `fixture 0.1.0` from no manifest in the fixture, so it was probably given flags this command does not carry |
-| `scip-typescript index --infer-tsconfig` | unverified | not installed on this host. `scip-typescript` 0.4.0 produced the committed fixture with an unrecorded command line, and the fixture has its own `tsconfig.json`, so `--infer-tsconfig` was probably not exercised |
-
-`codeintel index`, `--rebuild` and `--scip-root` in the same hints are this
-binary's own flags and are not in the table. The chain's `sh -n` guard
-(`hint_runs.rs`) proves the line parses; it runs no indexer.
+| `rust-analyzer scip .` | executed | 1.98.1, 2026-10-26, `rust-analyzer scip . --output F` from the root of a copy of `tests/fixtures/rust`, and by `codeintel index` itself: exit 0, 11 of 11 documents matched, 25 s cold; `cargo check` creates `target/` in the tree. Also fd and tokio, 2026-10-20 (§ Acquisition) |
+| `scip-go index` | executed | 0.2.7, 2026-10-26, `scip-go index -o F` with `go.mod` in the working directory: exit 0, 7 of 8 documents matched (the eighth is the generated test-main from the Go build cache, as in the committed fixture). With `go.mod` one level down it exits 0 too, warns `No go.mod file found`, writes a 172-byte index (2026-10-21, #109) — which is why the row needs `go.mod` at the root |
+| `scip-python index . --project-version 0` | executed | 0.6.8, 2026-10-26, `scip-python index . --project-version 0 --output F` on a copy of `tests/fixtures/python` outside any git repository: exit 0, 8 of 8 documents, nothing written into the tree. Without `--project-version` it exits 1 there (§ Acquisition) |
+| `scip-typescript index` | executed | 0.5.2, 2026-10-26, `scip-typescript index --output F` on a copy of `tests/fixtures/typescript`, which has its own `tsconfig.json`: exit 0, 10 of 10 documents matched, nothing written into the tree. `--infer-tsconfig` on a tree with no `tsconfig.json` writes one into the root — the reason the row dropped it |
 
 ### Ingest
 

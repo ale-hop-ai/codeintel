@@ -31,17 +31,19 @@ a regenerated index that "fixes" a failing anchor test is the failure #79 names,
 not a repair.
 
 **The drift check — local, never in CI, and therefore written down (#94 is what
-unwritten looks like).** Cadence: when bumping a pin, and before a release.
-For each language, with the *newest* indexer installed:
+unwritten looks like).** `provision apply --stream tasks/indexer-drift.yml`.
+Cadence: on every toolchain or indexer bump, and before a release. For each
+fixture it builds two indexes of the same sources — from the committed
+`index.scip`, and with `codeintel index` running the installed indexer itself —
+prints each side's producer, `scip coverage` and `anchored`, and fails when the
+fresh run's numbers differ from `indexer-drift.tsv`. Not from the committed
+index's: Go's and TypeScript's are stale on purpose, so a fresh run reads more. Any movement is a finding for an issue, with both versions and
+both outputs; the step prints them.
 
-1. Index the fixture source into a scratch directory with the newest indexer.
-2. `codeintel index <scratch>` and `codeintel status <scratch>`; compare
-   `scip coverage: N of M` and the anchored count with the committed index's.
-3. Run the fixture's tier-B tests with the scratch `index.scip` swapped in. Any
-   movement is a finding for an issue, with both versions and both outputs.
-
-Installing the indexers is not done here: it is a `~/dotfiles` + provision
-change (`docs/onboarding.md` F5 and §4.3; the task is not written yet).
-The commands for `scip-python` and `scip-typescript` have never been run on this
-host, and `scip-go` needs a `--scip-root` pairing or it ingests 0 documents
-(#109); verify each before writing it into a task (#93).
+The indexers are installed by `~/dotfiles` + provision (tag `indexers`). Their
+command lines are the `Lang.indexer` rows, each run and recorded in
+[specs/02-extraction.md](../../specs/02-extraction.md) § Indexer evidence. A
+newer installed version is recorded here only when the fixtures are
+regenerated with it; the command that produced each committed index is the
+evidence table's business until then, because for `scip-python` 0.6.6 and
+`scip-typescript` 0.4.0 nobody recorded it.

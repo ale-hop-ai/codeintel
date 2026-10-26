@@ -134,7 +134,14 @@ What is done with what is found is a surface question, not a storage one:
   dict.bin               string interner, append-only
   dict.idx               offset table into dict.bin
   seg/<blake3-of-bytes>.bin  one segment per source file, named by its content
+  scip/<program>.scip    SCIP output of an indexer `index` ran, one per program
+  scip/<program>.log     that run's stdout and stderr
 ```
+
+**`scip/` survives `--rebuild`'s discard**, like the lock. The indexers run
+before the writer lock is taken (02-extraction.md § Acquisition), so the
+outputs a `--rebuild` just produced are already there when the discard runs;
+`--rebuild` re-runs every indexer, so nothing old survives in it either.
 
 **There is no `seg/_scip.bin`.** An earlier draft put facts from SCIP documents
 with no tier-A counterpart into one blob. They get an ordinary per-file segment
@@ -272,6 +279,11 @@ deliberately deferred.
       "ambiguous": 0 }
   ],
   "scip_collisions": 0,
+  "indexers": [
+    { "program": "scip-typescript", "command": "scip-typescript index",
+      "outcome": "ok", "output": "/Users/x/.cache/codeintel/3f2a.../scip/scip-typescript.scip",
+      "log": "/Users/x/.cache/codeintel/3f2a.../scip/scip-typescript.log" }
+  ],
   "skipped": {
     "src/huge.rs": { "reason": "too-large", "mtime": 1757000000, "size": 2800020 },
     "src/bin.rs":  { "reason": "not-utf8",  "mtime": 1757000000, "size": 22 }
@@ -378,6 +390,18 @@ file, as `index` prints them. Top-level for the same reason as
 `no-scip` hint can name the command (`specs/05-surface.md` § Status taxonomy,
 #142): the caller on that path is usually an agent that never saw `index`'s
 output. Additive, so no `schema_version` bump, as with `skipped`.
+
+**`indexers` is what the last `index` did with each SCIP indexer it
+considered** ([02-extraction.md](02-extraction.md) § Acquisition): the program,
+the command, the outcome — `ok`, `not on PATH`, `no <file> at the root`,
+`exit <code>`, `timed out after <n> s`, `no output` — and the output and log
+paths. A program that was up to date keeps its previous record. Written by
+`index` only and carried forward by every refresh; `--no-scip`, `--scip` and
+`./index.scip` write it empty, because nothing was run. It exists so a query's
+`no-scip` hint can say why there is no tier B, and so the `scip-stale` hint can
+tell an input `index` produced (re-run `index`) from one the user built
+(re-run their indexer). Additive and absent when empty, so no
+`schema_version` bump.
 
 **`extractor_fingerprint` is blake3 over the binary version, the source of
 `crates/extract/src`, the locked versions of the grammar and SCIP crates, every

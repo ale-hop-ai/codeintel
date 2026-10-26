@@ -53,7 +53,7 @@ fn parses(command: &str) -> bool {
 fn a_rust_only_no_index_hint_is_valid_shell() {
     let dir = tempfile::tempdir().expect("tempdir");
     let hint = hint_for(dir.path(), &[("a.rs", "fn a() {}\n")]);
-    assert!(hint.contains("rust-analyzer scip ."), "{hint}");
+    assert!(hint.starts_with("codeintel index "), "{hint}");
     assert!(parses(&hint), "not valid shell: {hint}");
 }
 
@@ -72,25 +72,25 @@ fn a_polyglot_no_index_hint_is_valid_shell() {
 }
 
 /// Was a known failure until #93 quoted the path: `cd /tmp/sp ace && ...`
-/// walks into the wrong directory, or none.
+/// walks into the wrong directory, or none. There is no `cd` now; the root is
+/// `index`'s argument, and must reach it as one word.
 #[test]
 fn a_root_with_a_space_in_it_is_walked_into_by_the_hint() {
     let dir = tempfile::tempdir().expect("tempdir");
     let spaced = dir.path().join("with space");
     std::fs::create_dir(&spaced).expect("mkdir");
     let hint = hint_for(&spaced, &[("a.rs", "fn a() {}\n")]);
-    let (cd, _) = hint.split_once(" && ").expect("a chain");
     let lands = Command::new("sh")
         .args([
             "-c",
-            &format!("{cd} && test \"$PWD\" -ef '{}'", spaced.display()),
+            &format!("set -- {hint}; test \"$3\" -ef '{}'", spaced.display()),
         ])
         .status()
         .expect("sh runs")
         .success();
     assert!(
         lands,
-        "the hint did not land in the spaced root. hint: {hint}"
+        "the hint did not name the spaced root as one word. hint: {hint}"
     );
 }
 

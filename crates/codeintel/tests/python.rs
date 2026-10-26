@@ -109,6 +109,11 @@ fn run(root: &Path, args: &[&str]) -> Output {
         .args(args)
         .current_dir(root)
         .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
+        // No indexer on this host reaches the child: a tree with no
+        // `index.scip` is indexed tier A, as it was before `index` ran them
+        // (`specs/02-extraction.md` § Acquisition). `tests/indexers.rs` tests
+        // the runner with a stub.
+        .env_remove("PATH")
         .output()
         .expect("the binary runs")
 }

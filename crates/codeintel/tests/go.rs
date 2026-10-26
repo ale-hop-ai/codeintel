@@ -107,6 +107,11 @@ fn run(root: &Path, args: &[&str]) -> Output {
         .args(args)
         .current_dir(root)
         .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
+        // No indexer on this host reaches the child: a tree with no
+        // `index.scip` is indexed tier A, as it was before `index` ran them
+        // (`specs/02-extraction.md` § Acquisition). `tests/indexers.rs` tests
+        // the runner with a stub.
+        .env_remove("PATH")
         .output()
         .expect("the binary runs")
 }
@@ -193,7 +198,14 @@ fn a_scip_stale_go_file_names_scip_go_in_status() {
     let report = String::from_utf8_lossy(&run(dir.path(), &["status"]).stdout).to_string();
     assert!(report.contains("scip stale:"), "{report}");
     assert!(report.contains("kinds.go"), "{report}");
-    assert!(report.contains("run: scip-go"), "{report}");
+    // The input is the fixture's own `index.scip`, which the user built, so
+    // the remedy is their indexer and the line that reads it again — never
+    // another language's indexer.
+    assert!(
+        report.contains("re-run the indexer that wrote index.scip, then run: codeintel index "),
+        "{report}"
+    );
+    assert!(report.contains(" --scip index.scip"), "{report}");
     assert!(!report.contains("rust-analyzer"), "{report}");
 }
 
