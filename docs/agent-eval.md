@@ -1195,8 +1195,10 @@ part of the score.
 
 ## Sample size and budget
 
-- **N = 8 sessions per arm per task.** 8 tasks × 2 arms × 8 = **128
-  sessions**.
+- **N = 4 sessions per arm per task.** 8 tasks × 2 arms × 4 = **64
+  sessions**. #146 asked for N ≥ 8. The owner set 4 on 2026-10-26, trading
+  power for twice the budget per session. The verdict rule below is scaled to
+  that choice, and the report states it.
 - **Hard cap:** **€50** for the full run. The runner's `--max-usd` is set to
   €50 at the EUR/USD rate on the day of the run, rounded down, and the report
   records that rate. The runner stops *launching* sessions at the cap, and a
@@ -1208,10 +1210,12 @@ part of the score.
 - **Pilot first:** 1 session per arm per task, 16 sessions, capped at $8 and
   outside the €50. It measures the median cost per session for each arm. Then:
   - **Per-session cap:** 2 × the costlier arm's pilot median, and never more
-    than $0.75.
-  - **Model:** `claude-opus-5-5` if 128 × that cap fits under the cap. Otherwise
-    `claude-sonnet-5-5`, and the report says which model was used and why.
-  - **If it still does not fit:** N stays at 8 and the tasks are cut in this
+    than the run cap ÷ 64. That way the full run cannot overshoot even if every
+    session hits its cap.
+  - **Model:** `claude-opus-5-5` if 2 × its pilot median fits under that
+    limit. Otherwise `claude-sonnet-5-5`, and the report says which model was
+    used and why.
+  - **If it still does not fit:** N stays at 4 and the tasks are cut in this
     order: T6, T5, C2. The run is never cut below T1–T4 plus C1.
 
   All of this is decided from the pilot's numbers before the full run starts,
@@ -1221,12 +1225,12 @@ part of the score.
 
 ## The verdict rule
 
-Declared now. For each task, let `sA` and `sB` be the solves out of 8, and
+Declared now. For each task, let `sA` and `sB` be the solves out of 4, and
 `cA` and `cB` the median cost per session.
 
 - **B wins a task** if either:
-  - `sB − sA ≥ 3`, or
-  - `sB = sA ≥ 6` and `cB ≤ 0.75 · cA`.
+  - `sB − sA ≥ 2`, or
+  - `sB = sA ≥ 3` and `cB ≤ 0.75 · cA`.
 
   **A wins a task** under the mirror conditions. A task is a **tie**
   otherwise.
@@ -1241,9 +1245,13 @@ Declared now. For each task, let `sA` and `sB` be the solves out of 8, and
   unseen tasks and ties on seen ones, that is the memorisation confound the
   split exists to expose.
 
-`|sB − sA| ≥ 3` of 8 is a threshold declared in advance, not a significance
-test. At n = 8, a difference of 1 or 2 is noise, and this page has already
-been burned once by reading noise as signal (§ Rescored).
+`|sB − sA| ≥ 2` of 4 is a threshold declared in advance, not a significance
+test, and on a single task it is weak evidence: a difference of 1 is noise,
+and 2 can be noise as well. What carries the verdict is agreement *across*
+tasks: "effect" needs 3 of the 4 unseen lane-3 tasks pointing the same way,
+and none against. This page has already been burned once by reading noise as
+signal (§ Rescored). A per-task result is reported as a direction, not as a
+finding.
 
 ## Artifacts
 

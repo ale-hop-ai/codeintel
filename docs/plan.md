@@ -614,7 +614,8 @@ runner code was written or any paid run made.
    test runner, applied to a deliberate edit.
 2. A runner. Two arms that differ only in their tool list. Headless
    `claude -p`, reusing the tier-3 isolation probe.
-3. A pilot to measure cost per session, then one full run within **€50**.
+3. A pilot to measure cost per session, then one full run within **€50**: 8 tasks
+   × 2 arms × N = 4.
 
 No verb is added: the runner is test-harness code, so the surface budget is
 unchanged.
