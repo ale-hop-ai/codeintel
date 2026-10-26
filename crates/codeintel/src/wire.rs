@@ -81,15 +81,26 @@ pub fn json(answer: &Answer, raw: bool) -> serde_json::Value {
         // the same query produce byte-identical output. The CLI prints it on
         // stderr, beside `status=`, where a human debugging a slow query wants
         // it and no consumer is diffing.
-        serde_json::json!({
-            "derived": answer.derived,
-            "refreshed": answer.refreshed,
-            "transformed": answer.transformed,
-            "demand": answer.demand.as_str(),
-            "depends": answer.depends,
-            "shadowed": answer.shadowed,
-            "widened": answer.widened,
-        }),
+        {
+            let mut stats = serde_json::Map::new();
+            stats.insert("derived".into(), answer.derived.into());
+            stats.insert("refreshed".into(), answer.refreshed.into());
+            stats.insert("transformed".into(), serde_json::json!(answer.transformed));
+            stats.insert("demand".into(), answer.demand.as_str().into());
+            stats.insert("depends".into(), serde_json::json!(answer.depends));
+            stats.insert("shadowed".into(), serde_json::json!(answer.shadowed));
+            stats.insert("widened".into(), serde_json::json!(answer.widened));
+            // What the index could not see, without prose. Omitted at zero so
+            // the common answer pays nothing (`specs/05-surface.md` § `query`,
+            // #130, #132).
+            if answer.unread > 0 {
+                stats.insert("unread".into(), answer.unread.into());
+            }
+            if answer.scip_uncovered > 0 {
+                stats.insert("scip_uncovered".into(), answer.scip_uncovered.into());
+            }
+            serde_json::Value::Object(stats)
+        },
     );
     serde_json::Value::Object(map)
 }
@@ -208,7 +219,9 @@ pub fn schema_status(
     index_dir: Option<&std::path::Path>,
     refreshed: &(crate::status::Status, Option<String>),
 ) -> (crate::status::Status, Option<String>) {
-    if census.indexed {
+    // Counted as none but answered for: a pinned index of another root says
+    // whose it is rather than "index this" (#141).
+    if census.indexed || refreshed.1.is_some() {
         refreshed.clone()
     } else {
         // `schema` reports on the directory it was given and never adopts
@@ -252,7 +265,8 @@ fn counted(
 /// times.
 #[must_use]
 pub fn tool_result(answer: &Answer, structured: bool, raw: bool) -> serde_json::Value {
-    let is_error = !answer.status.answered();
+    // "The query never ran", as the CLI's exit 2 (#135).
+    let is_error = !answer.ran();
     if structured {
         serde_json::json!({
             "content": [],

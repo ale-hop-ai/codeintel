@@ -29,12 +29,16 @@ ui_imports_db(F, M) :- import(F, M, _), prefix(F, "src/ui/"), contains(M, "db").
 codeintel query '?- ui_imports_db(F, M).' --rules conformance.dl --expect-empty
 ```
 
-`--expect-empty` exits **1** when a row comes back and 0 when none does. It is 1
-and not 2 because 2 means the query never ran: "your code violates this" and "I
-could not tell you" are different results in CI.
+`--expect-empty` exits **1** when a row comes back, **0** only when none does
+**and** `status=ok`, and **2** otherwise: "your code violates this", "clean",
+and "I could not tell you" are three different results in CI (#134).
 
-It is also 2 on an index written by another schema, where the query never ran
-(`status=stale`). A repository with no SCIP index is a different case: see #134.
+Zero rows under any other status is the third. A check on an `_exact` rule in a
+repository with no SCIP index is `no-scip` and exits 2 — empty by construction
+is not clean. So is `scip-stale`, any `stale`, and an `ok` whose exact tier did
+not cover every file (`stats.scip_uncovered`). Build the SCIP index in the CI
+job before the check, or write the check on the name tier. Files the indexer
+refused (`stats.unread`: too large, not UTF-8) do not fail the check.
 
 ### Layering
 

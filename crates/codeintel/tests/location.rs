@@ -302,3 +302,71 @@ fn the_walk_does_not_index_an_index_kept_inside_the_tree() {
     world.ok(&["index", ".", "--index-dir", ".codeintel"]);
     assert_eq!(world.status_json()["files"], 1);
 }
+
+/// #141: a pinned index belongs to one root. A read from another root used to
+/// refresh it, find none of the owner's files, prune every one, and answer `ok`
+/// with zero rows. Now every read verb refuses it and the owner's index is
+/// left whole; `index` from the other root still overwrites, and says whose
+/// index it replaced.
+#[test]
+fn a_pinned_index_is_never_re_rooted_by_a_read() {
+    let world = World::new();
+    let pinned = world.cache.path().join("pinned");
+    let other = tempfile::tempdir().expect("tempdir");
+    std::fs::write(other.path().join("b.rs"), "pub fn beta() {}\n").expect("write");
+    let run_at = |dir: &std::path::Path, args: &[&str]| {
+        world
+            .command()
+            .current_dir(dir)
+            .env("CODEINTEL_INDEX_DIR", &pinned)
+            .args(args)
+            .output()
+            .expect("the binary runs")
+    };
+    let owner = world.tree.path();
+    assert!(run_at(owner, &["index", "."]).status.success());
+
+    let out = run_at(
+        other.path(),
+        &["query", "?- def(S, F, K, N).", "--format", "json"],
+    );
+    assert_eq!(out.status.code(), Some(2));
+    let answer: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    assert_eq!(answer["status"], "no-index", "{answer}");
+    let hint = answer["hint"].as_str().expect("hint");
+    let owner_name = owner
+        .canonicalize()
+        .expect("canonical")
+        .display()
+        .to_string();
+    assert!(hint.contains(&owner_name), "names the owner: {hint}");
+    assert!(hint.contains("run: "), "and a way out: {hint}");
+
+    let status = run_at(other.path(), &["status", "--format", "json"]);
+    let status: serde_json::Value = serde_json::from_slice(&status.stdout).expect("JSON");
+    assert_eq!(status["status"], "no-index", "{status}");
+    let schema = run_at(other.path(), &["schema", "--format", "json"]);
+    let schema: serde_json::Value = serde_json::from_slice(&schema.stdout).expect("JSON");
+    assert_eq!(schema["status"], "no-index", "{schema}");
+
+    // The owner's facts survived all three.
+    let out = run_at(
+        owner,
+        &["query", "?- def(S, _, _, \"alpha\").", "--no-refresh"],
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("alpha"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // `index` was asked to overwrite, does, and names what it displaced. The
+    // new owner then reads its own index.
+    let out = run_at(other.path(), &["index", "."]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{stderr}");
+    assert!(stderr.contains("replaced the index of"), "{stderr}");
+    assert!(stderr.contains(&owner_name), "{stderr}");
+    let out = run_at(other.path(), &["query", "?- def(S, _, _, \"beta\")."]);
+    assert!(String::from_utf8_lossy(&out.stdout).contains("beta"));
+}

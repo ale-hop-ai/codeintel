@@ -97,8 +97,12 @@ fn indexing_an_empty_tree_still_leaves_an_index() {
         .env("CODEINTEL_INDEX_DIR", dir.path().join(".codeintel"))
         .output()
         .expect("the binary runs");
-    assert!(
-        out.status.success(),
+    // Refused — nothing here is in a supported language (#140) — but the
+    // manifest is still committed, so a query over it answers `no-index` from
+    // the store rather than discovering nothing.
+    assert_eq!(
+        out.status.code(),
+        Some(2),
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );

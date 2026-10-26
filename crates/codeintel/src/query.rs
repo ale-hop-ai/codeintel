@@ -169,9 +169,24 @@ pub struct Answer {
     /// run, so the status alone cannot say whether empty means "not true of
     /// your code" (`specs/05-surface.md` § `query`, `--expect-empty`).
     pub evaluated: bool,
+    /// Files in a supported language that `index` refused — too large, not
+    /// UTF-8, unreadable (#130). Zero is omitted on the wire.
+    pub unread: usize,
+    /// Indexed files no SCIP document covered, counted only when the goal's
+    /// closure reaches a relation SCIP populates and some document matched
+    /// (#132). Zero is omitted on the wire.
+    pub scip_uncovered: usize,
 }
 
 impl Answer {
+    /// True when the engine evaluated the goal and the status says it carries
+    /// rows. Exit 2 and `isError` are its negation: "the query never ran"
+    /// (`specs/05-surface.md` § Status taxonomy, #135).
+    #[must_use]
+    pub fn ran(&self) -> bool {
+        self.status.answered() && self.evaluated
+    }
+
     fn of(status: Status, hint: impl Into<String>) -> Self {
         Self {
             status,
@@ -190,6 +205,8 @@ impl Answer {
             shadowed: Vec::new(),
             widened: Vec::new(),
             evaluated: false,
+            unread: 0,
+            scip_uncovered: 0,
         }
     }
 }
@@ -278,6 +295,12 @@ impl Warm {
                 discover::no_index_hint(&here, &nearby),
             ));
         }
+        // Before anything refreshes: a refresh of another tree's index prunes
+        // every file it holds (#141).
+        if let Some(hint) = foreign_owner(store.manifest(), root, options.index_dir.is_some()) {
+            self.loaded = None;
+            return Ok(Answer::of(Status::NoIndex, hint));
+        }
         if let Some(hint) = stale_schema(store.manifest(), root) {
             self.loaded = None;
             return Ok(Answer::of(Status::Stale, hint));
@@ -286,6 +309,11 @@ impl Warm {
         // Every call refreshes. Warmth skips the load, never the refresh that
         // keeps the answer current.
         let (status, hint, refreshed) = refresh(&mut store, root, options)?;
+        // After the refresh, which is what would have found a file added since.
+        if status.answered() && store.manifest().files.is_empty() {
+            self.loaded = None;
+            return Ok(Answer::of(Status::NoIndex, zero_files_hint(root)));
+        }
         // A manifest that turned corrupt between the two reads: there is
         // nothing to evaluate against.
         if !status.answered() {
@@ -463,6 +491,44 @@ impl Loaded {
     }
 }
 
+/// The hint for a pinned index built for another root, or `None`.
+///
+/// Only a `pinned` directory can be handed to the wrong tree: the default
+/// location is keyed by the root (`specs/04-storage.md` § Location). A read
+/// over it would refresh, walk `root`, find none of the owner's files and
+/// prune every one — deleting another tree's index to answer `ok` with zero
+/// rows (#141). `query`, `schema` and `status` ask this before anything
+/// refreshes.
+#[must_use]
+pub fn foreign_owner(manifest: &facts::Manifest, root: &Path, pinned: bool) -> Option<String> {
+    if !pinned || manifest.roots.is_empty() {
+        return None;
+    }
+    let here = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let here = here.display().to_string();
+    if manifest.roots.contains(&here) {
+        return None;
+    }
+    Some(format!(
+        "the pinned index was built for {}, not {here}, and a read never re-roots it. to index \
+         {here} into its own directory, and query it without --index-dir: run: env -u \
+         CODEINTEL_INDEX_DIR codeintel index {here}",
+        manifest.roots.join(", ")
+    ))
+}
+
+/// The hint for an index that holds no files (#140): nothing in the tree is in
+/// a language a grammar reads, so indexing again would write the same nothing.
+#[must_use]
+pub fn zero_files_hint(root: &Path) -> String {
+    format!(
+        "the index for {} holds 0 files: nothing in it is in a supported language, so no query \
+         can match. `codeintel status {}` lists the extensions no grammar covers",
+        root.display(),
+        root.display()
+    )
+}
+
 /// The hint for an index written by a build that speaks another schema, or
 /// `None`. `status` asks the same question (`specs/05-surface.md` § `status`).
 #[must_use]
@@ -598,6 +664,16 @@ fn evaluate(
         status = scip_status;
         hint = Some(scip_hint);
     }
+    // Partial coverage: the exact tier is blind in the files no document
+    // covered, on any answer, empty or not (#132). The status stays; the count
+    // is the structural signal.
+    let uncovered = loaded.scip.uncovered_for(&result.stats.depends);
+    if let Some(note) = uncovered_note(uncovered, loaded.manifest.files.len()) {
+        hint = Some(match hint {
+            Some(condition) => compose(&condition, &note, ". also: "),
+            None => note,
+        });
+    }
 
     // The answer for one set of kept rows. `byte_cut` is whether
     // `max_result_bytes` dropped any.
@@ -643,7 +719,13 @@ fn evaluate(
             // (`specs/05-surface.md` § Status taxonomy).
             hint = Some(match hint {
                 Some(condition) if status != Status::Ok => compose(&condition, &cut, ". also: "),
-                _ => {
+                // An `ok` that already carries a note (partial coverage) keeps
+                // it behind the cut.
+                Some(note) => {
+                    status = Status::Truncated;
+                    compose(&cut, &note, ". also: ")
+                }
+                None => {
                     status = Status::Truncated;
                     cut
                 }
@@ -692,6 +774,8 @@ fn evaluate(
             shadowed: result.stats.shadowed.clone(),
             widened: loaded.widened.clone(),
             evaluated: true,
+            unread: loaded.manifest.skipped.len(),
+            scip_uncovered: uncovered.len(),
         }
     };
 
@@ -1256,6 +1340,10 @@ pub struct ScipState {
     /// Indexed files whose bytes the SCIP inputs did not see
     /// ([`facts::FileEntry::scip_stale`]).
     pub stale: Vec<String>,
+    /// Indexed files no SCIP document covered, in path order, when some
+    /// document did. Empty when SCIP is absent or matched nothing: `no-scip`
+    /// says that, whole (#132).
+    pub uncovered: Vec<String>,
 }
 
 impl ScipState {
@@ -1270,21 +1358,42 @@ impl ScipState {
         let Some(newest) = manifest.scip.iter().map(|i| i.mtime).max() else {
             return Self {
                 absent: true,
-                matched: None,
-                stale: Vec::new(),
+                ..Self::default()
             };
+        };
+        let matched = manifest
+            .scip_matched
+            .map(|matched| (matched, manifest.scip.iter().map(|i| i.documents).sum()));
+        let uncovered = if matches!(matched, Some((0, _))) {
+            Vec::new()
+        } else {
+            manifest
+                .files
+                .iter()
+                .filter(|(_, entry)| !entry.tiers.iter().any(|t| t == "scip"))
+                .map(|(path, _)| path.clone())
+                .collect()
         };
         Self {
             absent: false,
-            matched: manifest
-                .scip_matched
-                .map(|matched| (matched, manifest.scip.iter().map(|i| i.documents).sum())),
+            matched,
+            uncovered,
             stale: manifest
                 .files
                 .iter()
                 .filter(|(_, entry)| entry.scip_stale(newest))
                 .map(|(path, _)| path.clone())
                 .collect(),
+        }
+    }
+
+    /// The files the exact tier is blind in, for a goal whose closure is
+    /// `depends`: none unless the closure reaches a relation SCIP populates.
+    fn uncovered_for(&self, depends: &[String]) -> &[String] {
+        if depends.iter().any(|d| scip_backed(d)) {
+            &self.uncovered
+        } else {
+            &[]
         }
     }
 
@@ -1345,6 +1454,19 @@ impl ScipState {
     }
 }
 
+/// `N of M indexed file(s) have no SCIP document, ...: a.rs, ...`, or `None`
+/// when every file is covered (#132).
+fn uncovered_note(uncovered: &[String], files: usize) -> Option<String> {
+    (!uncovered.is_empty()).then(|| {
+        format!(
+            "{} of {files} indexed file(s) have no SCIP document, so the exact tier cannot see \
+             them: {}",
+            uncovered.len(),
+            name_list(uncovered)
+        )
+    })
+}
+
 /// The first five of `names`, comma-joined, with `...` when there are more.
 /// A hint names files so the reader can act, not so it can list them all.
 pub(crate) fn name_list<'a>(names: impl IntoIterator<Item = &'a String>) -> String {
@@ -1386,21 +1508,10 @@ pub fn syntax_error_note(errors: &[(&str, u32)]) -> Option<String> {
 
 /// `N file(s) were not read, so the answer may be in one: a.rs (too large), ...`
 /// — five names, the total always shown. `None` when every file in a
-/// supported language was read.
-///
-/// An index of no files at all is the same condition seen whole, and says so
-/// first (#140): nothing was read, and no query can match.
+/// supported language was read. An index of no files at all never reaches
+/// a query to carry this: it answers `no-index` (#140).
 pub fn unread_note(manifest: &facts::Manifest) -> Option<String> {
-    let mut parts = Vec::new();
-    if manifest.files.is_empty() {
-        parts.push(
-            "the index holds 0 files, so no query can match; `codeintel status` lists \
-             the extensions no grammar covers"
-                .to_string(),
-        );
-    }
-    parts.extend(unread_note_of(&manifest.skipped));
-    (!parts.is_empty()).then(|| parts.join(". also: "))
+    unread_note_of(&manifest.skipped)
 }
 
 /// The skipped-file half of [`unread_note`], for a caller holding the map and
@@ -1445,7 +1556,15 @@ pub(crate) fn indexers(manifest: &facts::Manifest) -> Vec<&'static str> {
 pub fn count(
     store: &mut Store,
     root: &Path,
+    pinned: bool,
 ) -> std::io::Result<(Census, (Status, Option<String>))> {
+    // Counted as no index, and never refreshed: a refresh would prune the
+    // owner's files (#141).
+    if store.has_index()
+        && let Some(hint) = foreign_owner(store.manifest(), root, pinned)
+    {
+        return Ok((Census::default(), (Status::NoIndex, Some(hint))));
+    }
     if store.has_index()
         && let Some(hint) = stale_schema(store.manifest(), root)
     {
@@ -1462,6 +1581,13 @@ pub fn count(
     } else {
         (Status::Ok, None)
     };
+    // What `query` would answer over it (#140).
+    let refreshed =
+        if store.has_index() && refreshed.0.answered() && store.manifest().files.is_empty() {
+            (Status::NoIndex, Some(zero_files_hint(root)))
+        } else {
+            refreshed
+        };
     Census::of(store).map(|census| (census, refreshed))
 }
 

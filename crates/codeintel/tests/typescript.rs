@@ -675,3 +675,45 @@ fn public_is_the_wrong_dead_export_filter_because_it_drops_name_exports() {
         );
     }
 }
+
+/// #132: `sig.ts` has no document in the committed `index.scip`, so the exact
+/// tier is blind there. The count says so on every answer whose closure reaches
+/// SCIP, and an empty exact check over it is "could not tell".
+#[test]
+fn partial_scip_coverage_is_counted_and_fails_an_empty_gate() {
+    let dir = tree();
+    index(dir.path());
+
+    let out = run(
+        dir.path(),
+        &["query", "?- calls_exact(A, B).", "--format", "json"],
+    );
+    let answer: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    assert_eq!(answer["status"], "ok", "{answer}");
+    assert_eq!(answer["stats"]["scip_uncovered"], 1, "{answer}");
+    let hint = answer["hint"]
+        .as_str()
+        .expect("a covered answer still names the gap");
+    assert!(hint.contains("have no SCIP document"), "{hint}");
+    assert!(hint.contains("sig.ts"), "{hint}");
+
+    // A closure that never reaches SCIP is not counted.
+    let out = run(
+        dir.path(),
+        &["query", "?- def(S, \"sig.ts\", _, _).", "--format", "json"],
+    );
+    let answer: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    assert!(answer["stats"].get("scip_uncovered").is_none(), "{answer}");
+
+    let gate = run(
+        dir.path(),
+        &[
+            "query",
+            "?- calls_exact(A, B), def(A, \"sig.ts\", _, _).",
+            "--expect-empty",
+        ],
+    );
+    let stderr = String::from_utf8_lossy(&gate.stderr);
+    assert!(stderr.contains("status=ok"), "{stderr}");
+    assert_eq!(gate.status.code(), Some(2), "{stderr}");
+}
