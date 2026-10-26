@@ -1,4 +1,4 @@
-//! The agent eval, re-derived: `docs/plan.md` M6 § Pulled forward, harness 3.
+//! The agent eval, re-derived: `docs/history.md` M6 § Pulled forward, harness 3.
 //!
 //! `docs/agent-eval.md` found three defects in its own reference answers, and
 //! found none of them by assertion: "a reference answer nobody recomputes is an

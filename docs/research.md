@@ -405,7 +405,7 @@ seeded generator (`crates/datalog/tests/robustness.rs`). Benchmarks are a
 test-only harness, never a CLI verb.
 
 **No `divan` and no `criterion`, against STACK's benchmark row.** Decided when
-the harness was built ([plan.md](plan.md) M6 § Pulled forward). Both answer "how
+the harness was built ([history.md](history.md) M6 § Pulled forward). Both answer "how
 long does this function take" with statistics over repeated calls. M6's
 question is different: p50/p95 over a whole pipeline — index, load, query, the
 CLI — on a pinned corpus, compared against a baseline **committed as JSON**.

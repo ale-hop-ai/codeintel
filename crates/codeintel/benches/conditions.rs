@@ -409,7 +409,7 @@ pub(crate) fn report(settled: Settled, end: Conditions) -> Value {
 /// numbers describe. Clean tree: the short rev. Dirty tree: the rev is a lie on
 /// its own, so a fingerprint of the actual working state goes with it —
 /// `<rev>-dirty-<8 hex>` — and two different mid-change builds land in
-/// different files. Mid-change profiling is exactly when `docs/plan.md` § #28
+/// different files. Mid-change profiling is exactly when `docs/history.md` § #28
 /// went wrong, so it is the case that most needs distinguishing.
 ///
 /// Two runs of **identical** code still overwrite each other, deliberately:

@@ -313,14 +313,14 @@ fn report_phases(
         // Without it a profile is just numbers in a file: `target/bench/` holds
         // one path per corpus and every run overwrites it, so a table quoted
         // from the wrong run reads exactly like a table quoted from the right
-        // one. That happened to deno in `docs/plan.md` § #28 — a parallel-walk
+        // one. That happened to deno in `docs/history.md` § #28 — a parallel-walk
         // JSON was read as the serial walk's.
         "provenance": conditions::report(settled, Conditions::now()),
         "phases": measured,
         "derived": { "stale_check_ms": stale_check, "evaluate_ms": evaluate },
         "anchor": { "mcp_p50_ms": mcp_p50 },
     });
-    // Stamped with what produced it (#78): the deno row of `docs/plan.md`
+    // Stamped with what produced it (#78): the deno row of `docs/history.md`
     // § #28 was written by a parallel-walk binary and read as the serial
     // walk's, because both wrote the same path.
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))

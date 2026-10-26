@@ -1,4 +1,4 @@
-//! Cost goldens: `docs/plan.md` M6 § Pulled forward, harness 1.
+//! Cost goldens: `docs/history.md` M6 § Pulled forward, harness 1.
 //!
 //! Every query in `tests/fixtures/counters/queries.tsv` runs against its
 //! fixture, and what the engine did — `derived`, `demand`, `transformed` — is
