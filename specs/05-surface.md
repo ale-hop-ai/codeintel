@@ -943,7 +943,7 @@ as totals only, rather than joined through `def` to invent a language for them.
 ```json
 {
   "name": "code_query",
-  "description": "Query the structural code graph in Datalog. Facts: definitions, spans, containment, imports, references, implements. Call with {\"schema\":true} first to get the relation catalog and examples.",
+  "description": "Query the structural code graph in Datalog. Answers: where X is defined, who calls X, what breaks if X changes, which tests reach X, what implements a trait or interface, what imports a module, which exported items nothing uses. Facts: definitions, spans, containment, imports, references, implements. Call with {\"schema\":true} first to get the relation catalog and examples.",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -957,6 +957,15 @@ as totals only, rather than joined through `def` to invent a language for them.
 ```
 
 Exactly one of `query` or `schema` per call; both is an error naming the two.
+
+**The description names questions, not relations.** An agent decides whether to
+call the tool from this string alone; it reads the schema only after deciding.
+The M7 outcome eval ([docs/agent-eval.md](../docs/agent-eval.md) § Full run)
+measured the gap: with a description listing only fact kinds, the agent called
+`code_query` on every callers and unused-export task and on none of the four
+test-reach sessions, though the schema teaches `is_test` and `about(_, "test",
+...)` (#152). Each question listed is one the schema has an example or rule for;
+a question it cannot answer is not listed.
 
 **`rule` and `args` are not in this schema.** They were, and they carried the
 defect that deleted the `rules` CLI verb: `args` is an array of strings, and an
