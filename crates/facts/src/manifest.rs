@@ -155,8 +155,13 @@ pub struct IndexerRun {
     pub program: String,
     /// `<program> <args>`, without the output flag.
     pub command: String,
-    /// `ok`, or why there is no fresh output: `not on PATH`, `no go.mod at
-    /// the root`, `exit 1`, `timed out after 600 s`, `no output`.
+    /// The repo-relative directory it ran in, empty for the repository root,
+    /// as in [`ScipInput::root`]. One record per program and root
+    /// (`specs/02-extraction.md` § Acquisition).
+    #[serde(default)]
+    pub root: String,
+    /// `ok`, or why there is no fresh output: `not on PATH`, `no go.mod in
+    /// the tree`, `exit 1`, `timed out after 600 s`, `no output`.
     pub outcome: String,
     /// Where its output is, absolute.
     pub output: String,

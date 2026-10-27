@@ -134,8 +134,9 @@ What is done with what is found is a surface question, not a storage one:
   dict.bin               string interner, append-only
   dict.idx               offset table into dict.bin
   seg/<blake3-of-bytes>.bin  one segment per source file, named by its content
-  scip/<program>.scip    SCIP output of an indexer `index` ran, one per program
-  scip/<program>.log     that run's stdout and stderr
+  scip/<program>.scip    SCIP output of an indexer `index` ran at the repository root
+  scip/<root>/<program>.scip  the same, for an indexer root below it
+  scip/[<root>/]<program>.log that run's stdout and stderr
 ```
 
 **`scip/` survives `--rebuild`'s discard**, like the lock. The indexers run
@@ -281,8 +282,8 @@ deliberately deferred.
   "scip_collisions": 0,
   "indexers": [
     { "program": "scip-typescript", "command": "scip-typescript index",
-      "outcome": "ok", "output": "/Users/x/.cache/codeintel/3f2a.../scip/scip-typescript.scip",
-      "log": "/Users/x/.cache/codeintel/3f2a.../scip/scip-typescript.log" }
+      "root": "packages/api", "outcome": "ok", "output": "/Users/x/.cache/codeintel/3f2a.../scip/packages/api/scip-typescript.scip",
+      "log": "/Users/x/.cache/codeintel/3f2a.../scip/packages/api/scip-typescript.log" }
   ],
   "skipped": {
     "src/huge.rs": { "reason": "too-large", "mtime": 1757000000, "size": 2800020 },
@@ -392,10 +393,12 @@ file, as `index` prints them. Top-level for the same reason as
 output. Additive, so no `schema_version` bump, as with `skipped`.
 
 **`indexers` is what the last `index` did with each SCIP indexer it
-considered** ([02-extraction.md](02-extraction.md) § Acquisition): the program,
-the command, the outcome — `ok`, `not on PATH`, `no <file> at the root`,
+considered, once per indexer root** ([02-extraction.md](02-extraction.md)
+§ Acquisition): the program, the command, the root — repo-relative, empty for the
+repository root as in `scip`, and absent in a manifest written before roots
+existed, which reads as empty — the outcome — `ok`, `not on PATH`, `no <file> in the tree`,
 `exit <code>`, `timed out after <n> s`, `no output` — and the output and log
-paths. A program that was up to date keeps its previous record. Written by
+paths. A run that was up to date keeps its previous record. Written by
 `index` only and carried forward by every refresh; `--no-scip`, `--scip` and
 `./index.scip` write it empty, because nothing was run. It exists so a query's
 `no-scip` hint can say why there is no tier B, and so the `scip-stale` hint can

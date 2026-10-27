@@ -28,7 +28,7 @@ guessing what an empty result means.
 | `truncated` | query ran, a cap fired | which cap (`max_result_rows` / `max_result_bytes`), and its value |
 | `no-index` | no index for this root, and none was adopted — **or** the index holds 0 files (#140) — **or** a pinned index (`--index-dir`, `CODEINTEL_INDEX_DIR`) was built for another root (#141) | one line that indexes it, tier B included (§ The no-index hint); plus any index found nearby (§ The nearest index). For 0 files: that, and that `codeintel status` lists the extensions no grammar covers. For another root: both roots, and the command that indexes this one into its own directory |
 | `stale` | sources changed and auto-refresh was skipped, exceeded `max_refresh_ms`, or `schema_version` mismatched | `run: codeintel index .` — names the N files |
-| `no-scip` | the goal's **relation-dependency closure** reaches a relation only SCIP populates, and none was ingested — **or** an index was ingested and not one of its documents matched an indexed file, which leaves those relations just as empty | which relations, and what to run: `run: codeintel index <root>`, which runs the indexers — preceded by why the last run produced nothing when the manifest records it (a program not on `PATH`, a project file not at the root, a failure, `--no-scip`; [02-extraction.md](02-extraction.md) § Acquisition). When documents were ingested and none matched, the hint says so, with the count and the `--scip-root` that would fix it: a `run:` line re-indexing with it when one directory fits, the candidates when several do — never a pick among them (#142) |
+| `no-scip` | the goal's **relation-dependency closure** reaches a relation only SCIP populates, and none was ingested — **or** an index was ingested and not one of its documents matched an indexed file, which leaves those relations just as empty | which relations, and what to run: `run: codeintel index <root>`, which runs the indexers — preceded by why the last run produced nothing when the manifest records it (a program not on `PATH`, no project file in the tree, a failure, `--no-scip`; [02-extraction.md](02-extraction.md) § Acquisition). When documents were ingested and none matched, the hint says so, with the count and the `--scip-root` that would fix it: a `run:` line re-indexing with it when one directory fits, the candidates when several do — never a pick among them (#142) |
 | `scip-stale` | an indexed file holds bytes `index.scip` did not see ([04-storage.md](04-storage.md) § Manifest, `scip_hash`) | which files, and `run: codeintel index <root>` when `index` produced the inputs; when the user did (`--scip`, `./index.scip`), re-run the indexer that wrote them and the `codeintel index` line that reads them |
 | `invalid-query` | parse or safety failure | the rule, the variable, the violated rule |
 | `unstratified` | negation cycle | the cycle |
@@ -169,7 +169,9 @@ its output leaves), both exit 2 naming the path (#133). Only the *default*
 to, for an indexer that had to be run from a subdirectory
 ([02-extraction.md](02-extraction.md) § Document paths, and `--scip-root`). Zero
 means the repository root, one applies to every `--scip`, N pairs positionally
-with N; any other count is an error. Like `--index-dir`, it is a flag and not a
+with N; any other count is an error. With neither `--scip` nor `./index.scip` it
+is refused before anything runs (exit 2): the indexers `index` runs declare
+their own roots. Like `--index-dir`, it is a flag and not a
 verb, so the surface budget is unchanged.
 
 **The indexers report before and after they run.** Before each program
@@ -179,9 +181,10 @@ starts, `index` prints the command and the log it writes to:
 codeintel: running rust-analyzer scip . --output <store>/scip/rust-analyzer.scip (log: <store>/scip/rust-analyzer.log)
 ```
 
-and after it, one line per program considered: `ok in 41.2 s`, `up to date`,
-`skipped — not on PATH; install it, then re-run`, `skipped — no go.mod at the
-root`, `failed (exit 101); see <log>`, `timed out after 600 s; see <log>`. A
+and after it, one line per program and root considered (`scip-typescript in
+packages/api: ok in 2.6 s` below the repository root): `ok in 41.2 s`, `up to date`,
+`skipped — not on PATH; install it, then re-run`, `skipped — no go.mod in the
+tree`, `failed (exit 101); see <log>`, `timed out after 600 s; see <log>`. A
 failure keeps the program's previous output, if any, and never changes the
 exit code: tier A stands. A language with no indexer gets no line, and a run
 that ingests nothing says `no SCIP index: tier A only, so every reference is

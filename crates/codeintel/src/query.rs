@@ -1546,25 +1546,21 @@ impl ScipState {
                 "`codeintel index` runs the SCIP indexers. run: codeintel index {root}"
             );
         }
-        let misplaced = |r: &facts::IndexerRun| r.outcome.ends_with(" at the root");
+        let absent = |r: &facts::IndexerRun| r.outcome.ends_with(" in the tree");
         let why: Vec<String> = failed
             .iter()
             .map(|r| {
                 if r.outcome == "not on PATH" {
                     format!("{} is not on PATH; install it", r.program)
-                } else if misplaced(r) {
-                    format!(
-                        "{}: {} — run `{}` where it is and pass the output with --scip and \
-                         --scip-root",
-                        r.program, r.outcome, r.command
-                    )
+                } else if absent(r) {
+                    format!("{}: {}", r.program, r.outcome)
                 } else {
                     format!("{}: {}, see {}", r.program, r.outcome, r.log)
                 }
             })
             .collect();
         let why = why.join("; ");
-        if failed.iter().all(|r| misplaced(r)) {
+        if failed.iter().all(|r| absent(r)) {
             // Re-running `index` would skip them again.
             format!("the last `codeintel index` built none: {why}")
         } else {

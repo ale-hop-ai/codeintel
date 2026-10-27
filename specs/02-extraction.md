@@ -513,16 +513,18 @@ The indexers are the `Lang.indexer` field of each row in
 `crates/extract/src/lang.rs`, and that table is the only thing `index` ever
 executes:
 
-| Language | Program | Arguments | Output flag | Needs at the root |
+| Language | Program | Arguments | Output flag | Needs |
 |---|---|---|---|---|
 | Rust | `rust-analyzer` | `scip .` | `--output` | `Cargo.toml` |
 | Go | `scip-go` | `index` | `-o` | `go.mod` |
 | Python | `scip-python` | `index . --project-version 0` | `--output` | — |
 | TypeScript, TSX | `scip-typescript` | `index` | `--output` | `tsconfig.json` |
 
-The full command is `<program> <arguments> <output flag> <store>/scip/<program>.scip`,
-run with the repository root as the working directory. TypeScript and TSX share
-a program, so it runs once.
+The full command is `<program> <arguments> <output flag> <out>`, run once per
+**indexer root** (below) with that root as the working directory. `<out>` is
+`<store>/scip/<program>.scip` for the repository root and
+`<store>/scip/<root>/<program>.scip` for any other. TypeScript and TSX share a
+program, so it runs once per root.
 
 What each one writes, measured:
 
@@ -579,14 +581,38 @@ Rules that keep this from becoming a build system:
   Pointing `CARGO_TARGET_DIR` into the store would keep the tree untouched at
   the price of a cold, duplicate build per repository; that is the worse
   trade.
-- **"Needs" is checked, never read.** An indexer whose project file is not at
-  the root is not run, and the summary says so: `scip-go: skipped — no go.mod at
-  the root`. `scip-go` there exits 0 over an empty index (#109), and
-  `rust-analyzer` with no workspace fails, so running them would only cost time
-  to say the same thing less clearly. The check is that the file exists; nothing
-  in it is read. A project whose module lives in a subdirectory runs its indexer
-  there and passes the output with `--scip` and `--scip-root`
-  (§ Document paths).
+- **"Needs" is checked, never read, and it picks the roots.** A program's
+  indexer roots are the **outermost** directories holding its `needs` file
+  among the paths the walk reached: a directory is a root when it holds the
+  file and no directory above it, up to and including the repository root,
+  does. A row with no `needs` has one root, the repository root. So a tree with
+  the file at its root runs exactly as it did before roots existed — a Cargo
+  workspace's member crates and a solution-style `tsconfig.json`'s packages
+  are below it and are not roots. A Rush or pnpm monorepo with a
+  `tsconfig.json` per package and none at the top gets one run per package
+  (#153: 27 roots on the reporting repository, 2.5–2.7 s each). The check is
+  that the file exists; nothing in it is read. The walk is the `.gitignore`-
+  aware one tier A uses, so a `tsconfig.json` under `node_modules/` is never a
+  root.
+
+  A program with no root is not run, and the summary says so: `scip-go:
+  skipped — no go.mod in the tree`. `scip-go` with no `go.mod` exits 0 over an
+  empty index (#109), and `rust-analyzer` with no workspace fails, so running
+  them would only cost time to say the same thing less clearly.
+
+  **A root is declared, not detected.** Each output is ingested with its root
+  as its `--scip-root` (§ Document paths), and that root is the working
+  directory `index` itself gave the indexer — the same declaration a user makes
+  by hand with `--scip-root`, made by the one party that knows it. It is not
+  the inference § Detection suggests refuses: nothing is read off the
+  documents.
+
+  What it does not reach: a nested project the outermost one does not
+  include. A Go module inside another module's directory is its own module and
+  the outer `scip-go` skips it; a package with its own `tsconfig.json` under a
+  root `tsconfig.json` that does not list it is not indexed. Those files are
+  reported by the `no-scip`/coverage hint as having no SCIP document, which is
+  the truth, and `--scip`/`--scip-root` still index them by hand.
 - **No environment management.** `index` never installs an indexer, creates a
   virtualenv, runs `npm install`, or repairs a build. A program not on `PATH` is
   skipped and reported: `rust-analyzer: skipped — not on PATH; install it, then
@@ -602,9 +628,10 @@ Rules that keep this from becoming a build system:
 - **Progress up front.** Before a program starts, `index` prints the command it
   runs and the log it writes to. An agent that waits on `index` can then tell a
   slow indexer from a hung one, which was the objection that kept this opt-in.
-- **Only what is stale re-runs.** A program runs when its output is missing,
-  its last run did not succeed, `--rebuild` was given, or a walked file of one
-  of its languages has an mtime newer than its output. Otherwise its output is
+- **Only what is stale re-runs**, per root. A program runs in a root when
+  that root's output is missing, its last run there did not succeed,
+  `--rebuild` was given, or a walked file of one of its languages under that
+  root has an mtime newer than the output. Otherwise its output is
   ingested as it stands. mtime is the cheap direction: a `git checkout` that
   touches a file re-runs an indexer that did not need it, never the reverse. A
   deleted file is not seen by this test, and `--rebuild` re-runs everything.
@@ -619,7 +646,7 @@ Rules that keep this from becoming a build system:
 - **Recorded.** The manifest's `indexers` lists every program `index` considered
   and what happened to it ([04-storage.md](04-storage.md) § Manifest). `status`
   prints it, and the `no-scip` hint reads it, so an answer can say "`scip-go`
-  was skipped: no `go.mod` at the root" instead of telling an agent to re-run a
+  was skipped: no `go.mod` in the tree" instead of telling an agent to re-run a
   command that will skip it again.
 
 `codeintel status` reports SCIP presence, the emitting tool from
@@ -628,7 +655,7 @@ and staleness (index mtime vs. newest source mtime).
 
 Multiple `index.scip` files (polyglot repos, one per language) are supported:
 `--scip a.scip --scip b.scip`, and the outputs `index` produces itself are such
-a set, one per program, each relative to the root. They are ingested independently; symbol strings
+a set, one per program and root, each ingested with its root as `--scip-root`. They are ingested independently; symbol strings
 are unique across indexes by construction so no merge logic is needed. Within
 one index they are not always unique across *documents* — rust-analyzer keys by
 package, not cargo target, so `crate/` and `main().` are defined once per
@@ -734,7 +761,7 @@ its row, in the same commit.
 | Command | Class | Evidence |
 |---|---|---|
 | `rust-analyzer scip .` | executed | 1.98.1, 2026-10-26, `rust-analyzer scip . --output F` from the root of a copy of `tests/fixtures/rust`, and by `codeintel index` itself: exit 0, 11 of 11 documents matched, 25 s cold; `cargo check` creates `target/` in the tree. Also fd and tokio, 2026-10-20 (§ Acquisition) |
-| `scip-go index` | executed | 0.2.7, 2026-10-26, `scip-go index -o F` with `go.mod` in the working directory: exit 0, 7 of 8 documents matched (the eighth is the generated test-main from the Go build cache, as in the committed fixture). With `go.mod` one level down it exits 0 too, warns `No go.mod file found`, writes a 172-byte index (2026-10-21, #109) — which is why the row needs `go.mod` at the root |
+| `scip-go index` | executed | 0.2.7, 2026-10-26, `scip-go index -o F` with `go.mod` in the working directory: exit 0, 7 of 8 documents matched (the eighth is the generated test-main from the Go build cache, as in the committed fixture). With `go.mod` one level down it exits 0 too, warns `No go.mod file found`, writes a 172-byte index (2026-10-21, #109) — which is why `go.mod` picks the working directory |
 | `scip-python index . --project-version 0` | executed | 0.6.8, 2026-10-26, `scip-python index . --project-version 0 --output F` on a copy of `tests/fixtures/python` outside any git repository: exit 0, 8 of 8 documents, nothing written into the tree. Without `--project-version` it exits 1 there (§ Acquisition) |
 | `scip-typescript index` | executed | 0.5.2, 2026-10-26, `scip-typescript index --output F` on a copy of `tests/fixtures/typescript`, which has its own `tsconfig.json`: exit 0, 10 of 10 documents matched, nothing written into the tree. `--infer-tsconfig` on a tree with no `tsconfig.json` writes one into the root — the reason the row dropped it |
 

@@ -154,13 +154,15 @@ check` writes `target/`), and ingests it in the same run.
 It prints each command and its log before starting it, gives each 600 s, and
 re-runs only an indexer whose languages changed. An indexer runs your build
 (build scripts, proc macros, package loading); `--no-scip` runs none and indexes
-tier A only. A missing indexer, a missing `Cargo.toml`/`go.mod`/`tsconfig.json`
-at the root, or a failing run is reported and never fatal
+tier A only. Each indexer runs in every outermost directory holding its
+`Cargo.toml`/`go.mod`/`tsconfig.json` — the root if it has one, else one run
+per package of a monorepo. A missing indexer, no such file anywhere, or a
+failing run is reported and never fatal
 ([specs/02-extraction.md](specs/02-extraction.md) § Acquisition). Nothing runs on
 the query path.
 
-A project whose module is not at the root runs its indexer from that
-directory itself and passes the output with `--scip`. Such an index writes
+An index you build yourself — from a directory `index` would not pick —
+passes its output with `--scip`. Such an index writes
 document paths relative to *that* directory, not to the repository root. `--scip-root <DIR>` says which one, and
 pairs with `--scip`: pass none, one for every `--scip`, or one each in the same
 order. Both `index` and `status` then report `scip coverage: N of M document(s)

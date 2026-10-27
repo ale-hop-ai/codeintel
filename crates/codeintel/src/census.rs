@@ -390,12 +390,17 @@ impl fmt::Display for Report<'_> {
         // What the last `index` did with each indexer, so a bug report says
         // why there is no tier B (`specs/05-surface.md` § `status`).
         for run in &manifest.indexers {
+            let at = if run.root.is_empty() {
+                String::new()
+            } else {
+                format!(" in {}", run.root)
+            };
             if run.log.is_empty() {
-                writeln!(f, "indexer: {} — {}", run.command, run.outcome)?;
+                writeln!(f, "indexer: {}{at} — {}", run.command, run.outcome)?;
             } else {
                 writeln!(
                     f,
-                    "indexer: {} — {} (log: {})",
+                    "indexer: {}{at} — {} (log: {})",
                     run.command, run.outcome, run.log
                 )?;
             }

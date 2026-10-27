@@ -358,14 +358,14 @@ fn a_missing_program_is_skipped_with_what_to_do() {
 }
 
 #[test]
-fn a_project_file_not_at_the_root_skips_the_indexer() {
+fn no_project_file_in_the_tree_skips_the_indexer() {
     let setup = Setup::new(0);
     std::fs::remove_file(setup.tree.path().join("Cargo.toml")).expect("rm");
     let out = setup.run(&["index", "."]);
     let err = stderr(&out);
     assert!(out.status.success(), "{err}");
     assert!(
-        err.contains("rust-analyzer: skipped — no Cargo.toml at the root"),
+        err.contains("rust-analyzer: skipped — no Cargo.toml in the tree"),
         "{err}"
     );
     assert!(setup.calls().is_empty());
@@ -374,8 +374,113 @@ fn a_project_file_not_at_the_root_skips_the_indexer() {
         .as_str()
         .expect("hint")
         .to_string();
-    assert!(hint.contains("no Cargo.toml at the root"), "{hint}");
-    assert!(hint.contains("--scip-root"), "{hint}");
+    assert!(hint.contains("no Cargo.toml in the tree"), "{hint}");
+    assert!(!hint.contains("run: codeintel index"), "{hint}");
+}
+
+/// Move the whole tree into each of `dirs`, as copies.
+fn nest(tree: &Path, dirs: &[&str]) {
+    let staging = tree.join(".nest");
+    std::fs::create_dir(&staging).expect("mkdir");
+    for entry in std::fs::read_dir(tree).expect("readable") {
+        let path = entry.expect("entry").path();
+        if path != staging {
+            std::fs::rename(&path, staging.join(path.file_name().expect("named"))).expect("mv");
+        }
+    }
+    for dir in dirs {
+        let copied = Command::new("cp")
+            .arg("-R")
+            .arg(&staging)
+            .arg(tree.join(dir))
+            .status()
+            .expect("cp runs");
+        assert!(copied.success());
+    }
+    std::fs::remove_dir_all(&staging).expect("rm");
+}
+
+/// #153: a monorepo with a project file per package and none at the top.
+/// The indexer runs in the package, and its output is read with that root.
+#[test]
+fn a_project_file_below_the_root_runs_the_indexer_there() {
+    let setup = Setup::new(0);
+    nest(setup.tree.path(), &["daemon"]);
+    let out = setup.run(&["index", "."]);
+    let err = stderr(&out);
+    assert!(out.status.success(), "{err}");
+    assert!(err.contains("rust-analyzer in daemon: ok in"), "{err}");
+    let calls = setup.calls();
+    let root = setup.tree.path().canonicalize().expect("canonical");
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert!(
+        calls[0].starts_with(&format!("{}/daemon scip . --output ", root.display())),
+        "{calls:?}"
+    );
+    assert!(
+        setup
+            .store
+            .path()
+            .join("scip/daemon/rust-analyzer.scip")
+            .is_file()
+    );
+    // The documents say `src/lib.rs`; the root makes them `daemon/src/lib.rs`.
+    let answer = setup.json("?- calls_exact(A, B), file_of(A, F), prefix(F, \"daemon/\").");
+    assert_eq!(answer["status"], "ok", "{answer}");
+    assert!(
+        !answer["rows"].as_array().expect("rows").is_empty(),
+        "{answer}"
+    );
+    let status = String::from_utf8_lossy(&setup.run(&["status"]).stdout).into_owned();
+    assert!(
+        status.contains("indexer: rust-analyzer scip . in daemon — ok"),
+        "{status}"
+    );
+}
+
+/// Every outermost directory holding the project file is a root, once; one
+/// nested under another root is that root's business, not a second run.
+#[test]
+fn each_outermost_project_file_is_one_root() {
+    let setup = Setup::new(0);
+    nest(setup.tree.path(), &["a", "b"]);
+    std::fs::create_dir(setup.tree.path().join("a/inner")).expect("mkdir");
+    std::fs::write(setup.tree.path().join("a/inner/Cargo.toml"), "").expect("write");
+    let out = setup.run(&["index", "."]);
+    let err = stderr(&out);
+    assert!(out.status.success(), "{err}");
+    let root = setup.tree.path().canonicalize().expect("canonical");
+    let mut dirs: Vec<String> = setup
+        .calls()
+        .iter()
+        .map(|call| call.split(' ').next().expect("pwd").to_string())
+        .collect();
+    dirs.sort();
+    assert_eq!(
+        dirs,
+        [
+            format!("{}/a", root.display()),
+            format!("{}/b", root.display())
+        ],
+        "{err}"
+    );
+    // Up to date is per root, too.
+    assert!(setup.run(&["index", "."]).status.success());
+    assert_eq!(setup.calls().len(), 2);
+}
+
+/// The roots are `index`'s to declare when it ran the indexers.
+#[test]
+fn scip_root_without_an_input_is_refused() {
+    let setup = Setup::new(0);
+    let out = setup.run(&["index", ".", "--scip-root", "x"]);
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    assert!(setup.calls().is_empty());
+    assert!(
+        stderr(&out).contains("--scip-root names the root"),
+        "{}",
+        stderr(&out)
+    );
 }
 
 #[test]
