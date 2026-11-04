@@ -665,6 +665,12 @@ fn a_file_edited_after_the_scip_index_reports_scip_stale() {
     let (_, stderr) = query(dir.path(), "?- calls_exact(A, B).");
     assert!(stderr.contains("status=scip-stale"), "{stderr}");
     assert!(stderr.contains("src/store.rs"), "{stderr}");
+    // One reason per file: it has a document, its bytes moved (#157).
+    let json = stdout_json(&run(
+        dir.path(),
+        &["query", "--format", "json", "?- calls_exact(A, B)."],
+    ));
+    assert!(json["stats"]["scip_uncovered"].is_null(), "{json}");
 
     // A query that needs nothing exact is unaffected: its answer is fresh.
     let (_, stderr) = query(dir.path(), "?- def(S, F, K, N).");

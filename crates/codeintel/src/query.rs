@@ -1533,13 +1533,26 @@ impl ScipState {
         let matched = manifest
             .scip_matched
             .map(|matched| (matched, manifest.scip.iter().map(|i| i.documents).sum()));
+        let stale: Vec<String> = manifest
+            .files
+            .iter()
+            .filter(|(path, entry)| {
+                entry.scip_stale(newest) && manifest.scip_covers(path, &entry.lang)
+            })
+            .map(|(path, _)| path.clone())
+            .collect();
+        // A stale file is re-extracted tier A only, so it lacks `scip` too --
+        // but it has a document, and `scip-stale` is its one true reason
+        // (#157).
         let uncovered = if matches!(matched, Some((0, _))) {
             Vec::new()
         } else {
             manifest
                 .files
                 .iter()
-                .filter(|(_, entry)| !entry.tiers.iter().any(|t| t == "scip"))
+                .filter(|(path, entry)| {
+                    !entry.tiers.iter().any(|t| t == "scip") && stale.binary_search(path).is_err()
+                })
                 .map(|(path, _)| path.clone())
                 .collect()
         };
@@ -1552,14 +1565,7 @@ impl ScipState {
             input_roots: manifest.scip.iter().map(|i| i.root.clone()).collect(),
             runs: manifest.indexers.clone(),
             root,
-            stale: manifest
-                .files
-                .iter()
-                .filter(|(path, entry)| {
-                    entry.scip_stale(newest) && manifest.scip_covers(path, &entry.lang)
-                })
-                .map(|(path, _)| path.clone())
-                .collect(),
+            stale,
         }
     }
 
