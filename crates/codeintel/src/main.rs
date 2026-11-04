@@ -405,6 +405,15 @@ fn index_cmd(
         anyhow::ensure!(absolute.exists(), "--scip {}: no such file", path.display());
     }
     let dir = facts::store::locate(&root, index_dir).context("locating the index")?;
+    let prior = facts::Manifest::open(&dir).ok().flatten();
+    // Another schema's store cannot be refreshed in place: re-extracting into
+    // its manifest reported success and left it `stale` for good (#156). It is
+    // derived, so it is discarded like `--rebuild`'s -- but the indexers are
+    // not rerun for it, since their output does not depend on this schema.
+    let other_schema = prior
+        .as_ref()
+        .filter(|m| m.is_stale_schema())
+        .map(|m| m.schema_version);
 
     // The indexers run before the lock, so queries keep answering from the
     // index as it stands for the minutes one can take, and only when nobody
@@ -419,11 +428,7 @@ fn index_cmd(
             "--scip-root names the root of a --scip input or ./index.scip; the indexers \
              `index` runs declare their own"
         );
-        let prior = facts::Manifest::open(&dir)
-            .ok()
-            .flatten()
-            .map(|m| m.indexers)
-            .unwrap_or_default();
+        let prior = prior.map(|m| m.indexers).unwrap_or_default();
         codeintel::indexers::run(&root, &dir, &langs, rebuild, &prior)?
     };
 
@@ -445,9 +450,17 @@ fn index_cmd(
 
     // Under the lock, not before it: a concurrent auto-refresh that took the
     // lock first would otherwise write into the directory being deleted.
+    let rebuild = rebuild || other_schema.is_some();
     let mut generation = 0;
     if rebuild {
         generation = index::discard(&dir)?;
+    }
+    if let Some(version) = other_schema {
+        eprintln!(
+            "codeintel: the index was written for schema_version {version}, this build speaks \
+             {}; rebuilding it",
+            facts::SCHEMA_VERSION
+        );
     }
     let mut store =
         Store::open(&root, &dir, &extract::fingerprint()).context("opening the index")?;

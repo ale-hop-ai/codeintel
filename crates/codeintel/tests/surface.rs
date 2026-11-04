@@ -1384,6 +1384,36 @@ fn status_reports_another_schema_as_stale_without_counts() {
 }
 
 #[test]
+fn index_over_another_schema_rebuilds_it_and_the_hint_is_the_repair() {
+    // #156: plain `index` re-extracted into the old manifest, reported
+    // success, and left it `stale` until `--rebuild`.
+    let dir = tree();
+    run(dir.path(), &["index", "."]);
+    let path = dir.path().join(".codeintel/manifest.json");
+    let mut json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).expect("reads")).expect("JSON");
+    json["schema_version"] = 999.into();
+    std::fs::write(&path, json.to_string()).expect("writes");
+
+    let hint = run(dir.path(), &["status"]);
+    let text = String::from_utf8_lossy(&hint.stdout);
+    assert!(text.contains("run: codeintel index"), "{text}");
+    assert!(!text.contains("--rebuild"), "plain index is enough: {text}");
+
+    let out = run(dir.path(), &["index", "."]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{stderr}");
+    assert!(stderr.contains("schema_version 999"), "says so: {stderr}");
+
+    let after = run(dir.path(), &["status"]);
+    let text = String::from_utf8_lossy(&after.stdout);
+    assert_eq!(after.status.code(), Some(0), "{text}");
+    assert!(text.starts_with("status: ok"), "{text}");
+    let rows = stdout(dir.path(), &["query", "?- def(S, F, K, N)."]);
+    assert!(!rows.trim().is_empty(), "facts back: {rows}");
+}
+
+#[test]
 fn a_stale_schema_is_an_mcp_error_because_the_query_never_ran() {
     // #135: `isError` is the MCP form of exit 2. `stale` with rows is an
     // answer; `stale` over an index the engine never read is not.

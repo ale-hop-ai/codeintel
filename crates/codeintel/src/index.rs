@@ -256,13 +256,17 @@ pub fn refresh(store: &mut Store, plan: &Plan) -> Result<Report> {
     );
 
     // The same rule `query` acts on, read from the manifest this run built
-    // (`FileEntry::scip_stale`).
+    // (`FileEntry::scip_stale`) and the inputs it is about to record.
     if let Some(newest) = scip.newest_scip {
         report.scip_stale = store
             .manifest()
             .files
             .iter()
-            .filter(|(path, entry)| seen.contains(*path) && entry.scip_stale(newest))
+            .filter(|(path, entry)| {
+                seen.contains(*path)
+                    && entry.scip_stale(newest)
+                    && scip.inputs.iter().any(|i| i.covers(path, &entry.lang))
+            })
             .map(|(path, _)| path.clone())
             .collect();
     }
@@ -577,6 +581,7 @@ fn plan_scip(
             into.tool.clone_from(&known.tool);
             into.documents = known.documents;
             into.ambiguous = known.ambiguous;
+            into.langs.clone_from(&known.langs);
         }
     }
     // A collision belongs to the merge, not to an input, so it is carried and
@@ -602,7 +607,10 @@ fn plan_scip(
             .get(&c.path)
             .is_some_and(|e| e.looks_unchanged(c.mtime, c.size))
     });
-    let reingest = !inputs.is_empty() && (plan.rebuild || invalidated || stale_file);
+    // An input whose languages are unknown -- its manifest predates the field
+    // -- is read once, or it stays `scip-stale` about every file (#155).
+    let unknown = inputs.iter().any(|i| i.langs.is_none());
+    let reingest = !inputs.is_empty() && (plan.rebuild || invalidated || stale_file || unknown);
     let (ingest, own) = if reingest {
         read_scip(root, plan)?
     } else {
@@ -616,6 +624,7 @@ fn plan_scip(
             input.tool = own.tool;
             input.documents = own.documents;
             input.ambiguous = own.ambiguous;
+            input.langs = Some(own.langs);
         }
     }
     report.scip.clone_from(&inputs);
@@ -685,6 +694,7 @@ fn stat_scip(root: &Path, plan: &Plan) -> Vec<ScipInput> {
                 size: meta.len(),
                 documents: 0,
                 ambiguous: 0,
+                langs: None,
             })
         })
         .collect();
@@ -735,6 +745,14 @@ fn read_scip(root: &Path, plan: &Plan) -> Result<(Ingest, BTreeMap<String, Own>)
                 tool: one.tool,
                 documents: (one.docs.len() + one.skipped.len()) as u64,
                 ambiguous: one.ambiguous as u64,
+                langs: one
+                    .docs
+                    .keys()
+                    .filter_map(|path| extract::lang::for_path(path))
+                    .map(|lang| lang.name.to_string())
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect(),
             },
         );
         merged.docs.extend(one.docs);
@@ -746,13 +764,14 @@ fn read_scip(root: &Path, plan: &Plan) -> Result<(Ingest, BTreeMap<String, Own>)
     Ok((merged, own))
 }
 
-/// One SCIP input's own `tool`, `documents` and `ambiguous`, read from it
-/// alone.
+/// One SCIP input's own `tool`, `documents`, `ambiguous` and `langs`, read
+/// from it alone.
 #[derive(Debug, Clone, Default)]
 struct Own {
     tool: String,
     documents: u64,
     ambiguous: u64,
+    langs: Vec<String>,
 }
 
 fn absolute(root: &Path, path: &Path) -> PathBuf {
@@ -966,6 +985,7 @@ mod tests {
             size: 0,
             documents: 0,
             ambiguous: 0,
+            langs: None,
         }
     }
 

@@ -145,6 +145,12 @@ pub struct ScipInput {
     /// normalization). Zero until it is parsed.
     #[serde(default)]
     pub ambiguous: u64,
+    /// The languages of its documents, as `file(F, Lang)` names them: what it
+    /// can be `scip-stale` about (`specs/04-storage.md` § Manifest). `None`
+    /// until it is parsed, and in a manifest written before the field existed:
+    /// unknown, which covers every language rather than none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub langs: Option<Vec<String>>,
 }
 
 /// One SCIP indexer `index` considered, and what happened to it
@@ -178,6 +184,22 @@ impl IndexerRun {
 }
 
 impl ScipInput {
+    /// True when this input can say something about `path`, a file in
+    /// `lang`: one of its documents is in that language, and the file is at
+    /// or under its `root` (`specs/04-storage.md` § Manifest).
+    #[must_use]
+    pub fn covers(&self, path: &str, lang: &str) -> bool {
+        let under = self.root.is_empty()
+            || path
+                .strip_prefix(self.root.as_str())
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'));
+        under
+            && self
+                .langs
+                .as_ref()
+                .is_none_or(|langs| langs.iter().any(|l| l == lang))
+    }
+
     /// True when this is the same file, byte for byte as far as a `stat` can
     /// tell.
     ///
@@ -434,6 +456,13 @@ impl Manifest {
         crate::atomic_write(&dir.join(MANIFEST), text.as_bytes())
     }
 
+    /// True when some SCIP input covers `path`, a file in `lang`: the only
+    /// files that can be `scip-stale` (#155).
+    #[must_use]
+    pub fn scip_covers(&self, path: &str, lang: &str) -> bool {
+        self.scip.iter().any(|input| input.covers(path, lang))
+    }
+
     /// True when this index was written by a build that speaks another schema.
     #[must_use]
     pub fn is_stale_schema(&self) -> bool {
@@ -581,6 +610,28 @@ mod tests {
         entry.scip_hash = None;
         assert!(entry.scip_stale(5), "no record: by mtime");
         assert!(!entry.scip_stale(50));
+    }
+
+    #[test]
+    fn an_input_covers_its_languages_under_its_root() {
+        let mut input = ScipInput {
+            path: "x.scip".to_string(),
+            tool: String::new(),
+            root: "py".to_string(),
+            mtime: 0,
+            size: 0,
+            documents: 1,
+            ambiguous: 0,
+            langs: Some(vec!["python".to_string()]),
+        };
+        assert!(input.covers("py/a.py", "python"));
+        assert!(!input.covers("py/a.ts", "typescript"), "no document in it");
+        assert!(!input.covers("pyx/a.py", "python"), "a sibling, not under");
+        assert!(!input.covers("a.py", "python"), "outside the root");
+        input.langs = None;
+        assert!(input.covers("py/a.ts", "typescript"), "unknown covers all");
+        input.root = String::new();
+        assert!(input.covers("a.py", "python"));
     }
 
     #[test]

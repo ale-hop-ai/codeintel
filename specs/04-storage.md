@@ -277,7 +277,7 @@ deliberately deferred.
   "scip": [
     { "path": "index.scip", "tool": "scip-typescript 0.4.0",
       "mtime": 1757000000, "size": 40218811, "documents": 812,
-      "ambiguous": 0 }
+      "ambiguous": 0, "langs": ["typescript", "typescriptreact"] }
   ],
   "scip_collisions": 0,
   "indexers": [
@@ -363,6 +363,25 @@ Staleness by mtime alone could not: the touched-but-unchanged path refreshes
 `mtime`, and a restored file stayed `scip-stale` until the indexer reran. An
 index written before the field existed has none and falls back to mtime until
 its next ingest.
+
+**A file is `scip-stale` only where an input covers it.** An input covers a
+file when one of its documents is in the file's language and the file is at or
+under the input's `root`: the program-and-root unit by which `index` judges an
+indexer's output up to date ([02-extraction.md](02-extraction.md)
+§ Acquisition). A file no input covers has no SCIP answer to be out of date —
+it is uncovered, which the exact tier's own note already reports. Without the
+rule, a `.ts` file beside a Python-only index was `scip-stale` after any edit,
+and the hint's `run: codeintel index` reran nothing, since scip-python's output
+was newer than every Python file: the hint looped (#155). A new file in a
+covered language is still `scip-stale` until the indexer sees it.
+Each input's `langs` records the languages of its documents, by extension as
+`file(F, Lang)` names them, and is carried forward on a refresh that does not
+parse, like `documents`. Absent in a manifest written before the field
+existed, which is not the claim that it covers nothing: such an input covers
+every file, as before, and the next refresh re-reads it to learn its languages
+— once, since a parse records them. Without that, `index` over an unchanged
+tree parses nothing and the loop survived on every existing index. Additive,
+so no `schema_version` bump.
 
 **A SCIP input carries `mtime` and `size` for the same reason, and `tool`,
 `documents` and `ambiguous` are *not* compared.** Those are only
