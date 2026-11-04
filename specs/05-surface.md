@@ -398,8 +398,13 @@ gate in a repository unanswerable.
   covered (#132). A SCIP index built from one crate of a workspace, or one
   language of a polyglot tree, leaves the exact tier blind there, and
   `calls_exact` over those files answered `ok` and empty while `calls` had the
-  edge. The hint gains `N of M indexed file(s) have no SCIP document: a.rs,
-  ...`. Not asked when SCIP is absent or matched nothing (`no-scip` says that),
+  edge. On an empty answer the hint gains `N of M indexed file(s) have no SCIP
+  document: a.rs, ...`, as it does for `unread`. It used to ride on every
+  answer whose closure reached SCIP, and on a repository whose uncovered files
+  are fixtures and fuzz targets that was every `calls` question: the note came
+  ahead of the hint that mattered and taught a caller to skip the slot. The
+  count is the signal on a non-empty answer, and a gate reads the count. Not
+  asked when SCIP is absent or matched nothing (`no-scip` says that),
   and not counted on an answer whose closure never reaches SCIP.
 
 **One note says what the call graph cannot see (#152).** When
@@ -868,7 +873,11 @@ writer lock leaves the catalog counted from the index as it stands, with status
 another schema is `stale` with `query`'s hint and **its counts are not read**:
 they belong to a format this build does not speak, so the catalog carries zeros,
 as it does with no index, and `schema` agrees with `query` and `status` about
-the one index (#135). The exit code is unchanged: 0, as for every `schema`
+the one index (#135). **The zeros say why, in the catalog, as no-index's do.**
+A catalog headed "Counts from THIS index" and full of zeros reads as an empty
+repository, and the `status=stale` that contradicts it comes after 5,800
+characters of catalog. The page ends `THE INDEX IS STALE` with the reason the
+counts are zero; the command stays in the hint, where `query` puts it. The exit code is unchanged: 0, as for every `schema`
 verdict but a store that will not load. `tests/surface.rs` asserts the counts equal what a query
 sees on a tree edited since indexing, and that a lock-blocked refresh reports
 `stale`. (Before this, `schema` reported `ok` over a tree with 45 files changed,
@@ -1217,6 +1226,17 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
 }
 ```
 
+- **`stats` over MCP carries what a caller acts on, not the planner's working.**
+  `structuredContent` keeps `derived`, `refreshed`, `unread` and
+  `scip_uncovered`, plus `shadowed` and `widened` when non-empty — those two
+  are warnings about the caller's own rules and must not go quiet. It drops
+  `transformed`, `depends` and `demand`: magic-set adornments and a
+  dependency closure, which an agent has no use for and which cost more bytes
+  than the rows of a small answer (a 4-row answer: 1,018 bytes as JSON
+  against 344 as text, measured 2026-11-04 from Claude Code, which reads
+  `structuredContent`). `codeintel query --format json` keeps every key: it
+  is where a human debugging a slow query looks, and the tests that pin a
+  closure read it there.
 - **`stats` on `timeout` and `budget-exceeded` is what the run measured**, not
   defaults: `derived` and `elapsed_ms` at the abort, and the `depends`, `demand`
   and `transformed` that were decided before evaluation began — which is exactly
@@ -1282,6 +1302,19 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
   re-evaluate. Comparisons, assignments, `between` and the string tests keep
   the `matched 0 rows` wording; whether it misleads there is tracked
   separately on #124.
+- **An empty caller question says where a trait impl's callers are.** When the
+  literal that emptied the join is `calls`, `calls_exact`, `calls_at`,
+  `impact_of` or `impact_of_exact`, and the index holds an impl row
+  (`name_impl` or `scip_impl`), the hint gains: a method that implements a
+  trait is called through the trait method, so join `impl_of(M, TM)` and ask
+  about `TM` too. The stdlib documents the gap (`rules/stdlib.dl`, the
+  `Symbols::intern` impl at 0 callers and the trait method at 233), but in the
+  schema, not in the answer that is wrong: an impl method's callers came back
+  `ok` and empty. The note is about the rule, not the seed: `EmptyAt` carries
+  no bindings, and testing whether *this* seed has an `impl_of` row would be
+  the re-evaluation the bullet above rules out. So it can fire on an empty
+  answer about a free function too, which is why it says "if", and why it is
+  gated on the index holding an impl at all.
 - **When a condition and an empty result coincide, the hint carries both**, as
   `condition. also: emptiness`, and the **status stays the condition**. The two
   are different facts: the condition says what the index could not see, the

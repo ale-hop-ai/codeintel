@@ -161,6 +161,15 @@ impl fmt::Display for Schema<'_> {
                  indexed, not because your code has none of these. run: codeintel index .\n",
             )?;
         }
+        if census.stale_schema {
+            // The command is in the hint, which names the root; a bare
+            // `index .` here would leave it stale (#155, #156).
+            f.write_str(
+                "\nTHE INDEX IS STALE. Every count above is 0 because it was written for\n\
+                 another schema and was not read, not because your code has none of these.\n\
+                 the hint says how to rebuild it.\n",
+            )?;
+        }
         Ok(())
     }
 }

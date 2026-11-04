@@ -704,15 +704,11 @@ fn evaluate(
         });
     }
     // Partial coverage: the exact tier is blind in the files no document
-    // covered, on any answer, empty or not (#132). The status stays; the count
-    // is the structural signal.
+    // covered (#132). The status stays, and `stats.scip_uncovered` counts it
+    // on every answer. The prose goes on an empty one only, below, as the
+    // syntax-error and unread notes do: on every answer it rode ahead of the
+    // hint that mattered and taught a caller to skip the slot.
     let uncovered = loaded.scip.uncovered_for(&result.stats.depends);
-    if let Some(note) = uncovered_note(uncovered, loaded.manifest.files.len()) {
-        hint = Some(match hint {
-            Some(condition) => compose(&condition, &note, ". also: "),
-            None => note,
-        });
-    }
 
     // The answer for one set of kept rows. `byte_cut` is whether
     // `max_result_bytes` dropped any.
@@ -758,8 +754,8 @@ fn evaluate(
             // (`specs/05-surface.md` § Status taxonomy).
             hint = Some(match hint {
                 Some(condition) if status != Status::Ok => compose(&condition, &cut, ". also: "),
-                // An `ok` that already carries a note (partial coverage) keeps
-                // it behind the cut.
+                // An `ok` that already carries a note (test reach) keeps it
+                // behind the cut.
                 Some(note) => {
                     status = Status::Truncated;
                     compose(&cut, &note, ". also: ")
@@ -787,6 +783,9 @@ fn evaluate(
                 empty = compose(&empty, &note, ". also: ");
             }
             if let Some(note) = unread_note(&loaded.manifest) {
+                empty = compose(&empty, &note, ". also: ");
+            }
+            if let Some(note) = uncovered_note(uncovered, loaded.manifest.files.len()) {
                 empty = compose(&empty, &note, ". also: ");
             }
             hint = Some(match hint {
@@ -1179,10 +1178,37 @@ fn empty_hint(
         }
     }
     format!(
-        "`{text}` matched 0 rows{}{}",
+        "`{text}` matched 0 rows{}{}{}",
         preceding(at, "; "),
-        integer_hint(at, engine)
+        integer_hint(at, engine),
+        trait_call_hint(rule, relations)
     )
+}
+
+/// Where an impl method's callers are, when a caller question came back
+/// empty (`specs/05-surface.md` § Response contract).
+///
+/// A call through a trait resolves to the trait method, so an impl method
+/// answers 0 callers, `ok`. Said of the rule, not the seed: the literal carries
+/// no bindings, and finding out whether this seed implements anything would be
+/// a second evaluation. Gated on the index holding an impl at all.
+fn trait_call_hint(rule: &str, relations: &BTreeMap<&str, Relation>) -> &'static str {
+    const CALLERS: [&str; 5] = [
+        "calls",
+        "calls_exact",
+        "calls_at",
+        "impact_of",
+        "impact_of_exact",
+    ];
+    let impls = ["name_impl", "scip_impl"]
+        .iter()
+        .any(|r| relations.get(r).is_some_and(|rel| !rel.is_empty()));
+    if CALLERS.contains(&rule) && impls {
+        ". if the method implements a trait, its callers call the trait method: join \
+         impl_of(M, TM) and ask about TM too"
+    } else {
+        ""
+    }
 }
 
 /// `everything before it in the join matched` behind `separator`, unless
@@ -1682,12 +1708,16 @@ impl ScipState {
         }
         Some((
             Status::ScipStale,
-            format!(
-                "{} file(s) changed after the SCIP index was built, so their `name_ref` rows are \
-                 fresh and their `scip_ref` rows are not: {}. {}",
-                self.stale.len(),
-                name_list(&self.stale),
-                self.rerun()
+            // `sentence`, because a list of more than five ends `...` and a
+            // fixed `. ` after it read `.... run:`.
+            sentence(
+                &format!(
+                    "{} file(s) changed after the SCIP index was built, so their `name_ref` \
+                     rows are fresh and their `scip_ref` rows are not: {}",
+                    self.stale.len(),
+                    name_list(&self.stale)
+                ),
+                &self.rerun(),
             ),
         ))
     }
@@ -1812,6 +1842,7 @@ pub fn count(
     {
         let census = Census {
             indexed: true,
+            stale_schema: true,
             ..Census::default()
         };
         return Ok((census, (Status::Stale, Some(hint))));

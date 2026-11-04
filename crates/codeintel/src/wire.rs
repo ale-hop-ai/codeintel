@@ -49,6 +49,14 @@ impl Wire {
 /// raw atoms under `raw` (`specs/05-surface.md` § The consumer).
 #[must_use]
 pub fn json(answer: &Answer, raw: bool) -> serde_json::Value {
+    document(answer, raw, true)
+}
+
+/// [`json`], with `stats` cut to what a caller acts on unless `full`. MCP
+/// sends the cut form (`specs/05-surface.md` § Response contract): the
+/// planner's working — adornments, closure, demand — is for a human at the
+/// CLI.
+fn document(answer: &Answer, raw: bool, full: bool) -> serde_json::Value {
     let mut map = serde_json::Map::new();
     map.insert("status".into(), answer.status.as_str().into());
     map.insert("columns".into(), serde_json::json!(answer.columns));
@@ -84,11 +92,19 @@ pub fn json(answer: &Answer, raw: bool) -> serde_json::Value {
             let mut stats = serde_json::Map::new();
             stats.insert("derived".into(), answer.derived.into());
             stats.insert("refreshed".into(), answer.refreshed.into());
-            stats.insert("transformed".into(), serde_json::json!(answer.transformed));
-            stats.insert("demand".into(), answer.demand.as_str().into());
-            stats.insert("depends".into(), serde_json::json!(answer.depends));
-            stats.insert("shadowed".into(), serde_json::json!(answer.shadowed));
-            stats.insert("widened".into(), serde_json::json!(answer.widened));
+            if full {
+                stats.insert("transformed".into(), serde_json::json!(answer.transformed));
+                stats.insert("demand".into(), answer.demand.as_str().into());
+                stats.insert("depends".into(), serde_json::json!(answer.depends));
+            }
+            // Warnings about the caller's own rules: kept on every wire, but
+            // only the full one pays for them empty.
+            if full || !answer.shadowed.is_empty() {
+                stats.insert("shadowed".into(), serde_json::json!(answer.shadowed));
+            }
+            if full || !answer.widened.is_empty() {
+                stats.insert("widened".into(), serde_json::json!(answer.widened));
+            }
             // What the index could not see, without prose. Omitted at zero so
             // the common answer pays nothing (`specs/05-surface.md` § `query`,
             // #130, #132).
@@ -277,7 +293,7 @@ pub fn tool_result(answer: &Answer, structured: bool, raw: bool) -> serde_json::
         };
         serde_json::json!({
             "content": content,
-            "structuredContent": json(answer, raw),
+            "structuredContent": document(answer, raw, false),
             "isError": is_error,
         })
     } else {
