@@ -62,7 +62,7 @@ provision apply tasks/install.yml --prop dest=/usr/local/bin/codeintel
 `target/release/`. Both are idempotent: a second `install` run reports `ok` and
 copies nothing.
 
-Without [provision](https://github.com/alehatsman/provision), the same two
+Without [provision](https://github.com/ale-hop-ai/provision), the same two
 steps by hand:
 
 ```sh

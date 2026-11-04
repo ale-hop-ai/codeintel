@@ -22,7 +22,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: install provision
-        run: cargo install --locked --git https://github.com/alehatsman/provision.git
+        run: cargo install --locked --git https://github.com/ale-hop-ai/provision.git
 
       - name: tools — check out rust-quality, install the gate's tools
         run: provision apply tasks/tools.yml

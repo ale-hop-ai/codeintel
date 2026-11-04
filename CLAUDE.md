@@ -28,8 +28,8 @@ outranks §6 on crate choice; a deliberate deviation gets its trigger written
 down. The bar is high — that table is the entire budget.
 
 **Quality gate.** This repo consumes
-[rust-quality](https://github.com/alehatsman/rust-quality) via
-[provision](https://github.com/alehatsman/provision); `provision`'s own `tasks/`
+[rust-quality](https://github.com/ale-hop-ai/rust-quality) via
+[provision](https://github.com/ale-hop-ai/provision); `provision`'s own `tasks/`
 is the reference wiring. Read `rust-quality/docs/RUST.md` before writing Rust.
 
 ```sh
@@ -181,8 +181,8 @@ Non-negotiable, per milestone in [docs/plan.md](docs/plan.md):
 
 ## Friction
 
-The user's tools are `provision` (alehatsman/provision) and `moongit`
-(alehatsman/moongit). Friction with them — crashes, missing capability, unclear
+The user's tools are `provision` (ale-hop-ai/provision) and `codefort`
+(ale-hop-ai/codefort, formerly moongit). Friction with them — crashes, missing capability, unclear
 errors, broken idempotency — gets captured with `gh issue create`, never
 patched, never routed around. Queue it and raise it at close. Do not derail the
 current task.
