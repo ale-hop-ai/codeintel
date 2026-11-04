@@ -204,7 +204,7 @@ pub fn schema_json(
             .collect::<Vec<_>>(),
         "kinds": counted(extract::lang::KINDS, &census.kinds),
         "roles": counted(extract::lang::ROLES, &census.roles),
-        "roles_counted_over": "scip_ref",
+        "roles_counted_over": ["scip_ref", "name_ref"],
     })
 }
 

@@ -24,7 +24,7 @@
     },
     {
       "demand": "applied",
-      "derived": 1986,
+      "derived": 1992,
       "digest": "df4ecae76c5d8bd3225d03d78be1853a8fc594caa2db80c3c81fe081dac047ee",
       "id": "3",
       "rows": 4,
@@ -33,7 +33,7 @@
     },
     {
       "demand": "applied",
-      "derived": 2314,
+      "derived": 2369,
       "digest": "1a3f2208a4c191140a2a61e4021d3b3f65bdb4bc814efd089a6cd5eb10ea4342",
       "id": "4",
       "rows": 24,
@@ -42,7 +42,7 @@
     },
     {
       "demand": "applied",
-      "derived": 2056,
+      "derived": 2062,
       "digest": "06aa79aeb5f5795503bc798fe8e201e12575bac60911472c562a954895883c73",
       "id": "5",
       "rows": 12,
@@ -60,16 +60,16 @@
     },
     {
       "demand": "nothing to seed: no derived literal has a bound argument",
-      "derived": 3736,
-      "digest": "7445fb4a5abfd72c0d4e12e08cb5552e365530da642681854242a04c990f979e",
+      "derived": 4096,
+      "digest": "00cca71350a07da8cb692ad435307f5cdbe98392c28ad86be42b6f60c0b83f72",
       "id": "7",
-      "rows": 128,
+      "rows": 112,
       "status": "no-scip",
       "truncated": false
     },
     {
       "demand": "nothing to seed: no derived literal has a bound argument",
-      "derived": 4981,
+      "derived": 5227,
       "digest": "38acd9fcce5b11d0c63e49d2d3bf5358634ceee176432bb5da14fd82b628ed16",
       "id": "8",
       "rows": 231,
@@ -78,10 +78,10 @@
     },
     {
       "demand": "nothing to seed: no derived literal has a bound argument",
-      "derived": 3521,
-      "digest": "8f31ae33d4726f851d7658e73014aefd29e927dd805c593ee8375610aff2374e",
+      "derived": 3940,
+      "digest": "10c4d764bc49e71084453c74a9664f1d77d89a37abd3710ffc18ae07b0432c34",
       "id": "9",
-      "rows": 44,
+      "rows": 70,
       "status": "no-scip",
       "truncated": false
     }

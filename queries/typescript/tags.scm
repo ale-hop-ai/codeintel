@@ -153,3 +153,18 @@
 (new_expression constructor: (identifier) @name) @reference.call
 (new_expression
   constructor: (member_expression property: (property_identifier) @name)) @reference.call
+
+; --- type positions and imports ---------------------------------------------
+;
+; Every type identifier is a `type` occurrence: an annotation, a union, a
+; generic argument, an `extends` or `implements` clause. A definition's own
+; name is dropped by the extractor, by position (02-extraction.md
+; § Emission). A generic parameter's declaration is captured too, and
+; resolves only where something of its name is defined.
+
+(type_identifier) @name @reference.type
+
+; `import { Store } from "m"` and `import { Store as S }`: the name imported.
+; A default import names a local binding, not the export, and is not here.
+
+(import_specifier name: (identifier) @name) @reference.import

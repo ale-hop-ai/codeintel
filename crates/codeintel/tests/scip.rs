@@ -639,7 +639,7 @@ fn removing_the_scip_index_drops_the_files_only_it_covered() {
         .is_empty(),
         "the ignored file is covered by SCIP alone"
     );
-    assert!(rows(dir.path(), r#"?- name_ref(N, "src/app.rs", L, C, X)."#).is_empty());
+    assert!(rows(dir.path(), r#"?- name_ref(N, "src/app.rs", L, C, X, R)."#).is_empty());
 
     std::fs::remove_file(dir.path().join("index.scip")).expect("removes");
     index(dir.path());

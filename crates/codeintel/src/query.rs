@@ -1182,8 +1182,8 @@ fn string_constants(at: &EmptyAt, engine: &Engine) -> Vec<(usize, String)> {
 /// integer is a different atom from the integer and can never match it; that
 /// is the one case where naming the replacement is a statement about the atom
 /// space, not a guess about the code.
-/// Tier A's `name_ref` is call sites only (every `@reference.call` in
-/// `queries/*/tags.scm`), so `name_ref` on a field's
+/// Tier A's `name_ref` is calls, type positions and imports (every
+/// `@reference.<role>` in `queries/*/tags.scm`), so `name_ref` on a field's
 /// name is empty wherever the field is only read, and that empty read as "no
 /// one reads it" (#145). Said only when the name is a `field` definition's, so
 /// the note never fires on a misspelling.
@@ -1212,9 +1212,9 @@ fn property_read_hint(
         return String::new();
     }
     format!(
-        ". `{bare}` is a field, and tier A's `name_ref` holds call sites only — no property \
-         reads (`obj.{bare}`) — so empty here is not \"no one reads it\". a SCIP index \
-         resolves the reads as `scip_ref`"
+        ". `{bare}` is a field, and tier A's `name_ref` holds calls, types and imports — no \
+         property reads (`obj.{bare}`) — so empty here is not \"no one reads it\". a SCIP \
+         index resolves the reads as `scip_ref`"
     )
 }
 
@@ -1546,25 +1546,21 @@ impl ScipState {
                 "`codeintel index` runs the SCIP indexers. run: codeintel index {root}"
             );
         }
-        let misplaced = |r: &facts::IndexerRun| r.outcome.ends_with(" at the root");
+        let absent = |r: &facts::IndexerRun| r.outcome.ends_with(" in the tree");
         let why: Vec<String> = failed
             .iter()
             .map(|r| {
                 if r.outcome == "not on PATH" {
                     format!("{} is not on PATH; install it", r.program)
-                } else if misplaced(r) {
-                    format!(
-                        "{}: {} — run `{}` where it is and pass the output with --scip and \
-                         --scip-root",
-                        r.program, r.outcome, r.command
-                    )
+                } else if absent(r) {
+                    format!("{}: {}", r.program, r.outcome)
                 } else {
                     format!("{}: {}, see {}", r.program, r.outcome, r.log)
                 }
             })
             .collect();
         let why = why.join("; ");
-        if failed.iter().all(|r| misplaced(r)) {
+        if failed.iter().all(|r| absent(r)) {
             // Re-running `index` would skip them again.
             format!("the last `codeintel index` built none: {why}")
         } else {

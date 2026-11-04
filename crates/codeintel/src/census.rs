@@ -158,9 +158,12 @@ impl Census {
         census.anchored = tier_a.intersection(&resolved).count();
         census.tier_a_defs = tier_a.len();
 
-        // scip_ref(S, F, Line, Col, From, Role)
-        if let Some(refs) = relations.get("scip_ref") {
-            for row in refs.iter() {
+        // scip_ref(S, F, Line, Col, From, Role) and
+        // name_ref(Name, F, Line, Col, From, Role): `ref` carries the role of
+        // whichever tier answered, so a role counted at 0 here is one no `ref`
+        // row can carry either.
+        for name in ["scip_ref", "name_ref"] {
+            for row in relations.get(name).into_iter().flat_map(Relation::iter) {
                 if let Some(role) = row.get(5).copied().and_then(|a| store.resolve(a)) {
                     *census.roles.entry(role.to_string()).or_default() += 1;
                 }
@@ -390,12 +393,17 @@ impl fmt::Display for Report<'_> {
         // What the last `index` did with each indexer, so a bug report says
         // why there is no tier B (`specs/05-surface.md` § `status`).
         for run in &manifest.indexers {
+            let at = if run.root.is_empty() {
+                String::new()
+            } else {
+                format!(" in {}", run.root)
+            };
             if run.log.is_empty() {
-                writeln!(f, "indexer: {} — {}", run.command, run.outcome)?;
+                writeln!(f, "indexer: {}{at} — {}", run.command, run.outcome)?;
             } else {
                 writeln!(
                     f,
-                    "indexer: {} — {} (log: {})",
+                    "indexer: {}{at} — {} (log: {})",
                     run.command, run.outcome, run.log
                 )?;
             }

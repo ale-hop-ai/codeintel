@@ -69,3 +69,20 @@
 
 (call function: (identifier) @name) @reference.call
 (call function: (attribute attribute: (identifier) @name)) @reference.call
+
+; --- type positions and imports ---------------------------------------------
+;
+; An annotation's names are `type` occurrences: `x: Store`, `-> mod.Store`,
+; `list[Store]`. A base class is an argument, not a `type` node, and is not
+; here.
+
+(type (identifier) @name) @reference.type
+(type (attribute attribute: (identifier) @name)) @reference.type
+(generic_type (identifier) @name) @reference.type
+
+; `from m import Store` and `from m import Store as S`: the name imported.
+; `import m` names a module, which is `import`'s.
+
+(import_from_statement name: (dotted_name (identifier) @name)) @reference.import
+(import_from_statement
+  name: (aliased_import name: (dotted_name (identifier) @name))) @reference.import

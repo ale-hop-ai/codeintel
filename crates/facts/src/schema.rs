@@ -17,7 +17,7 @@
 //! token. That is invariant 3, and it is the same move `ref` made in v1.
 
 /// Bumped whenever a relation is added, removed, or changes arity.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// One base relation.
 ///
@@ -154,8 +154,8 @@ pub const RELATIONS: &[Rel] = &[
     Rel {
         id: 11,
         name: "name_ref",
-        arity: 5,
-        args: "(Name, F, Line, Col, From)",
+        arity: 6,
+        args: "(Name, F, Line, Col, From, Role)",
         note: "unresolved, tier A",
         scip_only: false,
     },

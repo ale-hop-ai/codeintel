@@ -13,7 +13,7 @@ use facts::{Interner, Segment};
 use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
 use crate::error::{Error, Result};
-use crate::lang::{Export, Lang, TYPE_LIKE, Vis};
+use crate::lang::{Export, Lang, NAME_ROLES, TYPE_LIKE, Vis};
 use crate::sweep::{self, Span};
 use crate::symbol;
 use crate::tier_b::Anchors;
@@ -178,10 +178,12 @@ struct Tag<'a> {
     qualifiers: Vec<String>,
 }
 
-/// One `@reference.call` occurrence.
+/// One `@reference.<role>` occurrence.
 #[derive(Debug)]
 struct Occurrence {
     name: String,
+    /// The capture suffix, one of [`NAME_ROLES`].
+    role: &'static str,
     at: usize,
     line: u32,
     col: u32,
@@ -482,6 +484,7 @@ impl Extractor {
                     int(path, occurrence.line)?,
                     int(path, occurrence.col)?,
                     from,
+                    atom(interner, occurrence.role)?,
                 ],
             );
         }
@@ -544,9 +547,18 @@ impl Extractor {
                     qualifiers.push(collapse(target, usize::MAX));
                 }
             }
-            if label == "reference.call" {
+            if let Some(suffix) = label.strip_prefix("reference.") {
+                let role =
+                    NAME_ROLES
+                        .iter()
+                        .find(|r| **r == suffix)
+                        .ok_or_else(|| Error::Capture {
+                            lang: self.lang.name,
+                            capture: (*label).to_string(),
+                        })?;
                 occurrences.push(Occurrence {
                     name: text,
+                    role,
                     at: name.start_byte(),
                     line: line_of(name),
                     col: col_of(name),
@@ -586,6 +598,20 @@ impl Extractor {
                 },
             ));
         }
+        // A definition's own identifier declares the name, it does not use
+        // it: `struct Store` is no reference to `Store`. And a node two
+        // patterns both capture is one occurrence. Both are by position, so
+        // neither depends on which language's patterns overlapped
+        // (`specs/02-extraction.md` § Emission).
+        let declared: BTreeSet<(u32, u32)> = items
+            .iter()
+            .filter(|i| i.is_def)
+            .map(|i| i.name_at)
+            .collect();
+        let mut seen = BTreeSet::new();
+        occurrences.retain(|o| {
+            !declared.contains(&(o.line, o.col)) && seen.insert((o.at, o.name.clone()))
+        });
         Ok((items, occurrences))
     }
 

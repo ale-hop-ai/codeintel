@@ -101,3 +101,22 @@
 (call_expression function: (field_expression field: (field_identifier) @name)) @reference.call
 (call_expression function: (generic_function function: (identifier) @name)) @reference.call
 (macro_invocation macro: (identifier) @name) @reference.call
+
+; --- type positions and imports --------------------------------------------
+;
+; Every type identifier is a `type` occurrence: an annotation, a generic
+; argument, a struct literal, the type and the trait of an `impl`. A
+; definition's own name is dropped by the extractor, by position, in every
+; language (02-extraction.md § Emission). A generic parameter's declaration
+; is captured too, and resolves only where something of its name is defined.
+
+(type_identifier) @name @reference.type
+
+; The final name of a `use` path: what it brings into scope.
+
+(use_declaration argument: (identifier) @name) @reference.import
+(use_declaration argument: (scoped_identifier name: (identifier) @name)) @reference.import
+(use_list (identifier) @name) @reference.import
+(use_list (scoped_identifier name: (identifier) @name)) @reference.import
+(use_as_clause path: (identifier) @name) @reference.import
+(use_as_clause path: (scoped_identifier name: (identifier) @name)) @reference.import

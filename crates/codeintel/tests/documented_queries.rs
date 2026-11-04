@@ -689,7 +689,7 @@ fn answers_over_both_provenance_tiers_are_byte_identical_across_runs() {
     );
     for relation in [
         "scip_ref(S, F, L, C, From, R)",
-        "name_ref(N, F, L, C, From)",
+        "name_ref(N, F, L, C, From, R)",
     ] {
         let tier = assert_stable(
             "tiers",

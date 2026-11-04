@@ -405,12 +405,13 @@ fn every_language_in_one_tree_is_one_index() {
     drop(std::fs::remove_file(dir.path().join("cli/index.scip")));
 
     let summary = index(dir.path());
-    // Every indexer command, because every language is present and no gap
-    // should need looking for (`specs/02-extraction.md` § Acquisition).
-    assert!(summary.contains("scip-go"), "{summary}");
-    assert!(summary.contains("rust-analyzer scip ."), "{summary}");
-    assert!(summary.contains("scip-python"), "{summary}");
-    assert!(summary.contains("scip-typescript"), "{summary}");
+    // Every indexer, in the directory holding its project file, because
+    // every language is present and no gap should need looking for
+    // (`specs/02-extraction.md` § Acquisition). scip-python needs none.
+    assert!(summary.contains("scip-go in svc"), "{summary}");
+    assert!(summary.contains("rust-analyzer in cli"), "{summary}");
+    assert!(summary.contains("scip-python:"), "{summary}");
+    assert!(summary.contains("scip-typescript in ts"), "{summary}");
 
     let (rows, stderr) = query(dir.path(), "?- file(F, Lang).");
     assert!(stderr.contains("status=ok"), "{stderr}");

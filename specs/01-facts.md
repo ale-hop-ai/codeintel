@@ -1,7 +1,7 @@
 ---
 id: facts
 status: proposed
-schema_version: 3
+schema_version: 4
 binding: yes
 ---
 # 01 — Fact schema
@@ -60,8 +60,13 @@ macro  typealias  unknown
 
 **`Role`** — how an occurrence uses the symbol:
 ```
-read  write  import  test  generated  forward  unknown
+read  write  import  test  generated  forward  call  type  unknown
 ```
+Two sources fill one column. `scip_ref` carries the SCIP protocol's bits —
+everything but `call` and `type`. `name_ref` carries the syntax position
+tier A captured it in — `call`, `type` or `import` (§ `name_ref`) — and `ref`
+passes either through. No indexer emits `call` or `type`; no tier A row is
+`read`.
 There is no `def`. A definition occurrence becomes a `def`/`at` row rather than
 a `scip_ref` one, so a `def` role could never match — see § `scip_ref` (#44).
 
@@ -434,12 +439,12 @@ because nothing could fail it: `?- scip_ref(S, F, L, C, _, "def").` answered
 `ok` with zero rows, which reads as "this index has none" rather than "this can
 never match" (#44).
 
-### `name_ref(Name, F, Line, Col, From)`
+### `name_ref(Name, F, Line, Col, From, Role)`
 An **unresolved** identifier occurrence from tier A: the text `Name` appears at
 `F:Line:Col` inside definition `From`, in a position the grammar calls a
-reference. It names no symbol.
+reference, of kind `Role`. It names no symbol.
 ```
-name_ref("get", "src/api.rs", 88, 12, "local src/api.rs handler#read().").
+name_ref("get", "src/api.rs", 88, 12, "local src/api.rs handler#read().", "call").
 ```
 This relation is deliberately *local* — every column is derivable from that one
 file. Resolving a name to a symbol needs whole-repo knowledge, so it happens in
@@ -455,18 +460,38 @@ are load-bearing:
    reasonably want to tighten or loosen. In `stdlib.dl` it is four readable
    rules; in Rust it is a decision nobody can see.
 
-**What "a position the grammar calls a reference" is, today: a call site and
-nothing else.** Every `name_ref` row comes from an `@reference.call` capture in
-`queries/*/tags.scm` (and `queries/typescript/jsx.scm`): a function or method
-call, a `new`, a macro invocation, a capitalised JSX element. A property read
-(`obj.field`), a plain identifier read and a type annotation leave no row. So
-`name_ref` on a field's name is empty wherever the field is only read, and that
-empty is not "no one reads it" — the empty-result hint says so when the name is
-a `field` definition's (#145). Capturing reads is deferred, not refused: without
-a role column a captured `obj.f` is indistinguishable from the `x.f` inside
-`x.f()`, and `ref` would resolve it by name into a `calls` edge to any method
-`f`. A `Role` on `name_ref` is the way to do it, and that is an ABI change
-(invariant 4) waiting for a second reason.
+**What "a position the grammar calls a reference" is, today: three roles.**
+Every `name_ref` row comes from a `@reference.<role>` capture in
+`queries/*/tags.scm` (and `queries/typescript/jsx.scm`), and the suffix is the
+`Role` ([02-extraction.md](02-extraction.md) § Emission):
+
+| Role | What | Languages |
+|---|---|---|
+| `call` | a function or method call, a `new`, a macro invocation, a capitalised JSX element | all four |
+| `type` | an identifier where the grammar says type: an annotation, a generic argument, an `impl`/`implements`/`extends` target, a struct literal | all four |
+| `import` | the name a `use` / `from m import` / `import { }` brings in | Rust, Python, TypeScript; a Go import names a package, which is `import/3`'s |
+
+A definition's own name is never a row: it declares the name, it does not use
+it. A generic parameter's declaration (`<T>`) is a `type` row — the grammar
+writes it as a type identifier — and resolves only where something named `T`
+is defined. Builtins (`bool`, `int`, `String`) are rows too; they resolve to
+nothing unless the repository defines the name.
+
+A property read (`obj.field`) and a plain identifier read still leave no row.
+So `name_ref` on a field's name is empty wherever the field is only read, and
+that empty is not "no one reads it" — the empty-result hint says so when the
+name is a `field` definition's (#145). With the column in place, capturing
+reads is one more capture and one more role; it is not done yet because
+nothing has measured what it adds to `name_ref` or costs `ref`.
+
+Before schema 4 the relation had no `Role` column and held call sites only.
+#145 deferred property reads behind the column: without it a captured `obj.f`
+is indistinguishable from the `x.f` inside `x.f()`, and `ref` would resolve it
+by name into a `calls` edge to any method `f`. #153 — every type alias and
+interface answering "no one uses it", 12 of 1585 aliases with a reference on
+the reporting repository — was the second reason, and the column came with
+it. `calls_at` takes no `type` or `import` row, so neither moves the call
+graph.
 
 ### `scip_impl(S, T)`
 `S` implements, satisfies, or overrides `T`, as the **compiler** said so: from
@@ -704,13 +729,19 @@ ref(S, F, L, C, From, Role, "exact") :-
 
 % Name matching is a FALLBACK, not a parallel claim: it fires only where tier B
 % never resolved this occurrence. See § Tier precedence below.
+% The role is tier A's. A `type` position never names a callable.
 % same file wins
-ref(S, F, L, C, From, "read", "name") :-
-    name_ref(N, F, L, C, From), !scip_claim(F, L, C), def(S, F, _, N).
+ref(S, F, L, C, From, R, "name") :-
+    name_ref(N, F, L, C, From, R), R != "type", !scip_claim(F, L, C), def(S, F, _, N).
+ref(S, F, L, C, From, "type", "name") :-
+    name_ref(N, F, L, C, From, "type"), !scip_claim(F, L, C), def(S, F, K, N), !callable(K).
 % else a unique exported definition repo-wide
-ref(S, F, L, C, From, "read", "name") :-
-    name_ref(N, F, L, C, From), !scip_claim(F, L, C), !local_def(F, N),
+ref(S, F, L, C, From, R, "name") :-
+    name_ref(N, F, L, C, From, R), R != "type", !scip_claim(F, L, C), !local_def(F, N),
     def(S, _, _, N), exported(S), !ambiguous(N).
+ref(S, F, L, C, From, "type", "name") :-
+    name_ref(N, F, L, C, From, "type"), !scip_claim(F, L, C), !local_def(F, N),
+    def(S, _, K, N), !callable(K), exported(S), !ambiguous(N).
 
 local_def(F, N) :- def(S, F, _, N).
 % Grouped, not a self-join. The self-join form emits k*k candidate pairs for a
@@ -905,7 +936,7 @@ callable("function"). callable("method"). callable("constructor"). callable("mac
 
 % --- calls: a reference to a callable, attributed to its enclosing def --
 calls_at(From, S, F, L, Prov) :-
-    ref(S, F, L, _, From, _, Prov),
+    ref(S, F, L, _, From, R, Prov), R != "import", R != "type",
     def(From, _, FromKind, _), FromKind != "module",
     def(S, _, K, _), callable(K).
 calls(From, S) :- calls_at(From, S, _, _, _).
@@ -1329,3 +1360,4 @@ that `name_ref` exists to prevent.
 | 1 | Initial. 14 relations. `ref` is derived from `scip_ref` + `name_ref`; tier A does not resolve names. |
 | 2 | 15 relations. `exported` and `implements` become derived, each over a narrower base fact — the same move `ref` made in v1. `exported/1` → `visibility/2`; `implements/3` → `scip_impl/2` + `name_impl/4`. Both derived relations keep their v1 name and arity, so no query or rule that *consumed* them changes. |
 | 3 | 16 relations, the ceiling. `name_export/2`: a TypeScript `export { x }` / `export default x` clause, by local name. `exported` gains a third clause over it (#22). Nothing else moves. |
+| 4 | `name_ref/5` → `name_ref/6`: a `Role` column, `call`, `type` or `import` (#153). `Role` gains `call` and `type`. Tier A records type positions and imported names beside call sites; the name tier of `ref` carries the role instead of a constant `"read"`, a `type` row never resolves to a callable, and `calls_at` takes neither `type` nor `import`. **Migration:** a query naming `name_ref` adds a sixth argument (`_` for any role); a query matching `ref(..., "read", "name")` asks for `"call"`. An index written for 3 answers `stale` until `codeintel index --rebuild`. |

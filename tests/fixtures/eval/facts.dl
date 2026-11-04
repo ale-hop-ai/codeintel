@@ -223,9 +223,9 @@ scip_ref("scip serde 1.0.0 serde/Deserialize#", "src/store.rs", 3, 22, "src/stor
 % === unresolved occurrences (tier A) ===================================
 % Go and TypeScript: an identifier, a position, and the definition it sits in.
 % It names no symbol; resolution is stdlib.dl's job.
-name_ref("serve", "cmd/server/main.go", 8, 4, "local cmd/server/main.go main().").
-name_ref("Start", "cmd/server/main.go", 40, 6, "local cmd/server/main.go serve().").
-name_ref("init", "cmd/server/main.go", 6, 4, "local cmd/server/main.go main().").
-name_ref("render", "web/app.ts", 50, 10, "local web/app.ts boot().").
-name_ref("render", "web/app.test.ts", 8, 6, "local web/app.test.ts test_render().").
-name_ref("boot", "web/app.test.ts", 5, 6, "local web/app.test.ts test_render().").
+name_ref("serve", "cmd/server/main.go", 8, 4, "local cmd/server/main.go main().", "call").
+name_ref("Start", "cmd/server/main.go", 40, 6, "local cmd/server/main.go serve().", "call").
+name_ref("init", "cmd/server/main.go", 6, 4, "local cmd/server/main.go main().", "call").
+name_ref("render", "web/app.ts", 50, 10, "local web/app.ts boot().", "call").
+name_ref("render", "web/app.test.ts", 8, 6, "local web/app.test.ts test_render().", "call").
+name_ref("boot", "web/app.test.ts", 5, 6, "local web/app.test.ts test_render().", "call").

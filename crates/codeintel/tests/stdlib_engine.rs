@@ -66,7 +66,7 @@ const BASE: [(&str, usize); 16] = [
     ("resolved", 1),
     ("import", 3),
     ("scip_ref", 6),
-    ("name_ref", 5),
+    ("name_ref", 6),
     ("scip_impl", 2),
     ("name_impl", 4),
     ("extern", 4),
@@ -166,7 +166,7 @@ fn store_fixture() -> Engine {
     install(
         &mut e,
         "name_ref",
-        &[&["get", "src/store.rs", "35", "8", "S#put()."]],
+        &[&["get", "src/store.rs", "35", "8", "S#put().", "call"]],
     );
     e.load_rules(codeintel::STDLIB).expect("stdlib loads");
     e
@@ -229,10 +229,10 @@ fn dangling_fixture() -> Engine {
         &mut e,
         "name_ref",
         &[
-            &["get", "src/store.rs", "35", "8", "S#put()."],
-            &["get", "src/store.rs", "36", "8", "S#put()."],
-            &["get", "src/store.rs", "37", "8", "S#put()."],
-            &["get", "src/store.rs", "38", "8", "S#put()."],
+            &["get", "src/store.rs", "35", "8", "S#put().", "call"],
+            &["get", "src/store.rs", "36", "8", "S#put().", "call"],
+            &["get", "src/store.rs", "37", "8", "S#put().", "call"],
+            &["get", "src/store.rs", "38", "8", "S#put().", "call"],
         ],
     );
     install(
@@ -286,7 +286,7 @@ fn a_dangling_scip_ref_does_not_suppress_the_name_tier() {
     );
     assert_eq!(
         rows,
-        vec!["\"S#get().\" \"S#put().\" \"read\" \"name\""],
+        vec!["\"S#get().\" \"S#put().\" \"call\" \"name\""],
         "the placeholder blocked tier A and answered nothing itself: {rows:?}"
     );
 

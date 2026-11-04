@@ -425,6 +425,12 @@ fn index_cmd(
     let runs = if no_scip || !scip.is_empty() || root.join(index::DEFAULT_SCIP).exists() {
         Vec::new()
     } else {
+        // Checked before anything runs, so a misplaced flag costs nothing.
+        anyhow::ensure!(
+            scip_roots.is_empty(),
+            "--scip-root names the root of a --scip input or ./index.scip; the indexers \
+             `index` runs declare their own"
+        );
         let prior = facts::Manifest::open(&dir)
             .ok()
             .flatten()
@@ -471,17 +477,20 @@ fn index_cmd(
     // `--scip` if given, else `./index.scip` when it is there, else whatever
     // the indexers left in the store — a failed run's previous output
     // included, whose files then answer `scip-stale`.
-    let scip = if no_scip {
-        Vec::new()
+    let (scip, scip_roots) = if no_scip {
+        (Vec::new(), scip_roots)
     } else if !scip.is_empty() {
-        scip
+        (scip, scip_roots)
     } else if root.join(index::DEFAULT_SCIP).exists() {
-        vec![PathBuf::from(index::DEFAULT_SCIP)]
+        (vec![PathBuf::from(index::DEFAULT_SCIP)], scip_roots)
     } else {
+        // Each output is relative to the root it ran in, and `index` chose
+        // that root, so it is declared here as `--scip-root` would declare it
+        // (specs/02-extraction.md § Acquisition).
         runs.iter()
-            .map(|r| PathBuf::from(&r.output))
-            .filter(|p| p.is_file())
-            .collect()
+            .filter(|r| std::path::Path::new(&r.output).is_file())
+            .map(|r| (PathBuf::from(&r.output), r.root.clone()))
+            .unzip()
     };
     store.manifest_mut().indexers = runs;
     // Pairing is checked here and nowhere later: a root silently reused for a

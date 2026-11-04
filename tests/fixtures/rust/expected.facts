@@ -219,21 +219,58 @@ name_impl("src/kinds.rs", "Config", "Debug", 67).
 name_impl("src/kinds.rs", "Config", "Display", 60).
 name_impl("src/kinds.rs", "Config", "Handler", 46).
 name_impl("src/kinds.rs", "Key", "Handler", 74).
-name_ref("assert", "tests/store_test.rs", 5, 4, "local tests/store_test.rs it_warms().").
-name_ref("clear", "src/store.rs", 34, 21, "local src/store.rs Store#evict().").
-name_ref("cloned", "src/store.rs", 24, 14, "local src/store.rs Store#get().").
-name_ref("get", "src/store.rs", 23, 33, "local src/store.rs Store#get().").
-name_ref("get", "src/store.rs", 40, 10, "local src/store.rs warm().").
-name_ref("insert", "src/store.rs", 30, 21, "local src/store.rs Store#put().").
-name_ref("is_empty", "src/db/conn.rs", 5, 9, "local src/db/conn.rs open().").
-name_ref("is_empty", "src/kinds.rs", 48, 31, "local src/kinds.rs Config#[Handler]handle().").
-name_ref("is_empty", "src/kinds.rs", 78, 14, "local src/kinds.rs Key#[Handler][`&Key`]handle().").
-name_ref("is_empty", "src/kinds.rs", 78, 33, "local src/kinds.rs Key#[Handler][`&Key`]handle().").
-name_ref("open", "src/app.rs", 9, 10, "local src/app.rs start().").
-name_ref("open", "src/ui/panel.rs", 10, 10, "local src/ui/panel.rs draw().").
-name_ref("starts_with", "src/net/conn.rs", 8, 8, "local src/net/conn.rs open().").
-name_ref("write_str", "src/kinds.rs", 63, 10, "local src/kinds.rs Config#[Display]fmt().").
-name_ref("write_str", "src/kinds.rs", 70, 10, "local src/kinds.rs Config#[Debug]fmt().").
+name_ref("Config", "src/kinds.rs", 46, 17, "src/kinds.rs", "type").
+name_ref("Config", "src/kinds.rs", 61, 27, "src/kinds.rs", "type").
+name_ref("Config", "src/kinds.rs", 68, 25, "src/kinds.rs", "type").
+name_ref("Debug", "src/kinds.rs", 68, 15, "src/kinds.rs", "type").
+name_ref("Debug", "src/store.rs", 5, 14, "src/store.rs", "import").
+name_ref("Display", "src/kinds.rs", 61, 15, "src/kinds.rs", "type").
+name_ref("Entry", "src/store.rs", 15, 29, "local src/store.rs Store#entries.", "type").
+name_ref("Entry", "src/store.rs", 22, 43, "local src/store.rs Store#get().", "type").
+name_ref("Entry", "src/store.rs", 30, 33, "local src/store.rs Store#put().", "type").
+name_ref("Entry", "src/store.rs", 39, 37, "local src/store.rs warm().", "type").
+name_ref("Formatter", "src/kinds.rs", 62, 36, "local src/kinds.rs Config#[Display]fmt().", "type").
+name_ref("Formatter", "src/kinds.rs", 69, 36, "local src/kinds.rs Config#[Debug]fmt().", "type").
+name_ref("Handler", "src/kinds.rs", 46, 5, "src/kinds.rs", "type").
+name_ref("Handler", "src/kinds.rs", 76, 5, "src/kinds.rs", "type").
+name_ref("HashMap", "src/store.rs", 15, 13, "local src/store.rs Store#entries.", "type").
+name_ref("HashMap", "src/store.rs", 4, 22, "src/store.rs", "import").
+name_ref("Key", "src/kinds.rs", 32, 27, "local src/kinds.rs Handler#handle().", "type").
+name_ref("Key", "src/kinds.rs", 47, 27, "local src/kinds.rs Config#[Handler]handle().", "type").
+name_ref("Key", "src/kinds.rs", 76, 18, "src/kinds.rs", "type").
+name_ref("Key", "src/kinds.rs", 77, 27, "local src/kinds.rs Key#[Handler][`&Key`]handle().", "type").
+name_ref("Option", "src/store.rs", 22, 36, "local src/store.rs Store#get().", "type").
+name_ref("Option", "src/store.rs", 39, 30, "local src/store.rs warm().", "type").
+name_ref("Result", "src/kinds.rs", 62, 64, "local src/kinds.rs Config#[Display]fmt().", "type").
+name_ref("Result", "src/kinds.rs", 69, 64, "local src/kinds.rs Config#[Debug]fmt().", "type").
+name_ref("Show", "src/store.rs", 50, 11, "local src/store.rs show().", "type").
+name_ref("Store", "src/store.rs", 18, 5, "src/store.rs", "type").
+name_ref("Store", "src/store.rs", 39, 20, "local src/store.rs warm().", "type").
+name_ref("String", "src/kinds.rs", 27, 15, "local src/kinds.rs Key#", "type").
+name_ref("String", "src/store.rs", 10, 15, "local src/store.rs Entry#value.", "type").
+name_ref("String", "src/store.rs", 15, 21, "local src/store.rs Store#entries.", "type").
+name_ref("String", "src/store.rs", 29, 31, "local src/store.rs Store#put().", "type").
+name_ref("String", "src/store.rs", 29, 46, "local src/store.rs Store#put().", "type").
+name_ref("T", "src/store.rs", 50, 25, "local src/store.rs show().", "type").
+name_ref("T", "src/store.rs", 50, 8, "local src/store.rs show().", "type").
+name_ref("assert", "tests/store_test.rs", 5, 4, "local tests/store_test.rs it_warms().", "call").
+name_ref("clear", "src/store.rs", 34, 21, "local src/store.rs Store#evict().", "call").
+name_ref("cloned", "src/store.rs", 24, 14, "local src/store.rs Store#get().", "call").
+name_ref("conn", "src/app.rs", 5, 15, "src/app.rs", "import").
+name_ref("conn", "src/ui/panel.rs", 5, 15, "src/ui/panel.rs", "import").
+name_ref("fmt", "src/ui/panel.rs", 6, 9, "src/ui/panel.rs", "import").
+name_ref("get", "src/store.rs", 23, 33, "local src/store.rs Store#get().", "call").
+name_ref("get", "src/store.rs", 40, 10, "local src/store.rs warm().", "call").
+name_ref("insert", "src/store.rs", 30, 21, "local src/store.rs Store#put().", "call").
+name_ref("is_empty", "src/db/conn.rs", 5, 9, "local src/db/conn.rs open().", "call").
+name_ref("is_empty", "src/kinds.rs", 48, 31, "local src/kinds.rs Config#[Handler]handle().", "call").
+name_ref("is_empty", "src/kinds.rs", 78, 14, "local src/kinds.rs Key#[Handler][`&Key`]handle().", "call").
+name_ref("is_empty", "src/kinds.rs", 78, 33, "local src/kinds.rs Key#[Handler][`&Key`]handle().", "call").
+name_ref("open", "src/app.rs", 9, 10, "local src/app.rs start().", "call").
+name_ref("open", "src/ui/panel.rs", 10, 10, "local src/ui/panel.rs draw().", "call").
+name_ref("starts_with", "src/net/conn.rs", 8, 8, "local src/net/conn.rs open().", "call").
+name_ref("write_str", "src/kinds.rs", 63, 10, "local src/kinds.rs Config#[Display]fmt().", "call").
+name_ref("write_str", "src/kinds.rs", 70, 10, "local src/kinds.rs Config#[Debug]fmt().", "call").
 parent("local src/app.rs start().", "src/app.rs").
 parent("local src/db/conn.rs open().", "src/db/conn.rs").
 parent("local src/db/mod.rs conn/", "src/db/mod.rs").

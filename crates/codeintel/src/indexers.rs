@@ -8,7 +8,7 @@
 //! Never called on the query path: `query` and `mcp` re-read the outputs the
 //! manifest names and run nothing.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -28,20 +28,24 @@ pub const DIR: &str = "scip";
 /// How often a running child is polled for exit.
 const POLL: Duration = Duration::from_millis(100);
 
-/// A program to consider: its row, and the newest mtime among the files of
-/// its languages.
+/// A program to consider in one root: its row, and the newest mtime among
+/// the files of its languages under that root.
 struct Job {
     indexer: Indexer,
+    /// Repo-relative, empty for the repository root.
+    root: String,
     newest: u64,
     /// False when `--lang` left out every language it serves: its output is
     /// still read, it is never run.
     wanted: bool,
+    /// No directory in the tree holds the row's `needs` file.
+    root_missing: bool,
 }
 
-/// Run every indexer the tree needs and is stale, into `<store>/scip/`, and
-/// report each to stderr as it goes.
+/// Run every indexer the tree needs and is stale, once per indexer root, into
+/// `<store>/scip/`, and report each to stderr as it goes.
 ///
-/// Returns one record per program considered. A program `--lang` left out, or
+/// Returns one record per program and root considered. A program `--lang` left out, or
 /// one that is up to date, keeps its `prior` record. A failure is an outcome,
 /// never an `Err`: tier A stands whatever an indexer does.
 ///
@@ -64,12 +68,21 @@ pub fn run(
     let mut runs = Vec::new();
     for job in jobs.values() {
         let program = job.indexer.program;
-        let previous = prior.iter().find(|r| r.program == program);
-        let output = dir.join(format!("{program}.scip"));
-        let log = dir.join(format!("{program}.log"));
+        let previous = prior
+            .iter()
+            .find(|r| r.program == program && r.root == job.root);
+        let at = dir.join(&job.root);
+        let output = at.join(format!("{program}.scip"));
+        let log = at.join(format!("{program}.log"));
+        let label = if job.root.is_empty() {
+            program.to_string()
+        } else {
+            format!("{program} in {}", job.root)
+        };
         let mut record = IndexerRun {
             program: program.to_string(),
             command: job.indexer.to_string(),
+            root: job.root.clone(),
             outcome: String::new(),
             output: output.display().to_string(),
             log: String::new(),
@@ -81,21 +94,16 @@ pub fn run(
             }
             continue;
         }
-        if let Some(needs) = job.indexer.needs
-            && !root.join(needs).is_file()
-        {
-            record.outcome = format!("no {needs} at the root");
-            eprintln!(
-                "  {program}: skipped — {}; run `{}` where it is and pass the output with --scip \
-                 and --scip-root",
-                record.outcome, record.command
-            );
+        if job.root_missing {
+            let needs = job.indexer.needs.unwrap_or_default();
+            record.outcome = format!("no {needs} in the tree");
+            eprintln!("  {program}: skipped — {}", record.outcome);
             runs.push(record);
             continue;
         }
         let Some(binary) = on_path(program) else {
             record.outcome = "not on PATH".to_string();
-            eprintln!("  {program}: skipped — not on PATH; install it, then re-run");
+            eprintln!("  {label}: skipped — not on PATH; install it, then re-run");
             runs.push(record);
             continue;
         };
@@ -104,11 +112,12 @@ pub fn run(
             && previous.ok()
             && mtime(&output).is_some_and(|built| built >= job.newest)
         {
-            eprintln!("  {program}: up to date");
+            eprintln!("  {label}: up to date");
             runs.push(previous.clone());
             continue;
         }
 
+        std::fs::create_dir_all(&at).with_context(|| format!("creating {}", at.display()))?;
         record.log = log.display().to_string();
         eprintln!(
             "codeintel: running {} {} {} (log: {})",
@@ -118,27 +127,44 @@ pub fn run(
             log.display()
         );
         let started = Instant::now();
-        record.outcome = execute(root, &binary, &job.indexer, &output, &log);
+        record.outcome = execute(&root.join(&job.root), &binary, &job.indexer, &output, &log);
         let secs = started.elapsed().as_secs_f64();
         if record.ok() {
-            eprintln!("  {program}: ok in {secs:.1} s");
+            eprintln!("  {label}: ok in {secs:.1} s");
         } else {
-            eprintln!("  {program}: {}; see {}", record.outcome, log.display());
+            eprintln!("  {label}: {}; see {}", record.outcome, log.display());
         }
         runs.push(record);
     }
     Ok(runs)
 }
 
-/// The programs the tree needs, keyed by program so two languages sharing one
-/// run it once.
-fn jobs(root: &Path, langs: &[String]) -> BTreeMap<&'static str, Job> {
-    let mut jobs: BTreeMap<&'static str, Job> = BTreeMap::new();
-    for file in extract::walk(root).files {
+/// The programs the tree needs, one per indexer root, keyed by program then
+/// root so two languages sharing a program run it once per root.
+///
+/// A program whose `needs` file is nowhere in the tree gets one job at the
+/// repository root with `root_missing` set, so the skip is recorded.
+fn jobs(root: &Path, langs: &[String]) -> BTreeMap<(&'static str, String), Job> {
+    let walked = extract::walk(root);
+    let mut roots_of: BTreeMap<&'static str, Vec<String>> = BTreeMap::new();
+    let mut jobs: BTreeMap<(&'static str, String), Job> = BTreeMap::new();
+    for file in &walked.files {
         let indexer = file.lang.indexer;
         let wanted = langs.is_empty() || langs.iter().any(|l| l == file.lang.name);
-        let job = jobs.entry(indexer.program).or_insert(Job {
+        let roots = roots_of
+            .entry(indexer.program)
+            .or_insert_with(|| roots(indexer.needs, &walked.visible));
+        let (at, root_missing) = match roots.iter().find(|r| under(&file.path, r)) {
+            Some(at) => (at.clone(), false),
+            // Outside every root: no run covers it. Recorded only when there
+            // is no root at all, which is the skip worth reporting.
+            None if roots.is_empty() => (String::new(), true),
+            None => continue,
+        };
+        let job = jobs.entry((indexer.program, at.clone())).or_insert(Job {
             indexer,
+            root: at,
+            root_missing,
             newest: 0,
             wanted: false,
         });
@@ -146,6 +172,39 @@ fn jobs(root: &Path, langs: &[String]) -> BTreeMap<&'static str, Job> {
         job.wanted |= wanted;
     }
     jobs
+}
+
+/// The outermost directories holding `needs`, repo-relative, empty for the
+/// repository root. A row with no `needs` has the repository root alone.
+/// The file is checked to exist, never read.
+fn roots(needs: Option<&str>, visible: &BTreeSet<String>) -> Vec<String> {
+    let Some(needs) = needs else {
+        return vec![String::new()];
+    };
+    let holding: Vec<&str> = visible
+        .iter()
+        .filter_map(|path| match path.strip_suffix(needs)? {
+            "" => Some(""),
+            dir => dir.strip_suffix('/'),
+        })
+        .collect();
+    holding
+        .iter()
+        .filter(|dir| {
+            !holding
+                .iter()
+                .any(|other| other != *dir && under(dir, other))
+        })
+        .map(|dir| (*dir).to_string())
+        .collect()
+}
+
+/// `path` is `dir` or below it. Everything is below the repository root.
+fn under(path: &str, dir: &str) -> bool {
+    dir.is_empty()
+        || path
+            .strip_prefix(dir)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
 /// Run one indexer into a temporary file and rename it into place on success,
