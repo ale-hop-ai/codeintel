@@ -23,6 +23,13 @@
 //! real store. Each documented query is run [`RUNS`] times in-process, then
 //! the query *shapes* the docs happen not to show are run the same way.
 
+// Only `indexed` is used here; `diff` is the golden suites'.
+#[expect(
+    dead_code,
+    reason = "common is shared whole; this suite needs one helper"
+)]
+mod common;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -400,19 +407,12 @@ fn about_test_is_blind_to_in_file_tests_and_in_tests_widens_it() {
 /// file" and the 50-line fixture does not have. Those are shape examples.
 #[test]
 fn every_documented_store_rs_query_returns_rows_over_the_fixture_that_has_the_file() {
-    let fixture = root().join("tests/fixtures/rust");
-    let index = tempfile::tempdir().expect("tempdir");
-    let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
-        .args(["index", ".", "--scip", "index.scip"])
-        .current_dir(&fixture)
-        .env("CODEINTEL_INDEX_DIR", index.path())
-        .output()
-        .expect("the binary runs");
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    // A copy with the clock pinned, never the checkout itself: git writes
+    // files in no promised order, and a source newer than `index.scip` is
+    // `scip-stale` (#151).
+    let tree = common::indexed("rust");
+    let fixture = tree.path().to_path_buf();
+    let index = fixture.join(".codeintel");
 
     let mut empty = Vec::new();
     let mut ran = 0;
@@ -425,7 +425,7 @@ fn every_documented_store_rs_query_returns_rows_over_the_fixture_that_has_the_fi
         let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
             .args(["query", "--format", "json", "--no-refresh", goal])
             .current_dir(&fixture)
-            .env("CODEINTEL_INDEX_DIR", index.path())
+            .env("CODEINTEL_INDEX_DIR", &index)
             .output()
             .expect("the binary runs");
         let response = stdout_json(&out);
@@ -674,19 +674,12 @@ fn every_query_shape_is_byte_identical_across_runs_chunk_3() {
 /// would live.
 #[test]
 fn answers_over_both_provenance_tiers_are_byte_identical_across_runs() {
-    let fixture = root().join("tests/fixtures/rust");
-    let index = tempfile::tempdir().expect("tempdir");
-    let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
-        .args(["index", ".", "--scip", "index.scip"])
-        .current_dir(&fixture)
-        .env("CODEINTEL_INDEX_DIR", index.path())
-        .output()
-        .expect("the binary runs");
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
+    // A copy with the clock pinned, never the checkout itself: git writes
+    // files in no promised order, and a source newer than `index.scip` is
+    // `scip-stale` (#151).
+    let tree = common::indexed("rust");
+    let fixture = tree.path().to_path_buf();
+    let index = fixture.join(".codeintel");
     for relation in [
         "scip_ref(S, F, L, C, From, R)",
         "name_ref(N, F, L, C, From, R)",
@@ -694,7 +687,7 @@ fn answers_over_both_provenance_tiers_are_byte_identical_across_runs() {
         let tier = assert_stable(
             "tiers",
             &fixture,
-            index.path(),
+            &index,
             &format!("?- {relation}."),
             &Options::default(),
         );
@@ -713,6 +706,6 @@ fn answers_over_both_provenance_tiers_are_byte_identical_across_runs() {
         "?- dead_export(S).",
         "?- implements(S, T, P).",
     ] {
-        assert_stable("tiers", &fixture, index.path(), goal, &Options::default());
+        assert_stable("tiers", &fixture, &index, goal, &Options::default());
     }
 }
