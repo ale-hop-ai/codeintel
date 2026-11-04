@@ -411,7 +411,10 @@ gate in a repository unanswerable.
   ahead of the hint that mattered and taught a caller to skip the slot. The
   count is the signal on a non-empty answer, and a gate reads the count. Not
   asked when SCIP is absent or matched nothing (`no-scip` says that),
-  and not counted on an answer whose closure never reaches SCIP.
+  and not counted on an answer whose closure never reaches SCIP. A
+  `scip-stale` file is not counted: it has a document and its bytes moved,
+  and listing it under both told a caller the indexer could not reach a file
+  `codeintel index` would fix (#157).
 
 **One note says what the call graph cannot see (#152).** When
 `stats.rules` holds both `is_test` and `calls_at`, the goal joined tests to
