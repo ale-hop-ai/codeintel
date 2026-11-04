@@ -161,6 +161,15 @@ impl fmt::Display for Schema<'_> {
                  indexed, not because your code has none of these. run: codeintel index .\n",
             )?;
         }
+        if census.stale_schema {
+            // The command is in the hint, which names the root; a bare
+            // `index .` here would leave it stale (#155, #156).
+            f.write_str(
+                "\nTHE INDEX IS STALE. Every count above is 0 because it was written for\n\
+                 another schema and was not read, not because your code has none of these.\n\
+                 the hint says how to rebuild it.\n",
+            )?;
+        }
         Ok(())
     }
 }
@@ -209,7 +218,28 @@ const PROVS: &[&str] = &["exact", "name"];
 /// relation that has one.
 #[must_use]
 pub fn columns(relation: &str) -> Vec<Column> {
-    let (args, _) = signature(relation);
+    classify(signature(relation).0)
+}
+
+/// The column types of an advertised stdlib rule, from its `%%` head.
+///
+/// Empty for a name with no head — a rule the query defines, or a builtin.
+/// A rule's rows are not in the store, so a caller can trust only what needs
+/// no count from it: a `Path` is checked against `file`, which is.
+#[must_use]
+pub fn rule_columns(rule: &str) -> Vec<Column> {
+    rules(crate::STDLIB)
+        .iter()
+        .find_map(|r| {
+            r.head
+                .strip_prefix(rule)?
+                .strip_prefix('(')
+                .map(str::to_string)
+        })
+        .map_or_else(Vec::new, |args| classify(&args))
+}
+
+fn classify(args: &str) -> Vec<Column> {
     args.trim_matches(['(', ')'])
         .split(',')
         .map(str::trim)

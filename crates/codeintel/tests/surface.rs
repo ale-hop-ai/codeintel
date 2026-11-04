@@ -1442,6 +1442,10 @@ fn schema_agrees_with_query_and_status_about_another_schema() {
     let stderr = String::from_utf8_lossy(&text.stderr);
     assert!(stderr.contains("status=stale"), "{stderr}");
     assert!(stderr.contains("schema_version 999"), "{stderr}");
+    // The zeros say why on the page itself, and not as "no index".
+    let stdout = String::from_utf8_lossy(&text.stdout);
+    assert!(stdout.contains("THE INDEX IS STALE"), "{stdout}");
+    assert!(!stdout.contains("THERE IS NO INDEX HERE"), "{stdout}");
 }
 
 /// #141: a path the caller typed that names no directory is refused by every
@@ -1911,6 +1915,58 @@ fn a_well_typed_limit_and_raw_are_still_honoured() {
             .is_some_and(|h| h.contains("fired at 2")),
         "{body}"
     );
+    // The advice names the knob this caller has, not only the CLI's flag.
+    assert!(
+        body["hint"]
+            .as_str()
+            .is_some_and(|h| h.contains("`limit` in code_query")),
+        "{body}"
+    );
+}
+
+#[test]
+fn mcp_stats_carry_what_a_caller_acts_on_and_not_the_planner() {
+    let dir = tree();
+    run(dir.path(), &["index", "."]);
+    let out = rpc_structured(
+        dir.path(),
+        &[
+            serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+            "name":"code_query","arguments":{"query":"?- def(S, _, _, N), calls(C, S)."}}}),
+            // Shadowing a stdlib rule is a warning about the caller's own
+            // program: it survives the cut.
+            serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
+            "name":"code_query","arguments":{
+                "query":"callable(K) :- K = \"field\".\n?- callable(K)."}}}),
+        ],
+    );
+    let stats = &out[0]["result"]["structuredContent"]["stats"];
+    assert!(stats.get("derived").is_some(), "{stats}");
+    assert!(stats.get("refreshed").is_some(), "{stats}");
+    for planner in ["transformed", "depends", "demand", "shadowed", "widened"] {
+        assert!(stats.get(planner).is_none(), "{planner}: {stats}");
+    }
+    let shadowed = &out[1]["result"]["structuredContent"]["stats"]["shadowed"];
+    assert!(
+        shadowed.as_array().is_some_and(|w| !w.is_empty()),
+        "{}",
+        out[1]
+    );
+
+    // The CLI's JSON keeps every key.
+    let cli = run(
+        dir.path(),
+        &[
+            "query",
+            "?- def(S, _, _, N), calls(C, S).",
+            "--format",
+            "json",
+        ],
+    );
+    let json: serde_json::Value = serde_json::from_slice(&cli.stdout).expect("JSON");
+    for key in ["transformed", "depends", "demand", "shadowed", "widened"] {
+        assert!(json["stats"].get(key).is_some(), "{key}: {json}");
+    }
 }
 
 #[test]

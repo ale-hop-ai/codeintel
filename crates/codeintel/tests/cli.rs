@@ -1252,6 +1252,35 @@ fn a_path_constant_is_diagnosed_against_the_indexed_files() {
     assert!(!stderr.contains("no indexed file"), "{stderr}");
 }
 
+/// A stdlib rule's `F` column is diagnosed like a base relation's. The schema
+/// sends a ripgrep hit or a stack frame to `innermost_at` first, so that is
+/// where an absolute or `./` path lands — and a bound argument makes the
+/// literal arrive adorned (`innermost_at@bbf`), which must not hide its head.
+#[test]
+fn a_path_constant_in_a_rule_is_diagnosed_against_the_indexed_files() {
+    let dir = tree();
+    index(dir.path());
+
+    let (_, stderr) = query(dir.path(), r#"?- innermost_at("./src/store.rs", 1, S)."#);
+    assert!(stderr.contains("`src/store.rs` is indexed"), "{stderr}");
+
+    let absolute = dir.path().join("src/store.rs");
+    let (_, stderr) = query(
+        dir.path(),
+        &format!(r#"?- innermost_at("{}", 1, S)."#, absolute.display()),
+    );
+    assert!(stderr.contains("repo-relative"), "{stderr}");
+
+    // Unadorned too: nothing bound but the path.
+    let (_, stderr) = query(dir.path(), r#"?- at(S, "lib/store.rs", L)."#);
+    assert!(stderr.contains("`store.rs` is indexed at"), "{stderr}");
+
+    // Both mistakes in one literal: both are named.
+    let (_, stderr) = query(dir.path(), r#"?- innermost_at("./src/store.rs", "1", S)."#);
+    assert!(stderr.contains("`src/store.rs` is indexed"), "{stderr}");
+    assert!(stderr.contains("did you mean 1?"), "{stderr}");
+}
+
 #[test]
 fn a_quoted_integer_in_a_derived_rule_is_named_in_the_hint() {
     // `at/3` is a rule, so no schema column says its third argument is a line.

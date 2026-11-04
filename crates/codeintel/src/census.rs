@@ -43,6 +43,9 @@ pub struct Census {
     /// False when there is no `.codeintel/` here. Every count is then zero,
     /// and the two cases must not print the same.
     pub indexed: bool,
+    /// True when the index was written for another schema: `indexed`, and
+    /// every count zero because none was read. Not an empty repository.
+    pub stale_schema: bool,
     /// Rows per base relation, for every relation in the schema — including
     /// the ones at zero, which are the ones worth seeing.
     pub relations: BTreeMap<&'static str, usize>,

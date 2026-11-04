@@ -688,7 +688,8 @@ fn the_rule_drops_inherited_rows_and_keeps_name_exports() {
 
 /// #132: `sig.ts` has no document in the committed `index.scip`, so the exact
 /// tier is blind there. The count says so on every answer whose closure reaches
-/// SCIP, and an empty exact check over it is "could not tell".
+/// SCIP, the prose on an empty one, and an empty exact check over it is "could
+/// not tell".
 #[test]
 fn partial_scip_coverage_is_counted_and_fails_an_empty_gate() {
     let dir = tree();
@@ -701,9 +702,26 @@ fn partial_scip_coverage_is_counted_and_fails_an_empty_gate() {
     let answer: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
     assert_eq!(answer["status"], "ok", "{answer}");
     assert_eq!(answer["stats"]["scip_uncovered"], 1, "{answer}");
+    // Rows came back: the count is the signal, and the hint slot stays free
+    // for what matters to this answer.
+    assert!(answer["hint"].is_null(), "{answer}");
+
+    // No rows: the note names the gap, behind the literal that emptied it.
+    let out = run(
+        dir.path(),
+        &[
+            "query",
+            "?- def(A, _, _, \"nothing_is_named_this\"), calls_exact(A, B).",
+            "--format",
+            "json",
+        ],
+    );
+    let answer: serde_json::Value = serde_json::from_slice(&out.stdout).expect("JSON");
+    assert_eq!(answer["stats"]["scip_uncovered"], 1, "{answer}");
     let hint = answer["hint"]
         .as_str()
-        .expect("a covered answer still names the gap");
+        .expect("an empty answer names the gap");
+    assert!(hint.contains("matched 0 rows"), "{hint}");
     assert!(hint.contains("have no SCIP document"), "{hint}");
     assert!(hint.contains("sig.ts"), "{hint}");
 
