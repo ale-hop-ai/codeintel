@@ -1008,6 +1008,17 @@ it the call is the MCP spelling of `codeintel query --path`:
   for another root is refused as for the CLI (#141), which is the right answer
   when a call names a root the pinned store does not own.
 - `schema` takes `path` too, and answers about that root's census.
+- **An empty answer to a call with no `path` says whose tree it is.** `root` in
+  every response is a fact the caller has to remember to check, and the caller
+  that forgot `path` is the one that will not. The failure that surfaced in #154
+  was an empty result, read as a real "no" (§ Status taxonomy). So when
+  `rows` is empty and the call carried no `path`, the hint ends
+  `answered from <root>, this server's directory; pass path for another checkout
+  or worktree`. A non-empty answer, and any call that passed `path`, carries no
+  such line: the caller said what it meant, or got rows. It is a hint on the
+  case where the wrong tree is indistinguishable from a true "no", not a banner.
+  It rides the existing empty-result hint (§ Response contract, `hint`), so it
+  is cut to `max_result_bytes` like any other.
 - Reading outside the launch directory is not a new capability: the server runs
   as the user, the CLI reads any directory the user can, and `path` reads an
   index and refreshes the files it already lists, nothing else. A rule file is
