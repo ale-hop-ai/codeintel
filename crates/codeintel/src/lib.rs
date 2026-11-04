@@ -33,6 +33,25 @@ pub mod schema;
 pub mod status;
 pub mod wire;
 
+/// The directory the caller named. A missing path and a file are both refused
+/// here, the same way for every verb and for an MCP call's `path`, before any
+/// store is opened (`specs/05-surface.md` § `index`, § MCP).
+///
+/// # Errors
+/// The path does not exist, or is not a directory.
+pub fn root_of(path: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+    use anyhow::Context;
+    let root = path
+        .canonicalize()
+        .with_context(|| format!("{} does not exist", path.display()))?;
+    anyhow::ensure!(
+        root.is_dir(),
+        "{} is not a directory; a repository root is one",
+        path.display()
+    );
+    Ok(root)
+}
+
 pub use discover::Nearby;
 pub use index::{Plan, Report};
 pub use load::load_facts;

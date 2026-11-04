@@ -233,6 +233,12 @@ fn tool() -> serde_json::Value {
                     "type": "string",
                     "description": "Datalog program ending in a ?- goal.",
                 },
+                "path": {
+                    "type": "string",
+                    "description": "Directory to answer about; default is the server's own. \
+                                    Pass it when the code under review is a different \
+                                    checkout or worktree.",
+                },
                 "schema": {
                     "type": "boolean",
                     "description": "Return the relation catalog and exit.",
@@ -244,11 +250,10 @@ fn tool() -> serde_json::Value {
                                     Use when feeding one answer into the next query.",
                 },
             },
-            // The repository is this process's working directory and there is
-            // no argument for it. A caller that passes one — `path` is the
-            // obvious guess, because the CLI has `--path` — must be told, not
-            // quietly answered about a different tree. `ARGUMENTS` enforces it;
-            // this declares it to a client that validates.
+            // An argument not listed is refused, not ignored: a caller must be
+            // told, not quietly answered about a question it did not ask.
+            // `ARGUMENTS` enforces it; this declares it to a client that
+            // validates.
             "additionalProperties": false,
         },
     })
@@ -256,17 +261,17 @@ fn tool() -> serde_json::Value {
 
 /// Every argument `code_query` accepts.
 ///
-/// Unknown arguments were ignored, and the one a caller reaches for first is
-/// `path`: the CLI takes `--path`, the tool description does not say the
-/// repository is fixed, and an agent generalises. An MCP server started in one
-/// repository, asked for `path: "<another repository>"`, answered from its own
-/// tree with `status: "ok"` — a well-formed, confident answer about the wrong
-/// codebase, which is the one failure mode invariant 6 exists to prevent.
-const ARGUMENTS: [&str; 4] = ["query", "schema", "limit", "raw"];
+/// Unknown arguments were ignored, and the one a caller reached for first was
+/// `path`: a server asked for `path: "<another repository>"` answered from its
+/// own tree with `status: "ok"` — a confident answer about the wrong codebase,
+/// which invariant 6 exists to prevent. `path` is now honored (#154); the rest
+/// are still refused.
+const ARGUMENTS: [&str; 5] = ["query", "schema", "path", "limit", "raw"];
 
 /// The arguments of one call, each read as the type `inputSchema` declares.
 struct Args<'a> {
     program: Option<&'a str>,
+    path: Option<&'a str>,
     wants_schema: bool,
     limit: usize,
     raw: bool,
@@ -295,6 +300,13 @@ impl<'a> Args<'a> {
                     .ok_or_else(|| wrong("query", v, "a string (a Datalog program)"))?,
             ),
         };
+        let path = match get("path") {
+            None => None,
+            Some(v) => Some(
+                v.as_str()
+                    .ok_or_else(|| wrong("path", v, "a string (a directory)"))?,
+            ),
+        };
         let flag = |name: &str| match get(name) {
             None => Ok(false),
             Some(v) => v
@@ -310,6 +322,7 @@ impl<'a> Args<'a> {
         };
         Ok(Self {
             program,
+            path,
             wants_schema: flag("schema")?,
             limit,
             raw: flag("raw")?,
@@ -352,22 +365,17 @@ fn call(
     if let Some(object) = arguments.as_object()
         && let Some(unknown) = object.keys().find(|k| !ARGUMENTS.contains(&k.as_str()))
     {
-        let extra = if unknown == "path" {
-            ". the repository is this server's working directory and cannot be \
-             chosen per call; start one server per repository"
-        } else {
-            ""
-        };
         return Err((
             INVALID_PARAMS,
             format!(
-                "no argument `{unknown}`; `{TOOL}` takes {}{extra}",
+                "no argument `{unknown}`; `{TOOL}` takes {}",
                 ARGUMENTS.join(", ")
             ),
         ));
     }
     let Args {
         program,
+        path,
         wants_schema,
         limit,
         raw,
@@ -389,6 +397,18 @@ fn call(
         }
         _ => {}
     }
+
+    // A relative `path` is read from the server's directory. Refused before any
+    // store opens, as the CLI refuses it (`specs/05-surface.md` § MCP).
+    let default_root = path.is_none();
+    let named;
+    let root = match path {
+        None => root,
+        Some(p) => {
+            named = crate::root_of(&root.join(p)).map_err(|e| (INVALID_PARAMS, format!("{e}")))?;
+            named.as_path()
+        }
+    };
 
     let structured = session.structured;
     if wants_schema {
@@ -412,6 +432,7 @@ fn call(
         } else {
             Wire::McpText
         },
+        default_root,
     };
     let answer = match warm.run(root, program.unwrap_or_default(), &options) {
         Ok(answer) => answer,
@@ -454,12 +475,18 @@ fn schema(
         // consumer of this tool is (`specs/05-surface.md` § The consumer).
         return Ok(serde_json::json!({
             "content": [],
-            "structuredContent": { "status": status.as_str(), "hint": hint, "text": body },
+            "structuredContent": {
+                "status": status.as_str(),
+                "hint": hint,
+                "root": root.display().to_string(),
+                "text": body,
+            },
             "isError": false,
         }));
     }
     let mut text = body;
-    wire::verdict(&mut text, status, None, hint.as_deref());
+    let here = root.display().to_string();
+    wire::verdict(&mut text, status, Some(&here), hint.as_deref());
     Ok(serde_json::json!({
         "content": [{ "type": "text", "text": text }],
         "isError": false,

@@ -19,16 +19,47 @@ pub(crate) fn fixtures() -> PathBuf {
 /// past instant and `index.scip` a minute later. A copy that crosses a second
 /// boundary would otherwise leave some sources newer than the SCIP index, they
 /// would index tier A only, and every answer reading them would flake.
-pub(crate) fn indexed(fixture: &str) -> tempfile::TempDir {
-    let dir = tempfile::tempdir().expect("tempdir");
-    copy(&fixtures().join(fixture), dir.path());
-    drop(std::fs::remove_file(dir.path().join("expected.facts")));
-    backdate(dir.path(), SOURCE_MTIME);
-    set_mtime(&dir.path().join("index.scip"), SOURCE_MTIME + 60);
+///
+/// **The root is exactly [`ROOT_WIDTH`] bytes long, whatever the machine.**
+/// Every answer names its root (`specs/05-surface.md` § Response contract), and
+/// a temp directory's path is a different length on macOS and Linux. Without
+/// the padding, an answer's bytes — and, at the cap, how many rows survive —
+/// would be a fact about the machine and not about the answer.
+pub(crate) fn indexed(fixture: &str) -> Indexed {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let base = tmp.path().canonicalize().expect("a temp dir canonicalises");
+    let used = base.as_os_str().len() + 1;
+    assert!(used < ROOT_WIDTH, "{} is already too long", base.display());
+    let root = base.join("r".repeat(ROOT_WIDTH - used));
+    std::fs::create_dir(&root).expect("creates the root");
+    index_into(fixture, &root);
+    Indexed { _guard: tmp, root }
+}
+
+/// The canonical length of an [`indexed`] root.
+const ROOT_WIDTH: usize = 120;
+
+/// An [`indexed`] copy: the directory lives as long as this does.
+pub(crate) struct Indexed {
+    _guard: tempfile::TempDir,
+    root: PathBuf,
+}
+
+impl Indexed {
+    pub(crate) fn path(&self) -> &Path {
+        &self.root
+    }
+}
+
+fn index_into(fixture: &str, root: &Path) {
+    copy(&fixtures().join(fixture), root);
+    drop(std::fs::remove_file(root.join("expected.facts")));
+    backdate(root, SOURCE_MTIME);
+    set_mtime(&root.join("index.scip"), SOURCE_MTIME + 60);
     let out = Command::new(env!("CARGO_BIN_EXE_codeintel"))
         .args(["index", ".", "--scip", "index.scip"])
-        .current_dir(dir.path())
-        .env("CODEINTEL_INDEX_DIR", dir.path().join(".codeintel"))
+        .current_dir(root)
+        .env("CODEINTEL_INDEX_DIR", root.join(".codeintel"))
         .output()
         .expect("the binary runs");
     assert!(
@@ -36,7 +67,6 @@ pub(crate) fn indexed(fixture: &str) -> tempfile::TempDir {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    dir
 }
 
 /// The lines that differ, as `-expected` / `+got`, keyed by position. A golden

@@ -1012,7 +1012,7 @@ it the call is the MCP spelling of `codeintel query --path`:
   every response is a fact the caller has to remember to check, and the caller
   that forgot `path` is the one that will not. The failure that surfaced in #154
   was an empty result, read as a real "no" (§ Status taxonomy). So when
-  `rows` is empty and the call carried no `path`, the hint ends
+  the query ran, `rows` is empty and the call carried no `path`, the hint ends
   `answered from <root>, this server's directory; pass path for another checkout
   or worktree`. A non-empty answer, and any call that passed `path`, carries no
   such line: the caller said what it meant, or got rows. It is a hint on the

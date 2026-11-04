@@ -152,24 +152,36 @@ fn the_ascent_stops_at_the_repository_root() {
         answer["status"], "no-index",
         "the enclosing index is outside this checkout: {answer}"
     );
-    assert!(answer["root"].is_null(), "{answer}");
+    // The root that has no index, named: nothing answered, and it is not null
+    // (`specs/05-surface.md` § Response contract).
+    assert_eq!(
+        answer["root"],
+        sandbox.canonical().join("inner").display().to_string(),
+        "{answer}"
+    );
     let hint = answer["hint"].as_str().expect("a hint");
     assert!(!hint.contains("found"), "{hint}");
 }
 
 #[test]
-fn an_answer_from_the_root_asked_for_reports_no_redirect() {
+fn an_answer_from_the_root_asked_for_names_that_root() {
     let sandbox = Sandbox::new();
     sandbox.file("main.rs", SOURCE);
     sandbox.index(".");
 
     let answer = sandbox.query(".");
     assert_eq!(answer["status"], "ok", "{answer}");
-    // Present and null, never absent: an absent key reads as "not measured"
-    // (`specs/05-surface.md` § Response contract).
-    assert!(
-        answer.get("root").is_some() && answer["root"].is_null(),
+    // Always a path, never null and never absent: a caller that did not name a
+    // root has to be able to see which one answered (#154,
+    // `specs/05-surface.md` § Response contract).
+    assert_eq!(
+        answer["root"],
+        sandbox.canonical().display().to_string(),
         "{answer}"
+    );
+    assert!(
+        answer["hint"].is_null(),
+        "naming the root is not a redirect: {answer}"
     );
 }
 
@@ -183,7 +195,11 @@ fn two_sibling_indexes_are_a_choice_this_tool_does_not_make() {
 
     let answer = sandbox.query(".");
     assert_eq!(answer["status"], "no-index", "{answer}");
-    assert!(answer["root"].is_null(), "{answer}");
+    assert_eq!(
+        answer["root"],
+        sandbox.canonical().display().to_string(),
+        "{answer}"
+    );
     let hint = answer["hint"].as_str().expect("a hint");
     // Both named, so the caller picks — the tool does not (invariant 1).
     assert!(hint.contains("found indexes at"), "{hint}");
@@ -209,7 +225,11 @@ fn a_pinned_index_dir_turns_discovery_off() {
         .expect("the binary runs");
     let answer: serde_json::Value = stdout_json(&out);
     assert_eq!(answer["status"], "no-index", "{answer}");
-    assert!(answer["root"].is_null(), "{answer}");
+    assert_eq!(
+        answer["root"],
+        sandbox.canonical().display().to_string(),
+        "{answer}"
+    );
     let hint = answer["hint"].as_str().expect("a hint");
     assert!(!hint.contains("found"), "nothing was probed for: {hint}");
 }
