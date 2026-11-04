@@ -70,8 +70,7 @@ pub fn json(answer: &Answer, raw: bool) -> serde_json::Value {
         serde_json::json!(answer.cap.map(datalog::Cap::as_str)),
     );
     map.insert("hint".into(), serde_json::json!(answer.hint));
-    // Always present, `null` for "the root you named". An absent key reads as
-    // "not measured"; `null` reads as "nothing moved"
+    // Always present and always a path: `Warm::run` stamps it
     // (`specs/05-surface.md` § Response contract).
     map.insert("root".into(), serde_json::json!(answer.root));
     map.insert(
@@ -133,9 +132,8 @@ pub fn verdict(
     out.push_str("status=");
     out.push_str(status.as_str());
     out.push('\n');
-    // Only on a redirect. A line saying the root is the root on every answer
-    // is noise, and no redirect is what the caller already assumed
-    // (`specs/05-surface.md` § Response contract).
+    // On every answer: the caller that most needs it is the one that does not
+    // know it is missing (`specs/05-surface.md` § Response contract).
     if let Some(root) = root {
         out.push_str("root=");
         out.push_str(root);

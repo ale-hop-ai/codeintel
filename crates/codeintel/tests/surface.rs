@@ -609,6 +609,60 @@ fn rpc(root: &Path, requests: &[serde_json::Value]) -> Vec<serde_json::Value> {
     responses(&out)
 }
 
+/// `codeintel` with no pinned index: every root keys its own store under
+/// `cache`, as a session that never set `--index-dir` does. Two checkouts and
+/// one pinned store is a different situation (#141), so the worktree tests
+/// cannot run through [`run`] and [`rpc`], which pin one.
+fn unpinned(cache: &Path, root: &Path, args: &[&str]) -> Output {
+    Command::new(binary())
+        .args(args)
+        .current_dir(root)
+        .env("XDG_CACHE_HOME", cache)
+        .env("HOME", cache)
+        .env_remove("CODEINTEL_INDEX_DIR")
+        .env_remove("PATH")
+        .output()
+        .expect("the binary runs")
+}
+
+/// [`rpc_structured`] over [`unpinned`] stores.
+fn rpc_unpinned(
+    cache: &Path,
+    root: &Path,
+    requests: &[serde_json::Value],
+) -> Vec<serde_json::Value> {
+    use std::io::Write as _;
+    use std::process::Stdio;
+
+    let mut child = Command::new(binary())
+        .args(["mcp"])
+        .current_dir(root)
+        .env("XDG_CACHE_HOME", cache)
+        .env("HOME", cache)
+        .env_remove("CODEINTEL_INDEX_DIR")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the server starts");
+    {
+        let stdin = child.stdin.as_mut().expect("stdin");
+        writeln!(stdin, "{}", initialize("2025-06-18")).expect("write");
+        for request in requests {
+            writeln!(stdin, "{request}").expect("write");
+        }
+    }
+    let out = child.wait_with_output().expect("the server exits");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let mut all = responses(&out);
+    all.remove(0);
+    all
+}
+
 #[test]
 fn the_surface_budget_holds() {
     // `specs/00-overview.md` § Surface budget, asserted in CI. Three of these
@@ -1469,51 +1523,39 @@ fn status_reports_a_store_that_will_not_load_as_corrupt() {
 
 #[test]
 fn an_argument_the_tool_does_not_have_is_refused() {
-    // `path` was accepted and ignored. An MCP server started in one repository
-    // and asked for `path: "<another repository>"` answered from its own tree
-    // with `status: "ok"` — a well-formed, confident answer about the wrong
-    // codebase. The CLI takes `--path`, the tool description never said the
-    // repository is fixed, so it is the first argument an agent invents.
+    // Unknown arguments were ignored. `path` was the first one an agent
+    // invented, and an ignored `path` answered from the server's own tree with
+    // `status: "ok"`: a confident answer about the wrong codebase. `path` is
+    // honored now (#154); what is still unknown is still an error.
     let dir = tree();
     run(dir.path(), &["index", "."]);
 
-    let elsewhere = tempfile::tempdir().expect("tempdir");
     let out = rpc(
         dir.path(),
         &[
             serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
                 "name":"code_query",
-                "arguments":{"query":"?- def(S, F, \"function\", N).",
-                             "path": elsewhere.path().to_string_lossy()}}}),
-            serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
-                "name":"code_query",
                 "arguments":{"query":"?- def(S, F, \"function\", N).", "bogus": 1}}}),
             // The arguments it does have still work, so this is a guard and not
             // a wall.
-            serde_json::json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{
+            serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
                 "name":"code_query",
                 "arguments":{"query":"?- def(S, F, \"function\", N).",
                              "limit": 2, "raw": true}}}),
         ],
     );
 
-    let message = out[0]["error"]["message"]
-        .as_str()
-        .expect("an unknown argument is an error, not an answer");
-    assert!(message.contains("no argument `path`"), "{message}");
-    assert!(message.contains("working directory"), "{message}");
-    assert!(out[0]["result"].is_null(), "{}", out[0]);
-
-    let message = out[1]["error"]["message"].as_str().expect("error");
+    let message = out[0]["error"]["message"].as_str().expect("error");
     assert!(message.contains("no argument `bogus`"), "{message}");
+    assert!(message.contains("path"), "the list names `path`: {message}");
 
-    assert!(out[2]["error"].is_null(), "{}", out[2]);
+    assert!(out[1]["error"].is_null(), "{}", out[1]);
     assert!(
-        out[2]["result"]["content"][0]["text"]
+        out[1]["result"]["content"][0]["text"]
             .as_str()
             .is_some_and(|t| t.contains("status=truncated")),
         "{}",
-        out[2]
+        out[1]
     );
 
     // And the declaration a validating client reads says the same thing.
@@ -1524,6 +1566,132 @@ fn an_argument_the_tool_does_not_have_is_refused() {
     assert_eq!(
         tools[0]["result"]["tools"][0]["inputSchema"]["additionalProperties"],
         serde_json::Value::Bool(false)
+    );
+}
+
+/// #154: a session opened in one checkout, reviewing a sibling worktree. The
+/// server's own tree has no `fn only_here`; the other one does.
+#[test]
+fn path_answers_about_another_checkout_and_names_it() {
+    let cache = tempfile::tempdir().expect("tempdir");
+    let main = tree();
+    unpinned(cache.path(), main.path(), &["index", "."]);
+    let other = tree();
+    std::fs::write(other.path().join("only_here.rs"), "pub fn only_here() {}\n").expect("writes");
+    unpinned(cache.path(), other.path(), &["index", "."]);
+    let other_root = other.path().canonicalize().expect("canonical");
+
+    let goal = "?- def(S, F, \"function\", \"only_here\").";
+    let out = rpc_unpinned(
+        cache.path(),
+        main.path(),
+        &[
+            // No `path`: the server's own tree, which does not have it.
+            serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
+                "name":"code_query","arguments":{"query":goal}}}),
+            serde_json::json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{
+                "name":"code_query","arguments":{"query":goal,
+                    "path": other_root.to_string_lossy()}}}),
+        ],
+    );
+
+    let silent = &out[0]["result"]["structuredContent"];
+    assert_eq!(silent["rows"].as_array().map(Vec::len), Some(0), "{silent}");
+    assert_eq!(
+        silent["root"],
+        main.path()
+            .canonicalize()
+            .expect("canonical")
+            .display()
+            .to_string(),
+        "root names the tree that answered, never null: {silent}"
+    );
+    let hint = silent["hint"].as_str().expect("an empty answer has a hint");
+    assert!(
+        hint.contains("pass path"),
+        "an empty answer without `path` says whose tree it came from: {hint}"
+    );
+
+    let named = &out[1]["result"]["structuredContent"];
+    assert_eq!(named["rows"].as_array().map(Vec::len), Some(1), "{named}");
+    assert_eq!(named["root"], other_root.display().to_string(), "{named}");
+    assert!(
+        !named["hint"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("pass path"),
+        "the caller said what it meant: {named}"
+    );
+}
+
+#[test]
+fn a_path_that_is_not_a_directory_is_refused_before_any_store_opens() {
+    let dir = tree();
+    run(dir.path(), &["index", "."]);
+    let missing = dir.path().join("nope");
+    let file = dir.path().join("lib.rs");
+    std::fs::write(&file, "pub fn f() {}\n").expect("writes");
+
+    let calls: Vec<serde_json::Value> = [missing.as_path(), file.as_path()]
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            serde_json::json!({"jsonrpc":"2.0","id":i + 1,"method":"tools/call","params":{
+                "name":"code_query",
+                "arguments":{"query":"?- def(S, F, K, N).", "path": p.to_string_lossy()}}})
+        })
+        .chain([
+            serde_json::json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{
+            "name":"code_query","arguments":{"query":"?- def(S, F, K, N).", "path": 5}}}),
+        ])
+        .collect();
+    let out = rpc(dir.path(), &calls);
+
+    for (i, want) in [
+        (0, "does not exist"),
+        (1, "is not a directory"),
+        (2, "`path` must be"),
+    ] {
+        assert_eq!(out[i]["error"]["code"], -32602, "{}", out[i]);
+        let message = out[i]["error"]["message"].as_str().expect("a message");
+        assert!(message.contains(want), "{message}");
+    }
+}
+
+/// A worktree with no index is `no-index`, naming itself — never the server's
+/// own tree, which does have one (#154).
+#[test]
+fn a_worktree_with_no_index_is_no_index_and_the_hint_names_it() {
+    let cache = tempfile::tempdir().expect("tempdir");
+    let main = tree();
+    unpinned(cache.path(), main.path(), &["index", "."]);
+    let bare = tree();
+    let bare_root = bare.path().canonicalize().expect("canonical");
+
+    let out = rpc_unpinned(
+        cache.path(),
+        main.path(),
+        &[
+            serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
+                "name":"code_query","arguments":{"query":"?- def(S, F, K, N).",
+                    "path": bare_root.to_string_lossy()}}}),
+        ],
+    );
+    let body = &out[0]["result"]["structuredContent"];
+    assert_eq!(body["status"], "no-index", "{body}");
+    assert_eq!(body["root"], bare_root.display().to_string(), "{body}");
+    let hint = body["hint"].as_str().expect("a hint");
+    assert!(hint.contains(&bare_root.display().to_string()), "{hint}");
+    assert!(
+        !hint.contains(
+            &main
+                .path()
+                .canonicalize()
+                .expect("canonical")
+                .display()
+                .to_string()
+        ),
+        "the hint must not send a worktree reviewer to index the main checkout: {hint}"
     );
 }
 
@@ -1767,11 +1935,12 @@ fn the_text_schema_carries_the_status_and_hint_like_the_text_query() {
         .rposition(|l| *l == "status=no-index")
         .expect(&missing);
     assert!(
-        lines[at + 1].starts_with("hint: no index for")
-            && lines[at + 1].contains("run: codeintel index "),
+        lines[at + 1].starts_with("root=")
+            && lines[at + 2].starts_with("hint: no index for")
+            && lines[at + 2].contains("run: codeintel index "),
         "{text}"
     );
-    assert_eq!(lines.len(), at + 2, "the verdict is the last of it: {text}");
+    assert_eq!(lines.len(), at + 3, "the verdict is the last of it: {text}");
 
     // An index that exists says `ok` and carries no hint.
     let indexed = tree();
@@ -1786,7 +1955,14 @@ fn the_text_schema_carries_the_status_and_hint_like_the_text_query() {
     let text = out[0]["result"]["content"][0]["text"]
         .as_str()
         .expect("text");
-    assert!(text.ends_with("\nstatus=ok\n"), "{text}");
+    assert!(
+        text.lines().rev().nth(1) == Some("status=ok")
+            && text
+                .lines()
+                .next_back()
+                .is_some_and(|l| l.starts_with("root=")),
+        "{text}"
+    );
 }
 
 /// #144: an invalid query over MCP is an error result whose text is in

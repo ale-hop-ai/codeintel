@@ -18,6 +18,7 @@ JSON alone? **N**: does the message name the next step? Classes: **HONEST**,
 | `no-index`, own root | query a tree never indexed | yes: `status`, exit 2 | yes: `run: cd <root> && codeintel index . && ...` | HONEST | |
 | `no-index`, siblings | parent of two indexed repos | yes | yes, names both | HONEST | |
 | nearest index adopted | query from a subdirectory | yes: `root` set | yes | HONEST | |
+| sibling worktree, MCP | session opened in the main checkout, files only in `~/worktrees/<repo>/<branch>` | `root` named the main checkout as `null`: no | no: hint named the main checkout | MISLEADING until `path` is honored and `root` is always set (spec, unbuilt) | #154 |
 | `no-index`, missing directory | `query --path /nonexistent` | status yes | `cd` into a directory that does not exist; `status`/`schema` say "does not exist" | MISLEADING | #141 |
 | `stale`, lock held | another process holds the writer lock | yes | yes | HONEST | |
 | `stale`, refresh deadline | 3,000 files all edited, 2 s budget | yes; hint names count and first five | yes | HONEST | |

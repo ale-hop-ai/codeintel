@@ -11,6 +11,7 @@ use codeintel::Status;
 use codeintel::census::{Census, Report};
 use codeintel::index::{self, Plan};
 use codeintel::query::{self, Options};
+use codeintel::root_of;
 use codeintel::schema::Schema;
 use codeintel::wire::{self, Wire};
 use facts::{Lock, Store};
@@ -193,21 +194,6 @@ fn outln(text: &str) -> Result<()> {
     out(&format!("{text}\n"))
 }
 
-/// The directory the caller named. A missing path and a file are both refused
-/// here, the same way for every verb, before any store is opened
-/// (`specs/05-surface.md` § `index`).
-fn root_of(path: &std::path::Path) -> Result<PathBuf> {
-    let root = path
-        .canonicalize()
-        .with_context(|| format!("{} does not exist", path.display()))?;
-    anyhow::ensure!(
-        root.is_dir(),
-        "{} is not a directory; a repository root is one",
-        path.display()
-    );
-    Ok(root)
-}
-
 /// The language names `--lang` accepts: the rows of the language table.
 fn lang_names() -> clap::builder::PossibleValuesParser {
     clap::builder::PossibleValuesParser::new(extract::lang::LANGS.iter().map(|l| l.name))
@@ -256,6 +242,8 @@ fn run() -> Result<ExitCode> {
                     Format::Text => Wire::Text,
                     Format::Json => Wire::Json,
                 },
+                // `--path` defaults to `.`, and a terminal user knows their cwd.
+                default_root: false,
             },
             expect_empty,
         ),

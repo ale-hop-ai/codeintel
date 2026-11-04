@@ -81,7 +81,7 @@ const NOT_RUNNABLE: &[(&str, &str)] = &[
         "a template in the history of the removed `rules` verb",
     ),
     (
-        "?- goal.\" }, \"schema\": { \"type\": \"boolean\", \"description\": \"Return the relation catalog and exit.\" }, \"limit\": { \"type\": \"integer\", \"default\": 200 }, \"raw\": { \"type\": \"boolean\", \"description\": \"SymIds instead of",
+        "?- goal.\" }, \"path\": { \"type\": \"string\", \"description\": \"Directory to answer about; default is the server's own.",
         "the prose inside the MCP tool's JSON schema",
     ),
 ];

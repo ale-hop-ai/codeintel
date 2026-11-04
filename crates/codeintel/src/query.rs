@@ -94,6 +94,10 @@ pub struct Options {
     /// Where the answer is sent. `max_result_bytes` is measured on it
     /// (`specs/05-surface.md` § Symbol rendering).
     pub wire: Wire,
+    /// The caller did not name a root: it is the server's own working
+    /// directory. An empty answer then says whose tree it came from
+    /// (`specs/05-surface.md` § MCP, `path`).
+    pub default_root: bool,
 }
 
 impl Default for Options {
@@ -105,6 +109,7 @@ impl Default for Options {
             rules: Vec::new(),
             index_dir: None,
             wire: Wire::Text,
+            default_root: false,
         }
     }
 }
@@ -125,14 +130,15 @@ pub struct Answer {
     pub cap: Option<datalog::Cap>,
     /// Non-null whenever `status != ok`, and always actionable.
     pub hint: Option<String>,
-    /// The root that actually answered, when it is **not** the one the caller
-    /// asked about.
+    /// The root that actually answered: the adopted one when the nearest index
+    /// was adopted (`specs/05-surface.md` § The nearest index), otherwise the
+    /// root the call was about.
     ///
-    /// `None` means "the root you named". A path means the requested root had
-    /// no index, the nearest one was adopted, and the scope of every row moved
-    /// with it (`specs/05-surface.md` § The nearest index). A consumer
-    /// branching on this learns the scope moved without reading English, which
-    /// is what keeps adoption from being a silent degradation (invariant 6).
+    /// `None` only until [`Warm::run`] stamps it, so every answer that leaves
+    /// this module carries one. A consumer comparing it to the checkout it is
+    /// reviewing learns the scope moved without reading English, which is what
+    /// keeps adoption and a forgotten `path` from being silent degradations
+    /// (invariant 6, #154).
     pub root: Option<String>,
     /// Tuples derived.
     pub derived: u64,
@@ -248,6 +254,24 @@ impl Warm {
     /// As [`run`].
     pub fn run(&mut self, root: &Path, program: &str, options: &Options) -> Result<Answer> {
         let mut answer = self.answer(root, program, options, true)?;
+        let here = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        let answered = answer
+            .root
+            .get_or_insert_with(|| here.display().to_string())
+            .clone();
+        // An empty answer is where the wrong tree and a true "no" look alike
+        // (#154). `root` says it structurally; this says it to a caller that
+        // does not look.
+        if options.default_root && answer.ran() && answer.rows.is_empty() {
+            let note = format!(
+                "answered from {answered}, found from this server's directory; \
+                 pass path for another checkout or worktree"
+            );
+            answer.hint = Some(match answer.hint.take() {
+                Some(existing) => compose(&existing, &note, ". also: "),
+                None => note,
+            });
+        }
         // Every answer, a diagnostic and `no-index` included: the budget bounds
         // what is sent, not only its rows (`specs/05-surface.md` § Symbol
         // rendering).
@@ -336,7 +360,16 @@ impl Warm {
                 Err(answer) => return Ok(answer),
             }
         };
-        let answer = evaluate(&mut loaded, program, options, status, hint, refreshed);
+        let here = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+        let answer = evaluate(
+            &mut loaded,
+            &here,
+            program,
+            options,
+            status,
+            hint,
+            refreshed,
+        );
         // The literals this call interned go with it, so the next call is given
         // the ids a freshly loaded engine would give it.
         loaded.literals.discard();
@@ -606,6 +639,7 @@ fn load(mut store: Store, root: &Path) -> Result<Result<(Store, Relations), Answ
 /// Evaluate `program` against a loaded index and shape the answer.
 fn evaluate(
     loaded: &mut Loaded,
+    root: &Path,
     program: &str,
     options: &Options,
     mut status: Status,
@@ -767,9 +801,9 @@ fn evaluate(
             truncated,
             cap,
             hint,
-            // Stamped by the caller that adopted a root, not here: this
-            // function does not know which root it was handed.
-            root: None,
+            // Here, and not only in `Warm::run`, because the byte cut below
+            // measures the answer as sent and `root` is part of it (#154).
+            root: Some(root.display().to_string()),
             derived: result.stats.derived,
             elapsed_ms: result.stats.elapsed_ms,
             refreshed,
