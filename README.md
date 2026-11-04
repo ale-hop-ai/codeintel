@@ -36,8 +36,8 @@ already has one keeps using. Nothing is ever written into the tree, and
 
 **`query` answers from the nearest index rather than failing.** It looks at the
 directory you gave it, then its ancestors, then exactly one descendant up to
-three levels down. When it adopts one, the response carries `root` — the tree
-the rows are really scoped to — and a hint saying so, because rows from another
+three levels down. Every response carries `root` — the tree
+the rows are really scoped to — and when it adopted one, a hint saying so, because rows from another
 root are a different answer and not a smaller one. So an index built in a
 subdirectory serves the repository root, and one built at the root serves every
 subdirectory.

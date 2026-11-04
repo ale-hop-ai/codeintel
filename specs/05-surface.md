@@ -93,7 +93,7 @@ codeintel query  <PROGRAM|-> [--path DIR] [--format text|json] [--limit N]
                  [--index-dir DIR]
 codeintel schema [--path DIR] [--format text|json] [--index-dir DIR]
 codeintel status [PATH] [--format text|json] [--index-dir DIR]
-codeintel mcp    [--path DIR] [--index-dir DIR]
+codeintel mcp    [--path DIR] [--index-dir DIR]     # --path: the default root of a call
 ```
 
 **Five verbs.** `PATH` defaults to `.`.
@@ -642,12 +642,14 @@ it when the choice is unambiguous:
    index found named in the hint.
 
 **Adoption is never silent, and it is reported structurally, not in prose.**
-The response carries `root`: the root that actually answered. It is `null` when
-that is the root the caller asked about, and the path otherwise. An agent
-branching on `root != null` learns the scope moved without reading English,
-which is invariant 6 — and it matters most in the descendant case, where
-`status: ok` with zero rows means "not true of `daemon/`" rather than "not true
-of your repository".
+The response carries `root`: the root that actually answered, on every answer
+(§ Response contract). An agent that compares it to the root it asked about
+learns the scope moved without reading English, which is invariant 6 — and it
+matters most in the descendant case, where `status: ok` with zero rows means
+"not true of `daemon/`" rather than "not true of your repository". It used to be
+`null` when nothing moved, which made the one caller who cannot say what it asked
+about — an MCP session that never sent `path` — unable to see that the server's
+own tree was not the tree it was reviewing (#154).
 
 **`root` carries the redirect; `status` keeps carrying the index's own
 condition.** The adopted index can be `stale`, `no-scip` or `scip-stale`, and
@@ -971,15 +973,45 @@ as totals only, rather than joined through `def` to invent a language for them.
     "type": "object",
     "properties": {
       "query":  { "type": "string", "description": "Datalog program ending in a ?- goal." },
+      "path":   { "type": "string", "description": "Directory to answer about; default is the server's own. Pass it when the code under review is a different checkout or worktree." },
       "schema": { "type": "boolean", "description": "Return the relation catalog and exit." },
       "limit":  { "type": "integer", "default": 200 },
       "raw":    { "type": "boolean", "description": "SymIds instead of `Name path:line`." }
-    }
+    },
+    "additionalProperties": false
   }
 }
 ```
 
 Exactly one of `query` or `schema` per call; both is an error naming the two.
+
+**`path` names the root of one call (#154).** The server is launched once, with
+the client's working directory, and an agent reviewing a git worktree
+(`~/worktrees/<repo>/<branch>`) from a session opened elsewhere asks about a
+*sibling* of that directory — neither above nor below it, so § The nearest index
+cannot reach it. Without `path` the answer came from the server's own tree:
+`ok`, zero rows, `root: null`, about code that is not the code under review. With
+it the call is the MCP spelling of `codeintel query --path`:
+
+- It is read exactly as the CLI reads it (§ CLI, *a `PATH` the caller typed is a
+  claim that it is a directory*): canonicalised, and a path that does not exist
+  or is a file is `-32602` naming it, before any store is opened. A relative
+  path resolves against the server's working directory.
+- Everything downstream is unchanged and is about **that** root: the index is
+  located by [04-storage.md](04-storage.md) § Location, the nearest-index
+  adoption runs from it, the refresh walks it, and every hint — `no-index`,
+  `scip-stale`, `stale` — names it, so a worktree reviewer is sent to
+  `codeintel index <worktree>` and never to the main checkout.
+- **No indexer runs.** `path` chooses what to read, not what to build. A worktree
+  with no index answers `no-index` and the one command that indexes it.
+- `--index-dir` / `CODEINTEL_INDEX_DIR` still pin the store. A pinned index built
+  for another root is refused as for the CLI (#141), which is the right answer
+  when a call names a root the pinned store does not own.
+- `schema` takes `path` too, and answers about that root's census.
+- Reading outside the launch directory is not a new capability: the server runs
+  as the user, the CLI reads any directory the user can, and `path` reads an
+  index and refreshes the files it already lists, nothing else. A rule file is
+  still not exposed (§ above).
 
 **The description names questions, not relations.** An agent decides whether to
 call the tool from this string alone; it reads the schema only after deciding.
@@ -1006,7 +1038,10 @@ process. Reloading the index on every call cost ~18 ms of a ~40 ms answer on a
 library, symbol sites) and reuses it for as long as the manifest *after refresh*
 equals the manifest the engine was built from. A refresh that commits anything,
 or another process's `codeintel index`, moves the manifest, and the next call
-rebuilds. **Every call still refreshes first.** Warmth skips the load, never the
+rebuilds. **A call for a different root is a different manifest**, so it
+rebuilds too: one slot, reloaded on a root change. Alternating between two roots
+pays a load each time; an LRU of engines is not built until M6's measurement says
+a session does that often enough to matter. **Every call still refreshes first.** Warmth skips the load, never the
 refresh that keeps an answer current. A call that ends in `corrupt`, `no-index`
 or a schema mismatch keeps nothing warm.
 
@@ -1088,19 +1123,22 @@ state machine. That has not been tested against a live Claude Code and is the
 experiment that would settle it.
 
 **An argument the tool does not have is refused.** `code_query` takes `query`,
-`schema`, `limit` and `raw`, and nothing else; the input schema says
+`schema`, `path`, `limit` and `raw`, and nothing else; the input schema says
 `additionalProperties: false` and the handler enforces it, because a hand-rolled
 transport cannot rely on the client validating. Unknown arguments used to be
-ignored, and the one a caller reaches for first is `path` — the CLI takes
-`--path`, nothing in the tool description says the repository is fixed, so an
-agent generalises. A server started in one repository and asked for
+ignored, and the one a caller reaches for first was `path` — the CLI takes
+`--path`. A server started in one repository and asked for
 `path: "<another repository>"` answered from its own tree with `status: "ok"`:
 a well-formed, confident answer about the wrong codebase, which is exactly the
-failure invariant 6 exists to prevent. The repository is the server's working
-directory, one server per repository, and the refusal says so.
+failure invariant 6 exists to prevent. That was first fixed by refusing `path`
+("one server per repository"); #154 showed the cost — a session cannot review a
+worktree it was not launched in — and the fix that keeps invariant 6 and the
+use is to **honor `path` and name the root that answered**, so neither the silent
+ignore nor the silent wrong tree is possible. An argument that is still unknown
+is refused as before.
 
-**An argument of the wrong type is refused, never defaulted.** `query` is a
-string, `schema` and `raw` are booleans, `limit` is a non-negative integer, and
+**An argument of the wrong type is refused, never defaulted.** `query` and `path` are
+strings, `schema` and `raw` are booleans, `limit` is a non-negative integer, and
 the handler checks it rather than trusting the client to have validated
 `inputSchema`. A present argument that is not that type — `limit: "2"`,
 `limit: -1`, `limit: 2.5`, `raw: "true"`, `raw: 1`, `query: 5`,
@@ -1158,7 +1196,7 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
   "rows": [["handle_read", "src/api/handler.rs", 42]],
   "truncated": false,
   "hint": null,
-  "root": null,
+  "root": "/Users/x/repo",
   "stats": { "derived": 18422, "refreshed": 0, "transformed": ["impact_of@bf"],
              "demand": "applied", "depends": ["def", "name_ref", "scip_ref"],
              "shadowed": [], "widened": [] }
@@ -1172,15 +1210,20 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
   evaluation (`invalid-query`, `unstratified`) reports the zero values, because
   nothing ran and zero is true.
 
-- **`root` is the root that answered**, and it is `null` exactly when that is
-  the root the caller asked about. A path there means the nearest index was
-  adopted and the scope of every row moved with it (§ The nearest index). The
-  key is always present and `null` is written out, because an absent key reads
-  as "not measured" where `null` reads as "the root you named" — the same
-  reason `status` reports relations at zero. In text format the line
-  `root=<path>` is printed **only** when it is non-null: a redundant line on
-  every answer is noise, and the absence of a redirect is what the caller
-  already assumed.
+- **`root` is the root that answered**: the canonical absolute path of the tree
+  every row is scoped to, on every answer, never `null` and never absent. When
+  the nearest index was adopted it is the adopted root and the scope of every
+  row moved with it (§ The nearest index); otherwise it is the root the call was
+  about — `path`, else the server's or CLI's working directory — including on
+  `no-index`, where nothing answered and the root is the one that has no index.
+  A caller detects a redirect by comparing it to the root it asked about, and
+  detects a *wrong tree* by comparing it to the checkout it is reviewing. It was
+  `null` for "the root you named", which is the one reading a caller that did
+  not name a root (#154) cannot check. In text format the line `root=<path>` is
+  printed on every answer, one line, because the caller that most needs it is
+  the one that does not know it is missing. **This is a wire break** for a
+  consumer branching on `root != null`. The response carries no version of its
+  own, so the commit says so, and `docs/audit-status-paths.md` is updated in it.
 
 - **`hint` is non-null whenever `status != "ok"` OR the result is empty.** On an
   empty result it names the first body literal that matched nothing:
