@@ -137,17 +137,58 @@ import("store/store.go", "strings", "str").
 import("store/store_test.go", "testing", "").
 import("ui/panel.go", "example.com/fixture/db", "").
 import("ui/panel.go", "example.com/fixture/net", "_").
-name_ref("Fatal", "store/store_test.go", 9, 4, "local store/store_test.go TestWarm().").
-name_ref("Get", "store/store.go", 50, 10, "local store/store.go Warm().").
-name_ref("HasPrefix", "net/conn.go", 11, 16, "local net/conn.go Open().").
-name_ref("Open", "app/app.go", 10, 11, "local app/app.go Start().").
-name_ref("Open", "ui/panel.go", 13, 11, "local ui/panel.go Draw().").
-name_ref("Sprintf", "store/store.go", 45, 12, "local store/store.go Entry#Describe().").
-name_ref("ToUpper", "store/store.go", 45, 30, "local store/store.go Entry#Describe().").
-name_ref("Warm", "store/store_test.go", 8, 13, "local store/store_test.go TestWarm().").
-name_ref("clear", "store/store.go", 39, 1, "local store/store.go Store#evict().").
-name_ref("len", "kinds.go", 39, 23, "local kinds.go Config#Handle().").
-name_ref("len", "kinds.go", 52, 8, "local kinds.go Drain().").
+name_ref("Config", "kinds.go", 38, 8, "local kinds.go Config#Handle().", "type").
+name_ref("Config", "kinds.go", 43, 8, "local kinds.go Config#describe().", "type").
+name_ref("Entry", "store/store.go", 21, 20, "local store/store.go Store#entries.", "type").
+name_ref("Entry", "store/store.go", 27, 33, "local store/store.go Store#Get().", "type").
+name_ref("Entry", "store/store.go", 35, 18, "local store/store.go Store#Put().", "type").
+name_ref("Entry", "store/store.go", 44, 8, "local store/store.go Entry#Describe().", "type").
+name_ref("Entry", "store/store.go", 49, 21, "local store/store.go Warm().", "type").
+name_ref("Entry", "store/store_test.go", 7, 33, "local store/store_test.go TestWarm().", "type").
+name_ref("Fatal", "store/store_test.go", 9, 4, "local store/store_test.go TestWarm().", "call").
+name_ref("Get", "store/store.go", 50, 10, "local store/store.go Warm().", "call").
+name_ref("HasPrefix", "net/conn.go", 11, 16, "local net/conn.go Open().", "call").
+name_ref("Key", "kinds.go", 27, 12, "local kinds.go Handler#Handle().", "type").
+name_ref("Key", "kinds.go", 38, 27, "local kinds.go Config#Handle().", "type").
+name_ref("Key", "kinds.go", 51, 21, "local kinds.go Drain().", "type").
+name_ref("Open", "app/app.go", 10, 11, "local app/app.go Start().", "call").
+name_ref("Open", "ui/panel.go", 13, 11, "local ui/panel.go Draw().", "call").
+name_ref("Sprintf", "store/store.go", 45, 12, "local store/store.go Entry#Describe().", "call").
+name_ref("Store", "store/store.go", 27, 9, "local store/store.go Store#Get().", "type").
+name_ref("Store", "store/store.go", 34, 8, "local store/store.go Store#Put().", "type").
+name_ref("Store", "store/store.go", 38, 9, "local store/store.go Store#evict().", "type").
+name_ref("Store", "store/store.go", 49, 13, "local store/store.go Warm().", "type").
+name_ref("Store", "store/store_test.go", 7, 7, "local store/store_test.go TestWarm().", "type").
+name_ref("T", "store/store_test.go", 6, 25, "local store/store_test.go TestWarm().", "type").
+name_ref("ToUpper", "store/store.go", 45, 30, "local store/store.go Entry#Describe().", "call").
+name_ref("Warm", "store/store_test.go", 8, 13, "local store/store_test.go TestWarm().", "call").
+name_ref("bool", "app/app.go", 9, 13, "local app/app.go Start().", "type").
+name_ref("bool", "db/conn.go", 5, 22, "local db/conn.go Open().", "type").
+name_ref("bool", "kinds.go", 13, 7, "local kinds.go Config#quiet.", "type").
+name_ref("bool", "kinds.go", 27, 17, "local kinds.go Handler#Handle().", "type").
+name_ref("bool", "kinds.go", 38, 32, "local kinds.go Config#Handle().", "type").
+name_ref("bool", "kinds.go", 51, 37, "local kinds.go Drain().", "type").
+name_ref("bool", "net/conn.go", 10, 22, "local net/conn.go Open().", "type").
+name_ref("bool", "store/store.go", 27, 40, "local store/store.go Store#Get().", "type").
+name_ref("bool", "store/store.go", 49, 28, "local store/store.go Warm().", "type").
+name_ref("bool", "ui/panel.go", 12, 12, "local ui/panel.go Draw().", "type").
+name_ref("clear", "store/store.go", 39, 1, "local store/store.go Store#evict().", "call").
+name_ref("int", "kinds.go", 12, 7, "local kinds.go Config#Limit.", "type").
+name_ref("int", "kinds.go", 19, 10, "local kinds.go Mode#", "type").
+name_ref("int", "kinds.go", 51, 32, "local kinds.go Drain().", "type").
+name_ref("len", "kinds.go", 39, 23, "local kinds.go Config#Handle().", "call").
+name_ref("len", "kinds.go", 52, 8, "local kinds.go Drain().", "call").
+name_ref("string", "db/conn.go", 5, 14, "local db/conn.go Open().", "type").
+name_ref("string", "kinds.go", 22, 11, "local kinds.go Key#", "type").
+name_ref("string", "kinds.go", 43, 27, "local kinds.go Config#describe().", "type").
+name_ref("string", "net/conn.go", 10, 14, "local net/conn.go Open().", "type").
+name_ref("string", "store/store.go", 16, 7, "local store/store.go Entry#Value.", "type").
+name_ref("string", "store/store.go", 21, 13, "local store/store.go Store#entries.", "type").
+name_ref("string", "store/store.go", 27, 24, "local store/store.go Store#Get().", "type").
+name_ref("string", "store/store.go", 34, 23, "local store/store.go Store#Put().", "type").
+name_ref("string", "store/store.go", 34, 37, "local store/store.go Store#Put().", "type").
+name_ref("string", "store/store.go", 44, 26, "local store/store.go Entry#Describe().", "type").
+name_ref("string", "store/store_test.go", 7, 26, "local store/store_test.go TestWarm().", "type").
 parent("local app/app.go Start().", "app/app.go").
 parent("local db/conn.go Open().", "db/conn.go").
 parent("local kinds.go Banner.", "kinds.go").

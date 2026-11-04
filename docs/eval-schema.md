@@ -53,7 +53,7 @@ resolved(S)                            present iff S has SCIP-grade identity
 import(F, Module, Alias)               Module is the specifier's content, as written and
                                        without source quotes. Alias is "" when absent.
 scip_ref(S, F, Line, Col, From, Role)  compiler-resolved occurrence inside definition From
-name_ref(Name, F, Line, Col, From)     unresolved identifier occurrence. Names no symbol.
+name_ref(Name, F, Line, Col, From, Role)  unresolved identifier occurrence. Names no symbol.
 implements(S, T, Prov)                 S implements, overrides or satisfies T
 extern(S, Manager, Pkg, Version)       S belongs to a third-party package
 ```

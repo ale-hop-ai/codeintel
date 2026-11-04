@@ -20,7 +20,7 @@ const BASE: [(&str, usize); 16] = [
     ("resolved", 1),
     ("import", 3),
     ("scip_ref", 6),
-    ("name_ref", 5),
+    ("name_ref", 6),
     ("scip_impl", 2),
     ("name_impl", 4),
     ("extern", 4),

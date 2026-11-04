@@ -101,3 +101,13 @@
 (call_expression
   function: (index_expression operand: (selector_expression field: (field_identifier) @name)))
   @reference.call
+
+; --- type positions ---------------------------------------------------------
+;
+; Every type identifier is a `type` occurrence: a parameter, a field, a
+; composite literal, a receiver, a conversion's target where the grammar says
+; type. A definition's own name is dropped by the extractor, by position
+; (02-extraction.md § Emission). Go imports name packages, never symbols, so
+; there is no `@reference.import`; the package is `import`'s.
+
+(type_identifier) @name @reference.type

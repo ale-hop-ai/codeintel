@@ -756,7 +756,7 @@ a worst-case census rather than a fixture tree** ([00-overview.md](00-overview.m
 § Surface budget, #42). `schema` embeds live per-kind and per-language counts,
 so a ceiling measured against the smallest possible index binds on nothing; the
 worst case is every relation, kind, role and shipped language at seven-digit
-counts, and it renders 6,000. If the assertion fires, the standard library is
+counts, and it renders 5,999. If the assertion fires, the standard library is
 too big — cut rules, not the catalogue.
 
 Two things pay for it, and only one is allowed to. Fixed-width padding is free
@@ -779,7 +779,7 @@ RELATIONS
   def(S, F, Kind, Name)
   def_span(S, StartLine, EndLine, StartByte, EndByte)
   scip_ref(S, F, Line, Col, From, Role)     compiler-resolved occurrence
-  name_ref(Name, F, Line, Col, From)        unresolved identifier (tier A)
+  name_ref(Name, F, Line, Col, From, Role)  unresolved identifier (tier A)
   ...
 VALUES   closed sets, with counts from THIS index. A kind at 0 is a kind you
          will get no rows for -- do not query it.                        <gen>

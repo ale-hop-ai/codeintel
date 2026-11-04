@@ -1611,32 +1611,36 @@ fn schema_counts_equal_what_query_sees_on_a_tree_edited_since_indexing() {
 }
 
 #[test]
-fn schema_does_not_claim_role_read_has_no_rows_while_ref_returns_them() {
-    // #119: Role is counted over `scip_ref`, but `ref` stamps "read" on every
-    // name-tier row. With no SCIP index the count is 0 and `ref` is full.
+fn schema_does_not_claim_role_call_has_no_rows_while_ref_returns_them() {
+    // #119: Role was counted over `scip_ref` alone while `ref` stamped "read"
+    // on every name-tier row, so with no SCIP index the count was 0 and `ref`
+    // was full. Since #153 the name tier carries `name_ref`'s own role, and
+    // the count is over both relations `ref` draws from.
     let dir = tree();
     run(dir.path(), &["index", "."]);
-    let read_rows = stdout(
+    let call_rows = stdout(
         dir.path(),
-        &["query", "?- N = count{L: ref(_, _, L, _, _, \"read\", _)}."],
+        &["query", "?- N = count{L: ref(_, _, L, _, _, \"call\", _)}."],
     );
-    let read_rows: u64 = read_rows
+    let call_rows: u64 = call_rows
         .lines()
         .find_map(|line| line.trim().parse().ok())
         .expect("a count");
-    assert!(read_rows > 0, "the fixture has name-tier refs");
+    assert!(call_rows > 0, "the fixture has name-tier refs");
 
     let json: serde_json::Value =
         serde_json::from_str(&stdout(dir.path(), &["schema", "--format", "json"])).expect("JSON");
-    assert_eq!(json["roles_counted_over"], "scip_ref");
-
-    let text = stdout(dir.path(), &["schema"]);
-    assert!(text.contains("A Kind at 0 has no rows"), "{text}");
-    assert!(
-        !text.contains("A value at 0 returns no rows"),
-        "blanket claim covers Role, which ref contradicts:\n{text}"
+    assert_eq!(
+        json["roles_counted_over"],
+        serde_json::json!(["scip_ref", "name_ref"])
     );
-    assert!(text.contains("name tier = \"read\""), "{text}");
+    assert!(
+        json["roles"]["call"]
+            .as_u64()
+            .is_some_and(|n| n >= call_rows),
+        "{json}"
+    );
+    assert_eq!(json["roles"]["read"], 0, "no SCIP index, no read: {json}");
 }
 
 #[test]

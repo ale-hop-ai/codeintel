@@ -380,8 +380,16 @@ Per file, one parse, then:
    ([01-facts.md](01-facts.md) § `name_export`). The two live in one query
    because both are statements about what a file says at its edge, and an
    `export ... from` is already there as an `@import`.
-7. `@reference.call` captures → `name_ref(Name, F, Line, Col, From)` rows, with
-   `From` from the same span sweep. **Tier A does not resolve names to symbols.**
+7. `@reference.<role>` captures → `name_ref(Name, F, Line, Col, From, Role)`
+   rows, with `From` from the same span sweep and the capture suffix as `Role`.
+   The suffix is one of `NAME_ROLES` in `lang.rs` — `call`, `type`, `import`
+   ([01-facts.md](01-facts.md) § `name_ref`) — and any other is a defect in
+   that `tags.scm`, reported, never emitted. Two occurrences are dropped, by
+   position and for every language alike: one at a definition's own name
+   token (`struct Store` declares `Store`, it does not use it — a broad
+   `(type_identifier)` pattern catches both), and a second capture of a node
+   another pattern already took with the same text. **Tier A does not resolve
+   names to symbols.**
 8. `@impl` captures → `name_impl(F, TypeName, TraitName, Line)` rows, both names
    as the grammar's final identifier. Same rule as 7: the names are recorded,
    not resolved. An inherent `impl` has no trait and emits nothing.
@@ -389,8 +397,8 @@ Per file, one parse, then:
 ### Tier A does not resolve names
 
 Every tier-A fact is a function of **its own file and nothing else**. A name
-occurrence becomes `name_ref(Name, F, Line, Col, From)` — the text, its
-position, and its enclosing definition. Which symbol that name denotes is
+occurrence becomes `name_ref(Name, F, Line, Col, From, Role)` — the text,
+its position, its enclosing definition, and the syntax position it sat in. Which symbol that name denotes is
 decided by rules in `stdlib.dl` ([01-facts.md](01-facts.md) § Derived
 relations), evaluated over the whole repo at query time.
 
@@ -1168,7 +1176,7 @@ tier B missed" — which is the diagnostic for a broken, partial, or stale SCIP
 index, and is expressible as a query:
 
 ```prolog
-?- name_ref(N, F, L, C, From), !scip_ref(_, F, L, C, _, _).
+?- name_ref(N, F, L, C, From, _), !scip_ref(_, F, L, C, _, _).
 ```
 
 Rows here are either tier-A false positives or genuine tier-B gaps. Either way

@@ -282,26 +282,44 @@ import("ui/panel.tsx", "./row", "").
 name_export("kinds.ts", "outer").
 name_export("kinds.ts", "retries").
 name_export("kinds.ts", "sealed").
-name_ref("Entry", "store/store.ts", 30, 30, "local store/store.ts Store#put().").
-name_ref("Map", "store/store.ts", 18, 24, "local store/store.ts Store#entries.").
-name_ref("Number", "kinds.ts", 79, 9, "local kinds.ts parse().").
-name_ref("Panel", "ui/panel.tsx", 18, 27, "local ui/panel.tsx Draw().").
-name_ref("Row", "ui/panel.tsx", 13, 7, "local ui/panel.tsx Panel().").
-name_ref("Store", "store/store.test.ts", 5, 18, "local store/store.test.ts testWarm().").
-name_ref("clear", "store/store.ts", 38, 17, "local store/store.ts Store#`#evict`().").
-name_ref("describe", "kinds.ts", 13, 59, "local kinds.ts describe().").
-name_ref("get", "store/store.ts", 26, 24, "local store/store.ts Store#get().").
-name_ref("get", "store/store.ts", 34, 16, "local store/store.ts Store#handle().").
-name_ref("get", "store/store.ts", 44, 15, "local store/store.ts warm().").
-name_ref("inner", "kinds.ts", 91, 9, "local kinds.ts outer().").
-name_ref("open", "app/app.ts", 5, 9, "local app/app.ts start().").
-name_ref("open", "ui/panel.tsx", 13, 33, "local ui/panel.tsx Panel().").
-name_ref("open", "ui/panel.tsx", 13, 56, "local ui/panel.tsx Panel().").
-name_ref("outer", "kinds.ts", 96, 23, "local kinds.ts Limits/hidden().").
-name_ref("set", "store/store.ts", 30, 17, "local store/store.ts Store#put().").
-name_ref("startsWith", "net/conn.ts", 7, 13, "local net/conn.ts open().").
-name_ref("toUpperCase", "store/store.ts", 12, 22, "local store/store.ts Entry#describe().").
-name_ref("warm", "store/store.test.ts", 5, 9, "local store/store.test.ts testWarm().").
+name_ref("Config", "kinds.ts", 13, 33, "local kinds.ts describe().", "type").
+name_ref("Entry", "store/store.ts", 18, 36, "local store/store.ts Store#entries.", "type").
+name_ref("Entry", "store/store.ts", 25, 20, "local store/store.ts Store#get().", "type").
+name_ref("Entry", "store/store.ts", 30, 30, "local store/store.ts Store#put().", "call").
+name_ref("Entry", "store/store.ts", 43, 36, "local store/store.ts warm().", "type").
+name_ref("Generator", "kinds.ts", 82, 24, "local kinds.ts ids().", "type").
+name_ref("Handler", "kinds.ts", 39, 31, "local kinds.ts Config#", "type").
+name_ref("Handler", "store/store.ts", 1, 14, "store/store.ts", "import").
+name_ref("Handler", "store/store.ts", 17, 30, "local store/store.ts Store#", "type").
+name_ref("Map", "store/store.ts", 18, 24, "local store/store.ts Store#entries.", "call").
+name_ref("Number", "kinds.ts", 79, 9, "local kinds.ts parse().", "call").
+name_ref("Panel", "ui/panel.tsx", 18, 27, "local ui/panel.tsx Draw().", "call").
+name_ref("Row", "ui/panel.tsx", 13, 7, "local ui/panel.tsx Panel().", "call").
+name_ref("Row", "ui/panel.tsx", 8, 9, "ui/panel.tsx", "import").
+name_ref("Store", "store/store.test.ts", 1, 9, "store/store.test.ts", "import").
+name_ref("Store", "store/store.test.ts", 5, 18, "local store/store.test.ts testWarm().", "call").
+name_ref("Store", "store/store.ts", 43, 28, "local store/store.ts warm().", "type").
+name_ref("T", "sig.ts", 16, 22, "local sig.ts clamp().", "type").
+name_ref("T", "sig.ts", 16, 56, "local sig.ts clamp().", "type").
+name_ref("T", "sig.ts", 16, 65, "local sig.ts clamp().", "type").
+name_ref("T", "sig.ts", 16, 69, "local sig.ts clamp().", "type").
+name_ref("clear", "store/store.ts", 38, 17, "local store/store.ts Store#`#evict`().", "call").
+name_ref("describe", "kinds.ts", 13, 59, "local kinds.ts describe().", "call").
+name_ref("get", "store/store.ts", 26, 24, "local store/store.ts Store#get().", "call").
+name_ref("get", "store/store.ts", 34, 16, "local store/store.ts Store#handle().", "call").
+name_ref("get", "store/store.ts", 44, 15, "local store/store.ts warm().", "call").
+name_ref("inner", "kinds.ts", 91, 9, "local kinds.ts outer().", "call").
+name_ref("open", "app/app.ts", 1, 9, "app/app.ts", "import").
+name_ref("open", "app/app.ts", 5, 9, "local app/app.ts start().", "call").
+name_ref("open", "ui/panel.tsx", 13, 33, "local ui/panel.tsx Panel().", "call").
+name_ref("open", "ui/panel.tsx", 13, 56, "local ui/panel.tsx Panel().", "call").
+name_ref("open", "ui/panel.tsx", 6, 9, "ui/panel.tsx", "import").
+name_ref("outer", "kinds.ts", 96, 23, "local kinds.ts Limits/hidden().", "call").
+name_ref("set", "store/store.ts", 30, 17, "local store/store.ts Store#put().", "call").
+name_ref("startsWith", "net/conn.ts", 7, 13, "local net/conn.ts open().", "call").
+name_ref("toUpperCase", "store/store.ts", 12, 22, "local store/store.ts Entry#describe().", "call").
+name_ref("warm", "store/store.test.ts", 1, 16, "store/store.test.ts", "import").
+name_ref("warm", "store/store.test.ts", 5, 9, "local store/store.test.ts testWarm().", "call").
 parent("local ambient.d.ts JSX/", "ambient.d.ts").
 parent("local ambient.d.ts JSX/IntrinsicElements#", "local ambient.d.ts JSX/").
 parent("local ambient.d.ts VERSION.", "ambient.d.ts").

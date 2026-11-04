@@ -112,7 +112,7 @@ impl fmt::Display for Schema<'_> {
         for kind in extract::lang::KINDS {
             write!(f, " {kind} {}", census.kinds.get(*kind).unwrap_or(&0))?;
         }
-        f.write_str("\n  Role  scip_ref; ref name tier = \"read\"")?;
+        f.write_str("\n  Role ")?;
         for role in extract::lang::ROLES {
             write!(f, " {role} {}", census.roles.get(*role).unwrap_or(&0))?;
         }

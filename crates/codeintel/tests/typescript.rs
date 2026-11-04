@@ -751,8 +751,8 @@ fn an_empty_name_ref_on_a_field_says_property_reads_are_not_recorded() {
             .expect("an empty answer has a hint")
             .to_string()
     };
-    let field = hint_of("?- name_ref(\"usesTarget\", F, L, _, From).");
+    let field = hint_of("?- name_ref(\"usesTarget\", F, L, _, From, _).");
     assert!(field.contains("no property reads"), "{field}");
-    let typo = hint_of("?- name_ref(\"usesTargt\", F, L, _, From).");
+    let typo = hint_of("?- name_ref(\"usesTargt\", F, L, _, From, _).");
     assert!(!typo.contains("property reads"), "{typo}");
 }

@@ -165,23 +165,60 @@ import("store/store.py", "typing", "").
 import("store/test_store.py", "store.store", "").
 import("ui/panel.py", "db", "").
 import("ui/panel.py", "net.conn", "_net").
-name_ref("Entry", "store/store.py", 35, 28, "local store/store.py Store#put().").
-name_ref("Store", "store/test_store.py", 7, 16, "local store/test_store.py test_warm().").
-name_ref("_describe", "kinds.py", 51, 18, "local kinds.py describe().").
-name_ref("clear", "store/store.py", 38, 21, "local store/store.py Store#_evict().").
-name_ref("get", "store/store.py", 31, 28, "local store/store.py Store#get().").
-name_ref("get", "store/store.py", 43, 17, "local store/store.py warm().").
-name_ref("handle", "kinds.py", 45, 27, "local kinds.py Handler#handle().").
-name_ref("inner", "kinds.py", 60, 11, "local kinds.py outer().").
-name_ref("len", "kinds.py", 30, 34, "local kinds.py Config#handle().").
-name_ref("lru_cache", "kinds.py", 48, 1, "kinds.py").
-name_ref("open", "app/app.py", 11, 11, "local app/app.py start().").
-name_ref("open", "ui/panel.py", 12, 16, "local ui/panel.py draw().").
-name_ref("startswith", "net/conn.py", 10, 15, "local net/conn.py open().").
-name_ref("sub", "store/store.py", 17, 19, "local store/store.py Entry#describe().").
-name_ref("super", "kinds.py", 45, 19, "local kinds.py Handler#handle().").
-name_ref("upper", "store/store.py", 17, 47, "local store/store.py Entry#describe().").
-name_ref("warm", "store/test_store.py", 7, 11, "local store/test_store.py test_warm().").
+name_ref("Config", "kinds.py", 49, 21, "local kinds.py describe().", "type").
+name_ref("Dict", "store/store.py", 24, 22, "local store/store.py Store#__init__().", "type").
+name_ref("Dict", "store/store.py", 6, 19, "store/store.py", "import").
+name_ref("Entry", "store/store.py", 24, 32, "local store/store.py Store#__init__().", "type").
+name_ref("Entry", "store/store.py", 35, 28, "local store/store.py Store#put().", "call").
+name_ref("Store", "store/store.py", 41, 16, "local store/store.py warm().", "type").
+name_ref("Store", "store/test_store.py", 3, 24, "store/test_store.py", "import").
+name_ref("Store", "store/test_store.py", 7, 16, "local store/test_store.py test_warm().", "call").
+name_ref("_describe", "kinds.py", 51, 18, "local kinds.py describe().", "call").
+name_ref("bool", "app/app.py", 9, 15, "local app/app.py start().", "type").
+name_ref("bool", "db/conn.py", 4, 22, "local db/conn.py open().", "type").
+name_ref("bool", "kinds.py", 25, 34, "local kinds.py Config#handle().", "type").
+name_ref("bool", "kinds.py", 36, 23, "local kinds.py Config#quiet().", "type").
+name_ref("bool", "kinds.py", 44, 34, "local kinds.py Handler#handle().", "type").
+name_ref("bool", "net/conn.py", 8, 22, "local net/conn.py open().", "type").
+name_ref("bool", "sig.py", 13, 38, "local sig.py halve().", "type").
+name_ref("bool", "sig.py", 8, 38, "local sig.py retry().", "type").
+name_ref("bool", "ui/panel.py", 10, 14, "local ui/panel.py draw().", "type").
+name_ref("clear", "store/store.py", 38, 21, "local store/store.py Store#_evict().", "call").
+name_ref("conn", "ui/panel.py", 6, 15, "ui/panel.py", "import").
+name_ref("get", "store/store.py", 31, 28, "local store/store.py Store#get().", "call").
+name_ref("get", "store/store.py", 43, 17, "local store/store.py warm().", "call").
+name_ref("handle", "kinds.py", 45, 27, "local kinds.py Handler#handle().", "call").
+name_ref("inner", "kinds.py", 60, 11, "local kinds.py outer().", "call").
+name_ref("int", "kinds.py", 12, 10, "local kinds.py _retries.", "type").
+name_ref("int", "kinds.py", 18, 11, "local kinds.py Config#limit.", "type").
+name_ref("int", "kinds.py", 21, 30, "local kinds.py Config#__init__().", "type").
+name_ref("int", "kinds.py", 54, 15, "local kinds.py outer().", "type").
+name_ref("int", "kinds.py", 57, 19, "local kinds.py outer().inner().", "type").
+name_ref("int", "sig.py", 18, 35, "local sig.py pick().", "type").
+name_ref("len", "kinds.py", 30, 34, "local kinds.py Config#handle().", "call").
+name_ref("lru_cache", "kinds.py", 48, 1, "kinds.py", "call").
+name_ref("lru_cache", "kinds.py", 9, 22, "kinds.py", "import").
+name_ref("open", "app/app.py", 11, 11, "local app/app.py start().", "call").
+name_ref("open", "app/app.py", 6, 20, "app/app.py", "import").
+name_ref("open", "ui/panel.py", 12, 16, "local ui/panel.py draw().", "call").
+name_ref("startswith", "net/conn.py", 10, 15, "local net/conn.py open().", "call").
+name_ref("str", "db/conn.py", 4, 14, "local db/conn.py open().", "type").
+name_ref("str", "kinds.py", 25, 26, "local kinds.py Config#handle().", "type").
+name_ref("str", "kinds.py", 32, 27, "local kinds.py Config#_describe().", "type").
+name_ref("str", "kinds.py", 44, 26, "local kinds.py Handler#handle().", "type").
+name_ref("str", "kinds.py", 49, 32, "local kinds.py describe().", "type").
+name_ref("str", "net/conn.py", 8, 14, "local net/conn.py open().", "type").
+name_ref("str", "store/store.py", 12, 30, "local store/store.py Entry#__init__().", "type").
+name_ref("str", "store/store.py", 15, 26, "local store/store.py Entry#describe().", "type").
+name_ref("str", "store/store.py", 24, 27, "local store/store.py Store#__init__().", "type").
+name_ref("str", "store/store.py", 26, 23, "local store/store.py Store#get().", "type").
+name_ref("str", "store/store.py", 33, 23, "local store/store.py Store#put().", "type").
+name_ref("str", "store/store.py", 33, 35, "local store/store.py Store#put().", "type").
+name_ref("sub", "store/store.py", 17, 19, "local store/store.py Entry#describe().", "call").
+name_ref("super", "kinds.py", 45, 19, "local kinds.py Handler#handle().", "call").
+name_ref("upper", "store/store.py", 17, 47, "local store/store.py Entry#describe().", "call").
+name_ref("warm", "store/test_store.py", 3, 31, "store/test_store.py", "import").
+name_ref("warm", "store/test_store.py", 7, 11, "local store/test_store.py test_warm().", "call").
 parent("local app/app.py start().", "app/app.py").
 parent("local db/conn.py open().", "db/conn.py").
 parent("local kinds.py AFTER_WIDE.", "kinds.py").

@@ -265,7 +265,7 @@ deliberately deferred.
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "created_at": "2026-09-12T10:00:00Z",
   "roots": ["/Users/x/proj"],
   "writer_version": "codeintel 0.1.0",

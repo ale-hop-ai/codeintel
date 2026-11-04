@@ -16,7 +16,7 @@
     {
       "demand": "nothing to seed: no derived literal has a bound argument",
       "derived": 25406,
-      "digest": "5a5ebfb8e32f5d51994475d90e1a6e998d5a203ac51faee253831bee83abed18",
+      "digest": "a13c6129f763fd5861da405b2d805c75dd6944ffb3422bfa5cfd96bdc6f3f660",
       "id": "2",
       "rows": 1000,
       "status": "truncated",
@@ -24,7 +24,7 @@
     },
     {
       "demand": "applied",
-      "derived": 35672,
+      "derived": 35676,
       "digest": "3a65af1852d0f6a5983cd09ca7c1aaba481c83fc287ecd77fcd262207609c12c",
       "id": "3",
       "rows": 21,
@@ -33,7 +33,7 @@
     },
     {
       "demand": "applied",
-      "derived": 35627,
+      "derived": 35648,
       "digest": "0f1fa510dd435a3d761609fa39cdb86ac0094d7f7652dde7064fb23ef52d953e",
       "id": "4",
       "rows": 21,
@@ -42,7 +42,7 @@
     },
     {
       "demand": "applied",
-      "derived": 35522,
+      "derived": 35527,
       "digest": "e7f1ee2de2bf705c034df35576d8006512269d796dbae156476fd2fc25fe4975",
       "id": "5",
       "rows": 8,
@@ -60,16 +60,16 @@
     },
     {
       "demand": "nothing to seed: no derived literal has a bound argument",
-      "derived": 53623,
-      "digest": "50ec6b2a0c4049cfb9b6f54a3d7d0ac84190c874a96a0e5c0c0c3f3cca3aa95f",
+      "derived": 62822,
+      "digest": "27e54ffcdbfb3ac09d7d5c4b8929de3fc5298dd939980cbcaccda8b4d1388033",
       "id": "7",
-      "rows": 135,
+      "rows": 124,
       "status": "no-scip",
       "truncated": false
     },
     {
       "demand": "nothing to seed: no derived literal has a bound argument",
-      "derived": 76121,
+      "derived": 83653,
       "digest": "d04c5b4ab478ef7898a38df129d080c174ec80da1fc7d4b97dc5724495ef42e6",
       "id": "8",
       "rows": 1000,
@@ -78,12 +78,12 @@
     },
     {
       "demand": "nothing to seed: no derived literal has a bound argument",
-      "derived": 52395,
-      "digest": "267823feef445813c2b020e8b1046704952da9089c5d65e93adaff5ae8299ef8",
+      "derived": 62328,
+      "digest": "bc635997e17d8cdc28c9f9172d1183781414ab694896782e011193b03ff164ad",
       "id": "9",
-      "rows": 528,
+      "rows": 1000,
       "status": "no-scip",
-      "truncated": false
+      "truncated": true
     }
   ]
 }

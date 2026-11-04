@@ -50,9 +50,17 @@ pub const ROLES: &[&str] = &[
     "test",
     "generated",
     "forward",
+    // Tier A's syntax positions (`NAME_ROLES`); no indexer emits them.
+    "call",
+    "type",
     // `UnspecifiedSymbolRole`: the indexer left the bitset empty.
     "unknown",
 ];
+
+/// The roles a `@reference.<role>` capture in `tags.scm` may name: where in
+/// the syntax tier A saw the identifier. Any other suffix is a defect in that
+/// `tags.scm`, reported, never emitted (`specs/02-extraction.md` § Emission).
+pub const NAME_ROLES: &[&str] = &["call", "type", "import"];
 
 /// Kinds that own methods: a `function` defined inside one becomes a `method`.
 ///

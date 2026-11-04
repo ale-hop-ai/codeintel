@@ -436,23 +436,23 @@ scip_ref("local web/app.ts 7", "web/app.ts", 30, 4, "scip ts app/App#render().",
 % Go and Python have no indexer here. `src/legacy.rs` is Rust the indexer never
 % reached, which is what makes the `_exact` twins diverge on real rows rather
 % than on language boundaries.
-name_ref("serve", "cmd/server/main.go", 9, 4, "local cmd/server/main.go main().").
-name_ref("Start", "cmd/server/main.go", 41, 6, "local cmd/server/main.go serve().").
+name_ref("serve", "cmd/server/main.go", 9, 4, "local cmd/server/main.go main().", "call").
+name_ref("Start", "cmd/server/main.go", 41, 6, "local cmd/server/main.go serve().", "call").
 % `serve` is lowercase, so not exported, so the repo-wide clause refuses it:
 % an honest tier-A miss from another file.
-name_ref("serve", "cmd/server/main_test.go", 7, 4, "local cmd/server/main_test.go TestServe().").
-name_ref("Start", "cmd/server/main_test.go", 8, 6, "local cmd/server/main_test.go TestServe().").
-name_ref("load", "py/pipeline.py", 14, 8, "local py/pipeline.py Pipeline#run().").
-name_ref("Pipeline", "py/test_pipeline.py", 5, 10, "local py/test_pipeline.py test_run().").
-name_ref("run", "py/test_pipeline.py", 6, 4, "local py/test_pipeline.py test_run().").
-name_ref("Entry", "src/legacy.rs", 15, 12, "local src/legacy.rs migrate().").
+name_ref("serve", "cmd/server/main_test.go", 7, 4, "local cmd/server/main_test.go TestServe().", "call").
+name_ref("Start", "cmd/server/main_test.go", 8, 6, "local cmd/server/main_test.go TestServe().", "call").
+name_ref("load", "py/pipeline.py", 14, 8, "local py/pipeline.py Pipeline#run().", "call").
+name_ref("Pipeline", "py/test_pipeline.py", 5, 10, "local py/test_pipeline.py test_run().", "call").
+name_ref("run", "py/test_pipeline.py", 6, 4, "local py/test_pipeline.py test_run().", "call").
+name_ref("Entry", "src/legacy.rs", 15, 12, "local src/legacy.rs migrate().", "call").
 % the only reference to `Cache::warm` anywhere, and it is name-tier. This one
 % row is why `entrypoint` and `entrypoint_exact` DISAGREE about `warm`.
-name_ref("warm", "src/legacy.rs", 20, 8, "local src/legacy.rs migrate().").
+name_ref("warm", "src/legacy.rs", 20, 8, "local src/legacy.rs migrate().", "call").
 % `get` names two definitions, so name matching cannot pick and emits nothing.
-name_ref("get", "src/legacy.rs", 25, 10, "local src/legacy.rs migrate().").
+name_ref("get", "src/legacy.rs", 25, 10, "local src/legacy.rs migrate().", "call").
 % TypeScript emits names too. 52:10 is covered by a tier-B row that names a
 % known symbol, so tier A is suppressed there. 30:4 is covered only by the
 % opaque placeholder, so tier A answers.
-name_ref("render", "web/app.ts", 52, 10, "scip ts app/boot().").
-name_ref("boot", "web/app.ts", 30, 4, "scip ts app/App#render().").
+name_ref("render", "web/app.ts", 52, 10, "scip ts app/boot().", "call").
+name_ref("boot", "web/app.ts", 30, 4, "scip ts app/App#render().", "call").
