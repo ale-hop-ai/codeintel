@@ -736,7 +736,7 @@ fn evaluate(
             // advice attached (#48).
             let cut = match cap {
                 Some(datalog::Cap::Rows) => format!(
-                    "{} fired at {}; raise it with --limit or narrow the query",
+                    "{} fired at {}; raise it with `--limit` (`limit` in code_query) or narrow the query",
                     datalog::Cap::Rows,
                     options.limit
                 ),
@@ -925,10 +925,17 @@ fn split_run(hint: &str) -> (&str, Option<&str>) {
 /// taking `also:` as its argument.
 fn compose(hint: &str, extra: &str, separator: &str) -> String {
     let (prose, run) = split_run(hint);
-    let (Some(run), shape @ (Shape::ChainLast | Shape::OwnLine)) = (run, Shape::current()) else {
-        // `Glued` is what ships, byte for byte: this branch is the thing the
-        // other two are being compared against, so it is not re-derived.
+    let shape = Shape::current();
+    if shape == Shape::Glued {
+        // `Glued` is what shipped, byte for byte: it is the thing the other
+        // two are compared against, so it is not re-derived.
         return format!("{hint}{separator}{extra}");
+    }
+    let Some(run) = run else {
+        // No chain to move, so this is plain prose — and prose that already
+        // ends in a stop, as a `name_list` ending `...` does, read `.... also:`
+        // under the glued separator.
+        return sentence(hint, &format!("also: {extra}"));
     };
     let clause = sentence(prose, &format!("also: {extra}"));
     match shape {
@@ -1095,7 +1102,8 @@ fn host_hint(diagnostic: &datalog::Diagnostic) -> String {
     // flag a caller can reach for, `--limit`, moves the row cap and nothing
     // else, and advising it here returns the same timeout (the #27 shape).
     if diagnostic.status == datalog::Status::Timeout {
-        advice + ". no flag raises max_time_ms; `--limit` caps rows, not time"
+        advice
+            + ". nothing raises max_time_ms; `--limit` (`limit` in code_query) caps rows, not time"
     } else {
         advice
     }
@@ -1150,6 +1158,25 @@ fn empty_hint(
             integer_hint(at, engine),
             property_read_hint(at, name, relations, engine)
         );
+    }
+    // A rule's path column is where a ripgrep or stack-trace path lands first:
+    // `innermost_at` is the schema's own START HERE. Only the path is checked,
+    // because it is diagnosed against `file`; a vocabulary count would need
+    // the rule's rows, which the store does not hold. A bound argument makes
+    // the literal arrive adorned (`innermost_at@bbf`); the head is unadorned.
+    let rule = datalog::transform::adornment_of(name)
+        .and_then(|_| name.rsplit_once('@'))
+        .map_or(name, |(head, _)| head);
+    let columns = schema::rule_columns(rule);
+    for (i, bare) in string_constants(at, engine) {
+        if columns.get(i) == Some(&schema::Column::Path)
+            && let Some(said) = path_hint(&bare, relations, engine)
+        {
+            return format!(
+                "`{text}` matched 0 rows; {said}{}",
+                integer_hint(at, engine)
+            );
+        }
     }
     format!(
         "`{text}` matched 0 rows{}{}",
@@ -1937,8 +1964,21 @@ mod tests {
         assert!(product.contains("no literal is recursive"), "{product}");
         assert!(!product.contains("seed"), "{product}");
         let slow = aborted(datalog::Status::Timeout, false);
-        assert!(slow.contains("no flag raises max_time_ms"), "{slow}");
+        assert!(slow.contains("nothing raises max_time_ms"), "{slow}");
         assert!(!slow.contains("raise the limit"), "{slow}");
+    }
+
+    /// Prose with no chain is joined with one stop, never two: a file list
+    /// ends `...`, and the glued separator turned it into `.... also:`.
+    #[test]
+    fn prose_ending_in_a_stop_composes_without_doubling_it() {
+        if Shape::current() == Shape::Glued {
+            return; // Byte-for-byte what shipped, by design.
+        }
+        let listed = compose("no SCIP document: a.rs, b.rs, ...", "x", ". also: ");
+        assert_eq!(listed, "no SCIP document: a.rs, b.rs, ... also: x");
+        let plain = compose("tests may be missing", "x", ". also: ");
+        assert_eq!(plain, "tests may be missing. also: x");
     }
 
     /// The shapes a composed hint can take, as #102/#104 are weighing them.

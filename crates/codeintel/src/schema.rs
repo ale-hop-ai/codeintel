@@ -209,7 +209,28 @@ const PROVS: &[&str] = &["exact", "name"];
 /// relation that has one.
 #[must_use]
 pub fn columns(relation: &str) -> Vec<Column> {
-    let (args, _) = signature(relation);
+    classify(signature(relation).0)
+}
+
+/// The column types of an advertised stdlib rule, from its `%%` head.
+///
+/// Empty for a name with no head — a rule the query defines, or a builtin.
+/// A rule's rows are not in the store, so a caller can trust only what needs
+/// no count from it: a `Path` is checked against `file`, which is.
+#[must_use]
+pub fn rule_columns(rule: &str) -> Vec<Column> {
+    rules(crate::STDLIB)
+        .iter()
+        .find_map(|r| {
+            r.head
+                .strip_prefix(rule)?
+                .strip_prefix('(')
+                .map(str::to_string)
+        })
+        .map_or_else(Vec::new, |args| classify(&args))
+}
+
+fn classify(args: &str) -> Vec<Column> {
     args.trim_matches(['(', ')'])
         .split(',')
         .map(str::trim)

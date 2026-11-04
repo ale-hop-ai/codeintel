@@ -606,7 +606,10 @@ the structured format.
 
 **A truncation hint names a knob that exists.** `--limit` moves
 `max_result_rows` and nothing else, so it is offered only when that is the cap
-that fired; a byte cap says "narrow the query".
+that fired; a byte cap says "narrow the query". The hint is one string for
+both surfaces, so it names both spellings — `--limit` (`limit` in code_query)
+— because an MCP caller told only `--limit` is told to pass a flag it does not
+have. The timeout advice does the same.
 
 **When both caps fire, `cap` names the one that shaped the output.** The
 engine can stop at `max_result_rows` and the printed budget can then cut
@@ -1313,6 +1316,12 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
   latter because every hint recorded in `docs/` and in these specs was captured
   under it.
 
+  **Prose with no chain is joined with one stop.** Under the adopted shapes a
+  condition with nothing to move is plain prose, and gluing `. also: ` onto it
+  doubled a stop it already had: a file list ending `...` read `.... also:`.
+  It now gets the same single-stop join the chain path uses; only `glued`
+  keeps the old bytes.
+
   Testable without a shell, which matters because the broken form is valid
   shell: compose a hint, and assert its `run: ` tail is the tail it carried
   uncomposed. **Cutting is a composition too** — `max_result_bytes` trimming a
@@ -1340,6 +1349,17 @@ whose hint is `--rebuild` and would have an agent delete a healthy index.
     three are facts about the index. The basename case in particular separates
     "you named the wrong directory" from "this file is not indexed at all",
     which are different problems with different fixes.
+
+    **A stdlib rule's path column gets the same check.** Its column names come
+    from its `%%` head in `rules/stdlib.dl`, and `innermost_at(F, Line, S)` is
+    the schema's own START HERE for a ripgrep hit or a stack frame — the place
+    an absolute path arrives first. It answered a bare "matched 0 rows" while
+    `def` with the same constant named the indexed form. Only `Path` carries
+    over to a rule: it is diagnosed against `file`, which the store holds, and
+    a vocabulary count would need the rule's own rows, which it does not. A
+    literal with a bound argument arrives adorned (`innermost_at@bbf`); the
+    head is looked up unadorned. A rule the query itself defines has no head
+    to read and keeps the plain hint.
   - **Integer** (`Line`, `Col`, `StartLine`, `EndLine`, `StartByte`, `EndByte`)
     — a quoted constant in one of these can *never* match, because an integer
     and its string form are different atoms. Say so and show the unquoted form.

@@ -1911,6 +1911,13 @@ fn a_well_typed_limit_and_raw_are_still_honoured() {
             .is_some_and(|h| h.contains("fired at 2")),
         "{body}"
     );
+    // The advice names the knob this caller has, not only the CLI's flag.
+    assert!(
+        body["hint"]
+            .as_str()
+            .is_some_and(|h| h.contains("`limit` in code_query")),
+        "{body}"
+    );
 }
 
 #[test]
