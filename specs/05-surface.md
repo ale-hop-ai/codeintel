@@ -29,7 +29,7 @@ guessing what an empty result means.
 | `no-index` | no index for this root, and none was adopted — **or** the index holds 0 files (#140) — **or** a pinned index (`--index-dir`, `CODEINTEL_INDEX_DIR`) was built for another root (#141) | one line that indexes it, tier B included (§ The no-index hint); plus any index found nearby (§ The nearest index). For 0 files: that, and that `codeintel status` lists the extensions no grammar covers. For another root: both roots, and the command that indexes this one into its own directory |
 | `stale` | sources changed and auto-refresh was skipped, exceeded `max_refresh_ms`, or `schema_version` mismatched | `run: codeintel index .` — names the N files |
 | `no-scip` | the goal's **relation-dependency closure** reaches a relation only SCIP populates, and none was ingested — **or** an index was ingested and not one of its documents matched an indexed file, which leaves those relations just as empty | which relations, and what to run: `run: codeintel index <root>`, which runs the indexers — preceded by why the last run produced nothing when the manifest records it (a program not on `PATH`, no project file in the tree, a failure, `--no-scip`; [02-extraction.md](02-extraction.md) § Acquisition). When documents were ingested and none matched, the hint says so, with the count and the `--scip-root` that would fix it: a `run:` line re-indexing with it when one directory fits, the candidates when several do — never a pick among them (#142) |
-| `scip-stale` | an indexed file holds bytes `index.scip` did not see ([04-storage.md](04-storage.md) § Manifest, `scip_hash`) | which files, and `run: codeintel index <root>` when `index` produced the inputs; when the user did (`--scip`, `./index.scip`), re-run the indexer that wrote them and the `codeintel index` line that reads them |
+| `scip-stale` | an indexed file an input covers holds bytes `index.scip` did not see ([04-storage.md](04-storage.md) § Manifest, `scip_hash`) | which files, and `run: codeintel index <root>` when `index` produced the inputs; when the user did (`--scip`, `./index.scip`), re-run the indexer that wrote them and the `codeintel index` line that reads them |
 | `invalid-query` | parse or safety failure | the rule, the variable, the violated rule |
 | `unstratified` | negation cycle | the cycle |
 | `timeout` / `budget-exceeded` | a limit aborted evaluation | the limit and its value |
@@ -67,7 +67,7 @@ another `schema_version` is `stale`, but the engine is never run against it —
 `columns: []`, `stats.demand: "disabled"` — so it is the "never ran" case the
 exit code exists for, whatever the status is called. `query` exits 2, MCP sets
 `isError: true`, and `status` on the same index exits 2. The status stays
-`stale`: the repair (`--rebuild`) is a stale index's repair, and a new name for
+`stale`: the repair (`index`) is a stale index's repair, and a new name for
 one cause of it would cost every consumer a case. A `stale` from a held lock or
 a refresh deadline *did* evaluate, carries rows, and exits 0.
 
@@ -124,7 +124,13 @@ a verb, so the surface budget is unchanged.
 Builds or updates the store, both tiers. `--scip` may repeat; without it,
 `./index.scip` is read if present, and otherwise `index` runs the indexer of
 every language it found and reads their output ([02-extraction.md](02-extraction.md)
-§ Acquisition). `--no-scip` runs and reads nothing: tier A only. `--rebuild` discards and rewrites, including the dictionary. `--lang`
+§ Acquisition). `--no-scip` runs and reads nothing: tier A only. `--rebuild` discards and rewrites, including the dictionary. **An
+index written for another `schema_version` is discarded and rewritten without
+`--rebuild`**, and `index` says so: the store is derived, so discarding it is
+always a valid repair, and re-extracting into the old manifest left it `stale`
+forever while reporting success (#156). Unlike `--rebuild`, it does not rerun an
+indexer whose output is up to date: SCIP output does not depend on this
+schema. `--lang`
 restricts grammars: files of every other language are neither refreshed nor
 dropped, they are carried forward unchanged. A `--lang` that names no grammar in
 the language table (`extract::lang::LANGS`) exits 2 and lists the valid names:
@@ -933,8 +939,8 @@ is nothing here; `stale` when the index was written for another
 `schema_version`; `corrupt` when the store will not load; `stale` when a file
 was added, removed or changed since the index — changed by the racy-clean rule
 of [04-storage.md](04-storage.md) § Manifest, so a same-second, same-length edit
-is hashed and seen; `scip-stale` when an indexed file holds bytes the SCIP
-inputs did not see; `ok` otherwise. `no-index`, `stale` and `scip-stale` **exit
+is hashed and seen; `scip-stale` when an indexed file an input covers holds
+bytes the SCIP inputs did not see; `ok` otherwise. `no-index`, `stale` and `scip-stale` **exit
 0**: "there is no index in this directory" is an answer, not a failure of the
 command that reported it. `corrupt` exits 2, as it does for `query`. A schema
 mismatch or a store that will not load prints the status and its hint and no

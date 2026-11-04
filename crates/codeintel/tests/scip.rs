@@ -671,6 +671,32 @@ fn a_file_edited_after_the_scip_index_reports_scip_stale() {
     assert!(stderr.contains("status=ok"), "{stderr}");
 }
 
+/// #155: a file in a language no input has a document in is never
+/// `scip-stale`. A `.ts` file edited beside a Python-only index was, and the
+/// hint's `run: codeintel index` reran nothing: the hint looped.
+#[test]
+fn a_file_no_input_covers_is_not_scip_stale() {
+    let dir = tree();
+    index(dir.path());
+    // Newer than `index.scip`, in a language the Rust index has no document in.
+    std::fs::write(dir.path().join("tool.py"), "def helper():\n    return 1\n").expect("writes");
+
+    let (_, stderr) = query(dir.path(), "?- calls_exact(A, B).");
+    assert!(stderr.contains("status=ok"), "{stderr}");
+    let status = run(dir.path(), &["status"]);
+    let text = String::from_utf8_lossy(&status.stdout);
+    assert!(text.starts_with("status: ok"), "{text}");
+    assert!(!text.contains("scip stale"), "{text}");
+
+    // A new file in the covered language is still stale until the indexer
+    // sees it.
+    std::fs::write(dir.path().join("src/added.rs"), "pub fn added() {}\n").expect("writes");
+    let (_, stderr) = query(dir.path(), "?- calls_exact(A, B).");
+    assert!(stderr.contains("status=scip-stale"), "{stderr}");
+    assert!(stderr.contains("src/added.rs"), "{stderr}");
+    assert!(!stderr.contains("tool.py"), "{stderr}");
+}
+
 /// Staleness is by content, not by mtime: a file edited and put back holds
 /// the bytes the indexer saw, and says so without the indexer rerunning.
 #[test]

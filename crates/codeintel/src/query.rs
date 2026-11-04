@@ -566,7 +566,7 @@ pub fn stale_schema(manifest: &facts::Manifest, root: &Path) -> Option<String> {
     manifest.is_stale_schema().then(|| {
         format!(
             "this index was written for schema_version {}, this build speaks {}. run: codeintel \
-             index {} --rebuild",
+             index {}",
             manifest.schema_version,
             facts::SCHEMA_VERSION,
             root.display()
@@ -1555,7 +1555,9 @@ impl ScipState {
             stale: manifest
                 .files
                 .iter()
-                .filter(|(_, entry)| entry.scip_stale(newest))
+                .filter(|(path, entry)| {
+                    entry.scip_stale(newest) && manifest.scip_covers(path, &entry.lang)
+                })
                 .map(|(path, _)| path.clone())
                 .collect(),
         }
