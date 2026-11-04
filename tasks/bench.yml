@@ -29,7 +29,7 @@ steps:
       deno_rev: 336da420f4343cbb1dcbd5eed9d075ff555ed6ee
 
   # A sha converges offline once it is on disk. `git` has no shallow clone
-  # (alehatsman/provision#6), so deno's checkout carries its whole history, ~400 MB.
+  # (ale-hop-ai/provision#6), so deno's checkout carries its whole history, ~400 MB.
   - name: "fd at {{ fd_rev }}"
     git:
       repo: https://github.com/sharkdp/fd.git

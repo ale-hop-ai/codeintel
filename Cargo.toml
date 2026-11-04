@@ -14,7 +14,7 @@ edition = "2024"
 rust-version = "1.98"
 license = "MIT OR Apache-2.0"
 publish = false
-repository = "https://github.com/alehatsman/codeintel"
+repository = "https://github.com/ale-hop-ai/codeintel"
 
 # Versions once, here. Members write `foo.workspace = true`. Two versions of one
 # crate in a workspace is a bug found at link time.

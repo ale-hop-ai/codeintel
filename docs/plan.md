@@ -90,9 +90,9 @@ queries/  rules/  tests/fixtures/  tasks/
 
 ### The quality gate is not ours to invent
 
-This repo is a consumer of [rust-quality](https://github.com/alehatsman/rust-quality)
+This repo is a consumer of [rust-quality](https://github.com/ale-hop-ai/rust-quality)
 — the shared lint block, clippy/rustfmt/cargo-deny config, cargo aliases, and
-the two-mode gate — driven by [provision](https://github.com/alehatsman/provision).
+the two-mode gate — driven by [provision](https://github.com/ale-hop-ai/provision).
 
 **`provision` is also the worked example.** Its `tasks/` directory is the
 reference consumer wiring; copy that shape rather than deriving a new one.
